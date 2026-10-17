@@ -1,0 +1,23 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+
+# tooling caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# enola baseline is per-machine (see AGENTS.md)
+.enola/
+
+# misc
+.DS_Store
+
+# spike output: screenshots and captures from the dev machine
+spikes/out/
