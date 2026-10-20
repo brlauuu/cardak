@@ -53,17 +53,30 @@ def _opt_str(entry: Mapping[str, object], key: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def load(path: Path) -> Config:
+def _read(path: Path) -> str | None:
+    """The file's text, None when it does not exist; any other failure is a ConfigError."""
     try:
-        text = path.read_text()
+        return path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return Config()
+        return None
+    except (OSError, UnicodeDecodeError) as e:
+        raise ConfigError(path, f"cannot read: {e}") from e
+
+
+def _parse(path: Path, text: str) -> dict[str, object]:
     try:
-        data = tomllib.loads(text)
+        return tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         found = re.search(r"at line (\d+)", str(e))
         message = re.sub(r"\s*\(at line \d+, column \d+\)$", "", str(e))
         raise ConfigError(path, message, int(found.group(1)) if found else None) from e
+
+
+def load(path: Path) -> Config:
+    text = _read(path)
+    if text is None:
+        return Config()
+    data = _parse(path, text)
 
     raw = data.get("project", [])
     if not isinstance(raw, list):
@@ -102,7 +115,8 @@ def add_project(path: Path, name: str, project_path: Path) -> None:
     project_path = project_path.expanduser()
     if any(p.path == project_path for p in config.projects):
         raise ConfigError(path, f"{project_path} is already configured")
-    existing = path.read_text() if path.exists() else ""
+    target = path.resolve()  # write through a symlink (e.g. a dotfiles repo), don't replace it
+    existing = _read(target) or ""
     # The header is written by hand: tomli-w emits an array of tables inline
     # (`project = [...]`), which appended after a table would land inside it.
     block = "[[project]]\n" + tomli_w.dumps({"name": name, "path": _with_tilde(project_path)})
@@ -112,12 +126,25 @@ def add_project(path: Path, name: str, project_path: Path) -> None:
         sep = "\n"
     else:
         sep = "\n\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".projects.", suffix=".toml")
+    text = existing + sep + block
     try:
-        with os.fdopen(fd, "w") as f:
-            f.write(existing + sep + block)
-        os.replace(tmp, path)
-    except BaseException:
+        _parse(path, text)
+    except ConfigError:
+        # e.g. projects written inline (`project = [...]`) cannot take a [[project]] table
+        raise ConfigError(path, "cannot append to this file's layout; add it by hand") from None
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
+        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".projects.", suffix=".toml")
+    except OSError as e:
+        raise ConfigError(path, f"cannot write: {e}") from e
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, mode)  # mkstemp creates 0600
+        os.replace(tmp, target)
+    except BaseException as e:
         Path(tmp).unlink(missing_ok=True)
+        if isinstance(e, OSError):
+            raise ConfigError(path, f"cannot write: {e}") from e
         raise

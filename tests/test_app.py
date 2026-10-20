@@ -1,3 +1,4 @@
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -196,3 +197,57 @@ async def test_add_failure_is_reported_not_raised() -> None:
         await settle(app, pilot)
         assert app.is_running
         assert source.added == []
+
+
+class SlowSource(StubSource):
+    def __init__(self, *snaps: DeckSnapshot) -> None:
+        super().__init__(*snaps)
+        self.release = threading.Event()
+        self.calls = 0
+
+    def poll(self) -> DeckSnapshot:
+        self.calls += 1
+        self.release.wait(5)
+        return super().poll()
+
+
+async def test_refresh_during_a_poll_does_not_start_another() -> None:
+    source = SlowSource(SNAP)
+    app = DeckApp(source, interval=3600)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.action_refresh()
+        app.action_refresh()
+        await pilot.pause()
+        assert source.calls == 1
+        source.release.set()
+        await settle(app, pilot)
+
+
+async def test_markup_in_names_and_paths_is_shown_literally() -> None:
+    odd = Path("/repos/odd[bold]")
+    snap = replace(SNAP, groups=(group("git", "odd[bold]", odd, row(9)),), n_panes=1)
+    source = StubSource(snap)
+    app = DeckApp(source, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        await pilot.press("a")
+        await pilot.pause()
+        assert isinstance(app.screen, AddProjectScreen)
+        assert app.screen.query_one(Input).value == "odd[bold]"
+        app.screen.query_one(Input).value = "foo[/b]"  # unbalanced closing tag
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert app.is_running
+        assert source.added == [("foo[/b]", odd)]
+
+
+async def test_config_error_with_markup_is_shown_literally() -> None:
+    broken = replace(SNAP, config_error="projects.toml: cannot read: [Errno 13] x [/b] y")
+    app = DeckApp(StubSource(broken), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.pause()
+        assert app.is_running
+        assert app.query_one("#banner", Static).display is True

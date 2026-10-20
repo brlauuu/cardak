@@ -1,6 +1,7 @@
 """Wire config, resolver and collectors into snapshots for the UI."""
 
 import os
+import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -14,10 +15,12 @@ from cardak.snapshot import ClaudeLookup, DeckSnapshot, build_snapshot
 
 ListPanes = Callable[[Mapping[str, str]], list[wezterm.Pane]]
 Sample = Callable[[Iterable[str]], dict[str, PaneProcs]]
-Stamp = tuple[int, int, int] | None
+Stamp = tuple[int, int, int, int] | None
 
 
 class LiveSource:
+    """Polled from a worker thread while add_project runs on the UI thread; one lock covers both."""
+
     def __init__(
         self,
         config_file: Path,
@@ -37,6 +40,7 @@ class LiveSource:
         self._home = home or Path.home()
         pane = self._env.get("WEZTERM_PANE", "")
         self._self_pane = int(pane) if pane.isdigit() else None
+        self._lock = threading.Lock()
         self._config_error: str | None = None
         self._resolver = ProjectResolver(Config(), git)
         self._stamp: Stamp | bool = False  # never equal to a real stamp, so the first check loads
@@ -51,7 +55,8 @@ class LiveSource:
             st = self.config_file.stat()
         except FileNotFoundError:
             return None
-        return (st.st_mtime_ns, st.st_size, st.st_ino)
+        # ctime too: a chmod that makes the file readable again changes ctime, not mtime.
+        return (st.st_ctime_ns, st.st_mtime_ns, st.st_size, st.st_ino)
 
     def _reload_if_changed(self) -> None:
         stamp = self._current_stamp()
@@ -67,6 +72,10 @@ class LiveSource:
         self._resolver = ProjectResolver(cfg, self._git)
 
     def poll(self) -> DeckSnapshot:
+        with self._lock:
+            return self._poll()
+
+    def _poll(self) -> DeckSnapshot:
         self._reload_if_changed()
         try:
             panes = self._list_panes(self._env)
@@ -79,5 +88,6 @@ class LiveSource:
         return replace(snap, config_error=self._config_error)
 
     def add_project(self, name: str, path: Path) -> None:
-        config_mod.add_project(self.config_file, name, path)
-        self._reload_if_changed()
+        with self._lock:
+            config_mod.add_project(self.config_file, name, path)
+            self._reload_if_changed()

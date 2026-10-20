@@ -119,3 +119,53 @@ def test_config_path_precedence(tmp_path: Path) -> None:
     assert (
         config_path(None, env={"HOME": str(tmp_path)}) == tmp_path / ".config/cardak/projects.toml"
     )
+
+
+def test_unreadable_or_undecodable_file_is_a_config_error(tmp_path: Path) -> None:
+    f = tmp_path / "projects.toml"
+    f.write_bytes(b"\xff\xfe not utf-8")
+    with pytest.raises(ConfigError):
+        load(f)
+    with pytest.raises(ConfigError):
+        load(tmp_path)  # a directory
+
+
+def test_add_project_write_failure_is_a_config_error(tmp_path: Path) -> None:
+    d = tmp_path / "ro"
+    d.mkdir()
+    d.chmod(0o500)
+    try:
+        with pytest.raises(ConfigError):
+            add_project(d / "projects.toml", "x", Path("/x"))
+    finally:
+        d.chmod(0o700)
+
+
+def test_add_project_refuses_when_result_would_not_parse(tmp_path: Path) -> None:
+    f = tmp_path / "projects.toml"
+    inline = 'project = [{ name = "a", path = "/a" }]\n'
+    f.write_text(inline)
+    assert [p.name for p in load(f).projects] == ["a"]
+    with pytest.raises(ConfigError, match="add it by hand"):
+        add_project(f, "b", Path("/b"))
+    assert f.read_text() == inline
+
+
+def test_add_project_keeps_symlink_and_mode(tmp_path: Path) -> None:
+    dotfiles = tmp_path / "dotfiles"
+    dotfiles.mkdir()
+    target = dotfiles / "projects.toml"
+    target.write_text(SAMPLE)
+    target.chmod(0o644)
+    link = tmp_path / "projects.toml"
+    link.symlink_to(target)
+    add_project(link, "notes", Path("/opt/notes"))
+    assert link.is_symlink()
+    assert target.read_text().endswith('path = "/opt/notes"\n')
+    assert target.stat().st_mode & 0o777 == 0o644
+
+
+def test_new_config_file_is_world_readable(tmp_path: Path) -> None:
+    f = tmp_path / "projects.toml"
+    add_project(f, "x", Path("/x"))
+    assert f.stat().st_mode & 0o777 == 0o644

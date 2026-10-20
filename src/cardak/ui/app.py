@@ -7,9 +7,11 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.markup import escape
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Label, Static, Tree
 from textual.widgets.tree import TreeNode
+from textual.worker import Worker
 
 from cardak.config import ConfigError
 from cardak.snapshot import DeckSnapshot, Group, PaneRow
@@ -44,7 +46,7 @@ class AddProjectScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Label(f"Add {self._path} as a project. Name:")
+            yield Label(f"Add {escape(str(self._path))} as a project. Name:")
             yield Input(value=self._default_name, id="name")
 
     @on(Input.Submitted)
@@ -74,6 +76,7 @@ class DeckApp(App[None]):
         self.interval = interval
         self.snapshot: DeckSnapshot | None = None
         self._collapsed: set[str] = set()
+        self._poll_worker: Worker[None] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -91,7 +94,13 @@ class DeckApp(App[None]):
         self.set_interval(self.interval, self.action_refresh)
 
     def action_refresh(self) -> None:
-        self.run_worker(self._poll, thread=True, exclusive=True, group="poll", exit_on_error=False)
+        # Thread workers cannot be cancelled, so never start a poll while one is running:
+        # two concurrent samples would skew cpu_percent and could apply snapshots out of order.
+        if self._poll_worker is not None and not self._poll_worker.is_finished:
+            return
+        self._poll_worker = self.run_worker(
+            self._poll, thread=True, group="poll", exit_on_error=False
+        )
 
     def _poll(self) -> None:
         try:
@@ -106,7 +115,7 @@ class DeckApp(App[None]):
         self.snapshot = snap
         self.sub_title = f"{snap.n_projects} projects · {snap.n_panes} panes"
         banner = self.query_one("#banner", Static)
-        banner.update(f"projects.toml: {snap.config_error}" if snap.config_error else "")
+        banner.update(escape(f"projects.toml: {snap.config_error}") if snap.config_error else "")
         banner.display = snap.config_error is not None
         self._rebuild(snap)
 
@@ -172,9 +181,9 @@ class DeckApp(App[None]):
             try:
                 self.source.add_project(name, path)
             except ConfigError as e:
-                self.notify(str(e), severity="error")
+                self.notify(escape(str(e)), severity="error")
                 return
-            self.notify(f"Added {name}")
+            self.notify(f"Added {escape(name)}")
             self.action_refresh()
 
         self.push_screen(AddProjectScreen(path, path.name), done)

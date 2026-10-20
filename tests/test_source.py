@@ -1,3 +1,4 @@
+import threading
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
@@ -87,3 +88,48 @@ def test_hand_edit_is_picked_up(tmp_path: Path) -> None:
     # differs, so the (mtime, size, inode) stamp still changes.
     cfg.write_text(f'[[project]]\nname = "renamed"\npath = "{HOME}/notes"\n')
     assert names(source) == ["renamed", "Other"]
+
+
+def test_config_that_is_a_directory_does_not_crash(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.mkdir()
+    source = make(cfg)
+    assert source.poll().config_error is not None
+    assert not source.can_add
+
+
+def test_permission_fix_is_picked_up(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\n')
+    cfg.chmod(0)
+    try:
+        source = make(cfg)
+        assert source.poll().config_error is not None
+    finally:
+        cfg.chmod(0o644)  # chmod changes ctime, not mtime
+    assert names(source) == ["notes", "Other"]
+
+
+def test_add_project_waits_for_a_running_poll(tmp_path: Path) -> None:
+    entered, release, added = threading.Event(), threading.Event(), threading.Event()
+
+    def slow(env: Mapping[str, str]) -> list[Pane]:
+        entered.set()
+        release.wait(5)
+        return panes(env)
+
+    source = make(tmp_path / "projects.toml", list_panes=slow)
+    poller = threading.Thread(target=source.poll)
+    poller.start()
+    assert entered.wait(5)
+    adder = threading.Thread(
+        target=lambda: (source.add_project("notes", HOME / "notes"), added.set())
+    )
+    adder.start()
+    try:
+        assert not added.wait(0.3)
+    finally:
+        release.set()
+        poller.join()
+        adder.join()
+    assert added.is_set()
