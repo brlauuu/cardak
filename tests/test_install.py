@@ -117,3 +117,13 @@ def test_install_does_not_touch_wezterm_lua(tmp_path: Path) -> None:
     install(tmp_path)
     assert config.read_text() == "return {}\n"
     assert os.stat(config).st_mtime_ns == before.st_mtime_ns
+
+
+def test_module_v2_themes_windows_and_previews() -> None:
+    text = module_text()
+    assert text.splitlines()[1] == "-- cardak-module: 2"
+    assert "pcall(require, 'cardak_projects')" in text
+    assert "'update-status'" in text
+    assert "cardak_preview" in text
+    assert "wezterm.json_parse" in text
+    assert "pcall(focus_target, id)" in text  # M2 focus behaviour kept

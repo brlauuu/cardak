@@ -5,6 +5,15 @@ local wezterm = require 'wezterm'
 
 local M = {}
 
+-- Project -> scheme table that cardak writes next to this file (`cardak themes apply`,
+-- or the deck whenever projects.toml changes). WezTerm reloads when it changes.
+local ok, data = pcall(require, 'cardak_projects')
+if not ok or type(data) ~= 'table' then data = {} end
+local projects = data.projects or {}
+table.sort(projects, function(a, b) return #a.path > #b.path end) -- longest prefix wins
+
+local previews = {} -- project path -> scheme previewed from the deck's picker
+
 local function focus_target(id)
   local pane = wezterm.mux.get_pane(id)
   if not pane then return end
@@ -18,19 +27,64 @@ local function focus_target(id)
   if gui then gui:focus() end
 end
 
--- The deck sets cardak_focus=<pane_id>:<nonce> on its own pane (the nonce makes every
--- request a change, which is what fires the event). Raise the target pane's window.
+local function cwd_path(pane)
+  local cwd = pane:get_current_working_dir()
+  if not cwd then return nil end
+  if type(cwd) == 'userdata' then return cwd.file_path end -- Url object (20230712+)
+  return (tostring(cwd):gsub('^file://[^/]*', ''))
+end
+
+local function project_for(path)
+  for _, p in ipairs(projects) do
+    if path == p.path or path:sub(1, #p.path + 1) == p.path .. '/' then return p end
+  end
+  return nil
+end
+
+local function scheme_for(pane)
+  local path = cwd_path(pane)
+  local project = path and project_for(path)
+  if project then return previews[project.path] or project.scheme end
+  return data.default
+end
+
+local function sync(window)
+  local pane = window:active_pane()
+  if not pane then return end
+  local scheme = scheme_for(pane)
+  local overrides = window:get_config_overrides() or {}
+  if overrides.color_scheme ~= scheme then
+    overrides.color_scheme = scheme
+    window:set_config_overrides(overrides)
+  end
+end
+
+local function sync_all()
+  for _, w in ipairs(wezterm.gui.gui_windows()) do pcall(sync, w) end
+end
+
+-- cardak_focus=<pane_id>:<nonce> raises a pane's window (M2).
+-- cardak_preview={"path": …, "scheme": …, "n": …} previews (or, with "", clears) a scheme.
+-- Both are set by the deck on its own pane; the nonce makes every request a change.
 local function on_user_var(_, _, name, value)
-  if name ~= 'cardak_focus' then return end
-  local id = tonumber(value:match('^(%d+)'))
-  if not id then return end
-  -- The pane or its tab can close mid-event (get_pane also errors on unknown ids);
-  -- never surface that as a WezTerm error overlay.
-  pcall(focus_target, id)
+  if name == 'cardak_focus' then
+    local id = tonumber(value:match('^(%d+)'))
+    if id then pcall(focus_target, id) end
+  elseif name == 'cardak_preview' then
+    local okp, req = pcall(wezterm.json_parse, value)
+    if not okp or type(req) ~= 'table' or type(req.path) ~= 'string' then return end
+    if type(req.scheme) == 'string' and req.scheme ~= '' then
+      previews[req.path] = req.scheme
+    else
+      previews[req.path] = nil
+    end
+    pcall(sync_all)
+  end
 end
 
 function M.apply(config)
   wezterm.on('user-var-changed', on_user_var)
+  wezterm.on('update-status', function(window) pcall(sync, window) end)
   return config
 end
 
