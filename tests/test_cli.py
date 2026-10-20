@@ -26,3 +26,18 @@ def test_default_command_is_tui(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     monkeypatch.setenv("CARDAK_CONFIG", str(tmp_path / "c.toml"))
     assert main([]) == 0
     assert seen[0].source.config_file == tmp_path / "c.toml"  # type: ignore[attr-defined]
+
+
+def test_wezterm_install_prints_snippet(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["wezterm", "install", "--dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"installed {tmp_path / 'cardak.lua'}")
+    assert "require('cardak').apply(config)" in out
+
+
+def test_wezterm_install_refuses_foreign_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "cardak.lua").write_text("-- mine\n")
+    assert main(["wezterm", "install", "--dir", str(tmp_path)]) == 1
+    assert "--force" in capsys.readouterr().err
