@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.3.0 — 2026-10-20
+
 ### Added
 - Per-project color schemes: each WezTerm window takes its project's scheme and switches within a second when you change directory. Set `theme = "…"` in projects.toml, or press `t` on a project in the deck to pick from all built-in schemes with a live preview. Re-run `cardak wezterm install` once to enable it. (#8)
 - Project groups in the deck use a color from the project's scheme when no `accent` is set. (#8)
