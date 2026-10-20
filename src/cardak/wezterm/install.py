@@ -1,12 +1,13 @@
 """Install cardak.lua next to the user's WezTerm config. Never reads or edits wezterm.lua."""
 
 import os
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 from typing import Literal
+
+from cardak.wezterm.files import write_atomic
 
 MARKER = "-- cardak: generated"
 
@@ -42,19 +43,9 @@ def _existing(path: Path) -> str | None:
 
 
 def _write(path: Path, text: str) -> None:
-    """Atomically replace path with text, mode 0644."""
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".cardak.", suffix=".lua")
+        write_atomic(path, text)
     except OSError as e:
-        raise InstallError(f"cannot write {path}: {e}") from e
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, path)
-    except OSError as e:
-        Path(tmp).unlink(missing_ok=True)
         raise InstallError(f"cannot write {path}: {e}") from e
 
 

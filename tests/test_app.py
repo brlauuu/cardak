@@ -9,7 +9,9 @@ from cardak.core.config import ConfigError
 from cardak.core.navigate import JumpResult
 from cardak.core.resolver import Kind
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
+from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.app import AddProjectScreen, DeckApp
+from cardak.ui.theme_picker import ThemePickerScreen
 
 
 def row(pane_id: int, cwd: Path | None = None) -> PaneRow:
@@ -54,6 +56,8 @@ class StubSource:
         self.can_add = can_add
         self.fail_add = fail_add
         self.added: list[tuple[str, Path]] = []
+        self.themes: list[tuple[Path, str, str | None]] = []
+        self.regenerated = 0
 
     def poll(self) -> DeckSnapshot:
         return self.snaps.pop(0) if len(self.snaps) > 1 else self.snaps[0]
@@ -62,6 +66,12 @@ class StubSource:
         if self.fail_add:
             raise ConfigError(Path("projects.toml"), f"{path} is already configured")
         self.added.append((name, path))
+
+    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None:
+        self.themes.append((project_path, theme, name))
+
+    def regenerate(self) -> None:
+        self.regenerated += 1
 
 
 class BrokenSource(StubSource):
@@ -415,3 +425,67 @@ async def test_cursor_starts_on_the_first_row() -> None:
         await pilot.press("j", "enter")
         await settle(app, pilot)
         assert nav.jumps == [1]
+
+
+THEMES = {"Nord": Scheme("Nord", "#101010", "#e0e0e0", None, ("#000000",) * 8)}
+
+
+async def test_t_on_a_git_group_saves_a_theme() -> None:
+    source = StubSource(SNAP)
+    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES))
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        assert isinstance(app.screen, ThemePickerScreen)
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert source.themes == [(Path("/repos/cardak"), "Nord", "cardak")]
+
+
+async def test_t_needs_a_project_and_a_valid_config() -> None:
+    for source, row in ((StubSource(SNAP), 2), (StubSource(SNAP, can_add=False), 0)):
+        app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES))
+        async with app.run_test() as pilot:
+            await settle(app, pilot)
+            app.deck_tree.move_cursor(app.deck_tree.root.children[row])
+            await pilot.press("t")
+            await pilot.pause()
+            assert not isinstance(app.screen, ThemePickerScreen)
+
+
+async def test_startup_loads_schemes_and_regenerates() -> None:
+    source = StubSource(SNAP)
+    store = SchemeStore()
+    app = DeckApp(source, interval=3600, schemes=store, load_schemes=lambda: THEMES)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await settle(app, pilot)
+        assert store.get() == THEMES
+        assert source.regenerated == 1
+
+
+async def test_warnings_show_in_the_banner() -> None:
+    warned = replace(SNAP, config_warnings=('projects.toml: unknown scheme "Nrod" for typo',))
+    app = DeckApp(StubSource(warned), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        banner = app.query_one("#banner", Static)
+        assert banner.display is True
+        assert banner.has_class("warning")
+
+
+async def test_saving_a_theme_says_how_to_enable_themes() -> None:
+    source = StubSource(SNAP)
+    app = DeckApp(
+        source, interval=3600, schemes=SchemeStore(THEMES), theme_status=lambda: "install it"
+    )
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert "install it" in [n.message for n in app._notifications]

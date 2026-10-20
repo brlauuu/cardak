@@ -6,6 +6,7 @@ Lua handler looks the target up by id. Nothing is written into other panes.
 
 import base64
 import itertools
+import json
 import os
 import time
 from collections.abc import Callable, Mapping
@@ -25,9 +26,22 @@ class JumpResult:
     hint: bool = False
 
 
+PREVIEW_VAR = "cardak_preview"
+
+
+def _user_var(name: str, value: str) -> bytes:
+    encoded = base64.b64encode(value.encode()).decode()
+    return f"\x1b]1337;SetUserVar={name}={encoded}\x07".encode()
+
+
+def preview_request(project_path: Path, scheme: str, nonce: str) -> bytes:
+    return _user_var(
+        PREVIEW_VAR, json.dumps({"path": str(project_path), "scheme": scheme, "n": nonce})
+    )
+
+
 def focus_request(pane_id: int, nonce: str) -> bytes:
-    value = base64.b64encode(f"{pane_id}:{nonce}".encode()).decode()
-    return f"\x1b]1337;SetUserVar={FOCUS_VAR}={value}\x07".encode()
+    return _user_var(FOCUS_VAR, f"{pane_id}:{nonce}")
 
 
 def _write_dev_tty(data: bytes) -> None:
@@ -89,3 +103,27 @@ class Navigator:
                 hint=True,
             )
         return JumpResult("raised")
+
+
+class Previewer:
+    """Asks cardak.lua to preview a scheme on a project's windows ("" clears the preview)."""
+
+    def __init__(self, write_tty: Callable[[bytes], None], in_wezterm: bool) -> None:
+        self.write_tty = write_tty
+        self.in_wezterm = in_wezterm
+        self._counter = itertools.count()
+
+    @classmethod
+    def live(cls, env: Mapping[str, str] | None = None) -> "Previewer":
+        env = os.environ if env is None else env
+        return cls(_write_dev_tty, "WEZTERM_PANE" in env)
+
+    def preview(self, project_path: Path, scheme: str) -> bool:
+        if not self.in_wezterm:
+            return False
+        nonce = f"{time.time_ns()}.{next(self._counter)}"
+        try:
+            self.write_tty(preview_request(project_path, scheme, nonce))
+        except OSError:
+            return False
+        return True

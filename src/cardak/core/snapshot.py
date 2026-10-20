@@ -10,6 +10,7 @@ from cardak.collectors.wezterm import Pane
 from cardak.core.resolver import Kind, ProjectResolver, Resolved
 
 ClaudeLookup = Callable[[int], ClaudeSession | None]
+AccentFor = Callable[[Resolved], str | None]
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class Group:
     cpu_pct: float
     rss: int
     panes: tuple[PaneRow, ...]
+    theme: str | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ class DeckSnapshot:
     n_panes: int = 0
     error: str | None = None
     config_error: str | None = None
+    config_warnings: tuple[str, ...] = ()
 
     @property
     def n_projects(self) -> int:
@@ -94,6 +97,7 @@ class _Context:
     claude_lookup: ClaudeLookup
     self_pane_id: int | None
     home: Path
+    accent_for: AccentFor | None = None
 
 
 def _row(pane: Pane, root: Path | None, ctx: _Context) -> PaneRow:
@@ -117,11 +121,16 @@ def _group(resolved: Resolved, members: list[Pane], ctx: _Context) -> Group:
         kind=resolved.kind,
         key=resolved.key,
         name=resolved.name,
-        accent=resolved.accent,
+        accent=(
+            ctx.accent_for(resolved)
+            if ctx.accent_for and resolved.kind == "config"
+            else resolved.accent
+        ),
         path=tilde(resolved.key, ctx.home) if resolved.key else None,
         cpu_pct=sum(r.cpu_pct or 0.0 for r in rows),
         rss=sum(r.rss for r in rows),
         panes=rows,
+        theme=resolved.theme,
     )
 
 
@@ -132,11 +141,12 @@ def build_snapshot(
     claude_lookup: ClaudeLookup,
     self_pane_id: int | None,
     home: Path,
+    accent_for: AccentFor | None = None,
 ) -> DeckSnapshot:
     buckets: dict[Resolved, list[Pane]] = {}
     for pane in sorted(panes, key=lambda p: (p.window_id, p.tab_id, p.pane_id)):
         buckets.setdefault(resolver.resolve(pane.cwd), []).append(pane)
-    ctx = _Context(procs, claude_lookup, self_pane_id, home)
+    ctx = _Context(procs, claude_lookup, self_pane_id, home, accent_for)
     ranked = sorted(buckets.items(), key=lambda item: _rank(item[0]))
     groups = tuple(_group(resolved, members, ctx) for resolved, members in ranked)
     return DeckSnapshot(groups=groups, n_panes=sum(len(g.panes) for g in groups))

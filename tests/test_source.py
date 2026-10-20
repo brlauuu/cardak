@@ -4,6 +4,7 @@ from pathlib import Path
 
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane, WeztermUnavailable
+from cardak.core.config import Config
 from cardak.core.source import LiveSource
 
 HOME = Path("/home/user")
@@ -133,3 +134,76 @@ def test_add_project_waits_for_a_running_poll(tmp_path: Path) -> None:
         poller.join()
         adder.join()
     assert added.is_set()
+
+
+def test_on_config_runs_after_reloads_only(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\n')
+    seen: list[Config] = []
+
+    def on_config(c: Config) -> list[str]:
+        seen.append(c)
+        return ["a warning"]
+
+    source = LiveSource(
+        cfg,
+        env={},
+        list_panes=panes,
+        sample=sample,
+        claude_lookup=lambda p: None,
+        git=no_git,
+        home=HOME,
+        on_config=on_config,
+    )
+    assert source.poll().config_warnings == ("a warning",)
+    source.poll()
+    assert len(seen) == 1
+    source.regenerate()
+    assert len(seen) == 2
+
+
+def test_on_config_failure_becomes_a_warning(tmp_path: Path) -> None:
+    def broken(c: Config) -> list[str]:
+        raise OSError("disk full")
+
+    source = LiveSource(
+        tmp_path / "p.toml",
+        env={},
+        list_panes=panes,
+        sample=sample,
+        claude_lookup=lambda p: None,
+        git=no_git,
+        home=HOME,
+        on_config=broken,
+    )
+    assert source.poll().config_warnings == ("couldn't update theme files: OSError('disk full')",)
+
+
+def test_set_theme_existing_and_new(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\n')
+    source = make(cfg)
+    source.set_theme(HOME / "notes", "Nord")
+    source.set_theme(HOME / "repos/webshop", "Tokyo Night", name="webshop")
+    groups = {g.name: g.theme for g in source.poll().groups}
+    assert groups == {"notes": "Nord", "webshop": "Tokyo Night"}
+
+
+def test_accents_come_from_schemes(tmp_path: Path) -> None:
+    from cardak.core.themes import Scheme
+
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\ntheme = "Red"\n')
+    ansi = ("#000000",) * 8
+    red = {"Red": Scheme("Red", "#000000", "#ffffff", "#ff0000", ansi)}
+    source = LiveSource(
+        cfg,
+        env={},
+        list_panes=panes,
+        sample=sample,
+        claude_lookup=lambda p: None,
+        git=no_git,
+        home=HOME,
+        schemes=lambda: red,
+    )
+    assert source.poll().groups[0].accent == "#ff0000"

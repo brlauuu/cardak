@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import tomli_w
+import tomlkit
+from tomlkit.items import AoT, Table
 
 
 @dataclass(frozen=True)
@@ -18,6 +20,7 @@ class Project:
     theme: str | None = None
     accent: str | None = None
     github: str | None = None
+    tint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -35,17 +38,20 @@ class ConfigError(Exception):
         super().__init__(f"{where}: {message}")
 
 
+def config_dir(env: Mapping[str, str] | None = None) -> Path:
+    env = os.environ if env is None else env
+    if env.get("XDG_CONFIG_HOME"):
+        return Path(env["XDG_CONFIG_HOME"]) / "cardak"
+    return Path(env.get("HOME") or Path.home()) / ".config" / "cardak"
+
+
 def config_path(cli_value: str | None = None, env: Mapping[str, str] | None = None) -> Path:
     env = os.environ if env is None else env
     if cli_value:
         return Path(cli_value).expanduser()
     if env.get("CARDAK_CONFIG"):
         return Path(env["CARDAK_CONFIG"]).expanduser()
-    if env.get("XDG_CONFIG_HOME"):
-        base = Path(env["XDG_CONFIG_HOME"])
-    else:
-        base = Path(env.get("HOME") or Path.home()) / ".config"
-    return base / "cardak" / "projects.toml"
+    return config_dir(env) / "projects.toml"
 
 
 def _opt_str(entry: Mapping[str, object], key: str) -> str | None:
@@ -96,6 +102,7 @@ def load(path: Path) -> Config:
                 theme=_opt_str(entry, "theme"),
                 accent=_opt_str(entry, "accent"),
                 github=_opt_str(entry, "github"),
+                tint=_opt_str(entry, "tint"),
             )
         )
     defaults = data.get("defaults", {})
@@ -135,7 +142,7 @@ def _atomic_write(path: Path, target: Path, text: str) -> None:
         raise
 
 
-def add_project(path: Path, name: str, project_path: Path) -> None:
+def add_project(path: Path, name: str, project_path: Path, theme: str | None = None) -> None:
     """Append a [[project]] block, keeping the existing text (and its comments) as is."""
     config = load(path)  # raises ConfigError on a broken file, before anything is written
     project_path = project_path.expanduser()
@@ -144,11 +151,53 @@ def add_project(path: Path, name: str, project_path: Path) -> None:
     target = path.resolve()  # write through a symlink (e.g. a dotfiles repo), don't replace it
     # The header is written by hand: tomli-w emits an array of tables inline
     # (`project = [...]`), which appended after a table would land inside it.
-    block = "[[project]]\n" + tomli_w.dumps({"name": name, "path": _with_tilde(project_path)})
+    entry = {"name": name, "path": _with_tilde(project_path)}
+    if theme:
+        entry["theme"] = theme
+    block = "[[project]]\n" + tomli_w.dumps(entry)
+
     text = _appended(_read(target) or "", block)
     try:
         _parse(path, text)
     except ConfigError:
         # e.g. projects written inline (`project = [...]`) cannot take a [[project]] table
         raise ConfigError(path, "cannot append to this file's layout; add it by hand") from None
+    _atomic_write(path, target, text)
+
+
+def _set_key(table: Table, key: str, value: str) -> None:
+    """Set key in a table; a new key goes after its last key, not after trailing comments.
+
+    tomlkit appends new keys at the very end of a table's body, which places them below a
+    blank line or a comment that introduces the *next* table.
+    """
+    if key in table:
+        table[key] = value
+        return
+    body = table.value.body
+    trailing = []
+    while body and body[-1][0] is None:  # whitespace and comment items carry no key
+        trailing.insert(0, body.pop())
+    table.add(key, value)
+    body.extend(trailing)
+
+
+def set_project_theme(path: Path, project_path: Path, theme: str) -> None:
+    """Set one project's `theme` in place; comments and layout elsewhere are kept."""
+    load(path)  # refuses a broken file before anything is written
+    target = path.resolve()
+    doc = tomlkit.parse(_read(target) or "")
+    projects = doc.get("project")
+    if projects is not None and not isinstance(projects, AoT):
+        raise ConfigError(path, "projects are not written as [[project]] tables; edit it by hand")
+    project_path = project_path.expanduser()
+    for table in projects or []:
+        raw = table.get("path")
+        if isinstance(raw, str) and Path(raw).expanduser() == project_path:
+            _set_key(table, "theme", theme)
+            break
+    else:
+        raise ConfigError(path, f"{project_path} is not a configured project")
+    text = tomlkit.dumps(doc)
+    _parse(path, text)
     _atomic_write(path, target, text)
