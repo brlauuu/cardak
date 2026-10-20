@@ -21,3 +21,9 @@ htmlcov/
 
 # spike output: screenshots and captures from the dev machine
 spikes/out/
+
+# enola hook wiring, installed per machine (absolute paths)
+.claude/
+.codex/
+.cursor/
+.github/instructions/

@@ -1,0 +1,7 @@
+[
+  {"window_id": 5, "tab_id": 7, "pane_id": 11, "workspace": "default", "title": "zsh",
+   "cwd": "", "tty_name": "/dev/pts/3", "is_active": false},
+  {"window_id": 5, "tab_id": 7, "pane_id": 12, "workspace": "work", "title": "nvim",
+   "cwd": "file://devbox/home/user/repos/my%20proj", "tty_name": "/dev/pts/4", "is_active": true},
+  {"window_id": 6, "tab_id": 8, "pane_id": 13, "workspace": "default", "title": "ssh"}
+]

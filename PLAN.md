@@ -167,11 +167,11 @@ Design exploration (browser and TUI variants) can be done separately with Claude
 - [x] Decide theme option A/B/C.
 
 **M1: Read-only deck.**
-- [ ] Tooling: `uv` package with the version in `pyproject.toml`; ruff, pyright, pytest + coverage floor; GitHub Actions CI (see AGENTS.md).
-- [ ] Config loader + ProjectResolver.
-- [ ] Pane + process collectors.
-- [ ] Textual tree grouped by project, auto-refresh.
-- [ ] Unassigned panes in an "Other" group, with an "add as project" action that writes to the TOML.
+- [x] Tooling: `uv` package with the version in `pyproject.toml`; ruff, pyright, pytest + coverage floor; GitHub Actions CI (see AGENTS.md).
+- [x] Config loader + ProjectResolver.
+- [x] Pane + process collectors.
+- [x] Textual tree grouped by project, auto-refresh.
+- [x] Unassigned panes in an "Other" group, with an "add as project" action that writes to the TOML.
 
 **M2: Navigation.**
 - [ ] Click / Enter on pane → activate-pane (+ window raise from M0).

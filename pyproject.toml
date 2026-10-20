@@ -1,0 +1,52 @@
+[project]
+name = "cardak"
+version = "0.1.0.dev0"
+description = "Project-centric deck for WezTerm panes and Claude Code sessions"
+authors = [
+    { name = "Đorđe Relić", email = "dorde.relic@proton.me" }
+]
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+    "psutil>=7.2.2",
+    "textual>=8.2.8",
+    "tomli-w>=1.2.0",
+]
+
+[project.scripts]
+cardak = "cardak.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.414",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["spikes", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not live'"
+markers = ["live: needs a running WezTerm GUI (run with: uv run pytest -m live)"]
+asyncio_mode = "auto"
+
+[tool.coverage.report]
+show_missing = true
