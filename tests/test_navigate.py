@@ -1,8 +1,15 @@
 import base64
+import json
 from pathlib import Path
 
 from cardak.collectors.wezterm import WeztermUnavailable
-from cardak.core.navigate import JumpResult, Navigator, focus_request
+from cardak.core.navigate import (
+    JumpResult,
+    Navigator,
+    Previewer,
+    focus_request,
+    preview_request,
+)
 
 
 class Recorder:
@@ -92,3 +99,25 @@ def test_live_defaults(tmp_path: Path) -> None:
     lua.write_text("x")
     assert n.lua_installed()
     assert not Navigator.live(lua, env={}).in_wezterm
+
+
+def test_preview_request_bytes() -> None:
+    data = preview_request(Path("/r/web"), "Nord", "7")
+    prefix = b"\x1b]1337;SetUserVar=cardak_preview="
+    assert data.startswith(prefix) and data.endswith(b"\x07")
+    assert json.loads(base64.b64decode(data[len(prefix) : -1])) == {
+        "path": "/r/web",
+        "scheme": "Nord",
+        "n": "7",
+    }
+
+
+def test_previewer() -> None:
+    rec = Recorder()
+    p = Previewer(rec.write, in_wezterm=True)
+    assert p.preview(Path("/r/web"), "Nord")
+    assert p.preview(Path("/r/web"), "")
+    assert len(rec.written) == 2 and rec.written[0] != rec.written[1]
+    assert not Previewer(rec.write, in_wezterm=False).preview(Path("/r"), "Nord")
+    assert not Previewer(Recorder(fail_write="x").write, in_wezterm=True).preview(Path("/r"), "N")
+    assert Previewer.live({"WEZTERM_PANE": "1"}).in_wezterm

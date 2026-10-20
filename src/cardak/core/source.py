@@ -2,7 +2,7 @@
 
 import os
 import threading
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,8 +10,9 @@ from cardak.collectors import claude, wezterm
 from cardak.collectors.processes import PaneProcs, ProcessSampler
 from cardak.core import config as config_mod
 from cardak.core.config import Config, ConfigError
-from cardak.core.resolver import GitLookup, ProjectResolver, run_git
+from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
 from cardak.core.snapshot import ClaudeLookup, DeckSnapshot, build_snapshot
+from cardak.core.themes import Scheme, project_accent
 
 ListPanes = Callable[[Mapping[str, str]], list[wezterm.Pane]]
 Sample = Callable[[Iterable[str]], dict[str, PaneProcs]]
@@ -30,6 +31,8 @@ class LiveSource:
         claude_lookup: ClaudeLookup = claude.session_meta,
         git: GitLookup = run_git,
         home: Path | None = None,
+        on_config: Callable[[Config], Sequence[str]] | None = None,
+        schemes: Callable[[], Mapping[str, Scheme]] | None = None,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -41,6 +44,10 @@ class LiveSource:
         pane = self._env.get("WEZTERM_PANE", "")
         self._self_pane = int(pane) if pane.isdigit() else None
         self._lock = threading.Lock()
+        self._on_config = on_config
+        self._schemes: Callable[[], Mapping[str, Scheme]] = schemes or (lambda: {})
+        self._config = Config()
+        self._warnings: tuple[str, ...] = ()
         self._config_error: str | None = None
         self._resolver = ProjectResolver(Config(), git)
         self._stamp: Stamp | bool = False  # never equal to a real stamp, so the first check loads
@@ -69,7 +76,39 @@ class LiveSource:
         except ConfigError as e:
             cfg = Config()
             self._config_error = str(e)
+            self._warnings = ()
+        self._config = cfg
         self._resolver = ProjectResolver(cfg, self._git)
+        if self._config_error is None:
+            self._run_on_config()
+
+    def _run_on_config(self) -> None:
+        if self._on_config is None:
+            return
+        try:
+            self._warnings = tuple(self._on_config(self._config))
+        except Exception as e:  # theme files are a side effect; never break the deck over them
+            self._warnings = (f"couldn't update theme files: {e!r}",)
+
+    def regenerate(self) -> None:
+        """Re-run on_config (e.g. once the scheme list has loaded)."""
+        with self._lock:
+            if self._config_error is None:
+                self._run_on_config()
+
+    def _accent_for(self, resolved: Resolved) -> str | None:
+        project = next((p for p in self._config.projects if p.path == resolved.key), None)
+        return project_accent(project, self._schemes()) if project else None
+
+    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None:
+        with self._lock:
+            if any(p.path == project_path for p in self._config.projects):
+                config_mod.set_project_theme(self.config_file, project_path, theme)
+            else:
+                config_mod.add_project(
+                    self.config_file, name or project_path.name, project_path, theme=theme
+                )
+            self._reload_if_changed()
 
     def poll(self) -> DeckSnapshot:
         with self._lock:
@@ -80,12 +119,20 @@ class LiveSource:
         try:
             panes = self._list_panes(self._env)
         except wezterm.WeztermUnavailable as e:
-            return DeckSnapshot(error=str(e), config_error=self._config_error)
+            return DeckSnapshot(
+                error=str(e), config_error=self._config_error, config_warnings=self._warnings
+            )
         procs = self._sample([p.tty for p in panes if p.tty])
         snap = build_snapshot(
-            panes, procs, self._resolver, self._claude_lookup, self._self_pane, self._home
+            panes,
+            procs,
+            self._resolver,
+            self._claude_lookup,
+            self._self_pane,
+            self._home,
+            accent_for=self._accent_for,
         )
-        return replace(snap, config_error=self._config_error)
+        return replace(snap, config_error=self._config_error, config_warnings=self._warnings)
 
     def add_project(self, name: str, path: Path) -> None:
         with self._lock:

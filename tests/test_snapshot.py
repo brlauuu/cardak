@@ -133,3 +133,22 @@ def test_tilde() -> None:
     assert tilde(HOME, HOME) == "~"
     assert tilde(R / "x", HOME) == "~/repos/x"
     assert tilde(Path("/srv/x"), HOME) == "/srv/x"
+
+
+def test_accent_for_fills_config_groups_only() -> None:
+    s = build_snapshot(
+        PANES,
+        PROCS,
+        ProjectResolver(CONFIG, git=fake_git),
+        sessions,
+        0,
+        HOME,
+        accent_for=lambda r: "#123456" if r.kind == "config" else "#ffffff",
+    )
+    assert [g.accent for g in s.groups] == ["#123456", "#123456", None, None]
+
+
+def test_group_carries_theme() -> None:
+    themed = Config(projects=(Project(name="webshop", path=R / "webshop", theme="Nord"),))
+    s = build_snapshot(PANES, PROCS, ProjectResolver(themed, git=fake_git), sessions, 0, HOME)
+    assert s.groups[0].theme == "Nord"

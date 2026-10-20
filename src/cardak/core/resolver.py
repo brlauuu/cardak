@@ -19,6 +19,7 @@ class Resolved:
     name: str
     accent: str | None = None
     order: int = 0
+    theme: str | None = None
 
 
 OTHER = Resolved("other", None, "Other")
@@ -51,7 +52,9 @@ class ProjectResolver:
             return OTHER
         for order, project in self._projects:
             if cwd.is_relative_to(project.path):
-                return Resolved("config", project.path, project.name, project.accent, order)
+                return Resolved(
+                    "config", project.path, project.name, project.accent, order, project.theme
+                )
         if cwd not in self._git_cache:
             self._git_cache[cwd] = self._git(cwd)
         root = self._git_cache[cwd]
