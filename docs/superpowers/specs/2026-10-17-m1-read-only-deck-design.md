@@ -190,3 +190,15 @@ Dependency direction: `cli → ui → snapshot → {collectors, resolver, config
 - After merge: release `0.1.0` (CHANGELOG "Added" line, `release: cut 0.1.0`, tag
   `v0.1.0`), then suggest protecting `main` with the `test` check required.
 - Re-pin the enola baseline once `src/cardak/` lands.
+
+## Refinements made while planning and building
+
+- `src/cardak/source.py` (`LiveSource`) holds the wiring between config, resolver, collectors and snapshot, so `ui` depends only on a small `DeckSource` protocol.
+- `PaneProcs.claude_pid` gives the pid of a `claude` process in the pane, so the snapshot can look up its session.
+- `PaneRow.cwd` keeps the absolute cwd, which "add as project" needs for panes in Other.
+- `Resolved.order` holds the configured project's index, which drives group order.
+- Pane titles that look like paths (start with `~`, `/` or `..`) are not shown as `detail`, because the cwd column already shows them.
+- `LiveSource` reloads `projects.toml` when its `(mtime_ns, size, inode)` changes, so hand edits are picked up without a restart.
+- An unexpected exception in a poll becomes `DeckSnapshot(error="internal error: …")` instead of killing the app.
+- `add_project` writes the `[[project]]` header itself: tomli-w serializes an array of tables inline, which appended after an existing table would land inside it.
+- The tty of a process comes from `/proc/<pid>/stat` with a device map rebuilt every snapshot, not psutil's `terminal()`, whose map is memoized for the life of the process.

@@ -16,16 +16,15 @@ agent status (working / waiting / idle), and attributes CPU/RAM to the pane that
 ```
 pyproject.toml
 src/cardak/
-  config.py  resolver.py
-  collectors/{wezterm.py, processes.py, hooks.py, transcripts.py}
-  store.py  alerts.py  daemon.py
-  ui/{app.py, widgets.py, detail.py}
-  wezterm/{generate.py, cardak_snippet.lua}
-  cli.py                  # cardak [tui|web|daemon|hook|hooks install|themes apply]
+  config.py  resolver.py  snapshot.py  source.py
+  collectors/{wezterm.py, processes.py, claude.py}   # M4 adds hooks.py, transcripts.py
+  store.py  alerts.py  daemon.py                      # later milestones
+  ui/{app.py, widgets.py}                             # M4 adds detail.py
+  wezterm/{generate.py, cardak_snippet.lua}           # M3
+  cli.py                  # cardak [tui]; later: web|daemon|hook|hooks install|themes apply
 skills/{checkpoint,where-were-we}/SKILL.md
 spikes/                   # M0 throwaway scripts (PEP 723 inline deps: `uv run spikes/x.py`)
-tests/
-  fixtures/               # recorded `wezterm cli list` output, hook payloads, transcript JSONL
+tests/                    # mirrors src/cardak; fixtures/ holds sanitized recordings
 ```
 
 ## Code
@@ -71,6 +70,11 @@ tests/
   a `<pid>.<hash>.key` file.
 - A `claude` process's child tree includes its MCP servers (`npm exec @playwright/...`).
   Don't attribute their CPU/RAM to the agent's work.
+
+## Processes (measured in M1)
+- **Never use psutil's `Process.terminal()`** in a long-running process: psutil memoizes
+  its device → tty map on first use, so panes opened after the deck started have no tty.
+  `PsutilTable` reads `tty_nr` from `/proc/<pid>/stat` and rebuilds the map every snapshot.
 
 ## Commits and PRs
 - Conventional commits with a scope where it helps: `feat(collectors): ...`,
