@@ -174,8 +174,8 @@ Design exploration (browser and TUI variants) can be done separately with Claude
 - [x] Unassigned panes in an "Other" group, with an "add as project" action that writes to the TOML.
 
 **M2: Navigation.**
-- [ ] Click / Enter on pane → activate-pane (+ window raise from M0).
-- [ ] Keyboard nav, fuzzy find.
+- [x] Click / Enter on pane → activate-pane (+ window raise from M0).
+- [x] Keyboard nav, fuzzy find.
 
 **M3: Themes.**
 - [ ] `cardak themes apply` generates the Lua file; `wezterm.lua` snippet documented in README.
