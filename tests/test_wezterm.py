@@ -8,6 +8,7 @@ import pytest
 from cardak.collectors.wezterm import (
     Pane,
     WeztermUnavailable,
+    activate_pane,
     find_socket,
     list_panes,
     parse_cwd,
@@ -156,3 +157,20 @@ def test_list_panes_without_socket(tmp_path: Path) -> None:
 def test_list_panes_errors(env: dict[str, str], runner: FakeRunner, reason: str) -> None:
     with pytest.raises(WeztermUnavailable, match=reason):
         list_panes(env, runner=runner)
+
+
+def test_activate_pane_runs_cli(env: dict[str, str]) -> None:
+    runner = FakeRunner(stdout="")
+    activate_pane(7, env, runner=runner)
+    cmd, kwargs = runner.calls[0]
+    assert list(cmd) == ["wezterm", "cli", "--no-auto-start", "activate-pane", "--pane-id", "7"]
+    passed_env = kwargs["env"]
+    assert isinstance(passed_env, dict)
+    assert passed_env["WEZTERM_UNIX_SOCKET"] == env["WEZTERM_UNIX_SOCKET"]
+
+
+def test_activate_pane_errors(env: dict[str, str], tmp_path: Path) -> None:
+    with pytest.raises(WeztermUnavailable, match="pane 7 not found"):
+        activate_pane(7, env, runner=FakeRunner(returncode=1, stderr="ERROR pane 7 not found\n"))
+    with pytest.raises(WeztermUnavailable, match="no WezTerm GUI socket found"):
+        activate_pane(7, {"XDG_RUNTIME_DIR": str(tmp_path)}, runner=FakeRunner())

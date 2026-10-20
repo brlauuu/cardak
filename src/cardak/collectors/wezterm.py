@@ -88,14 +88,14 @@ def find_socket(env: Mapping[str, str] | None = None) -> Path | None:
     return mux if mux.exists() else None
 
 
-def list_panes(env: Mapping[str, str] | None = None, runner: Runner = subprocess.run) -> list[Pane]:
-    env = os.environ if env is None else env
+def _run_cli(args: list[str], env: Mapping[str, str], runner: Runner) -> str:
+    """Run `wezterm cli --no-auto-start <args>` against the GUI socket; return stdout."""
     sock = find_socket(env)
     if sock is None:
         raise WeztermUnavailable("no WezTerm GUI socket found")
     try:
         out = runner(
-            ["wezterm", "cli", "--no-auto-start", "list", "--format", "json"],
+            ["wezterm", "cli", "--no-auto-start", *args],
             capture_output=True,
             text=True,
             timeout=3,
@@ -110,7 +110,21 @@ def list_panes(env: Mapping[str, str] | None = None, runner: Runner = subprocess
         raise WeztermUnavailable(
             lines[-1] if lines else f"wezterm cli exited with {out.returncode}"
         )
+    return out.stdout
+
+
+def list_panes(env: Mapping[str, str] | None = None, runner: Runner = subprocess.run) -> list[Pane]:
+    env = os.environ if env is None else env
+    stdout = _run_cli(["list", "--format", "json"], env, runner)
     try:
-        return parse_panes(out.stdout)
+        return parse_panes(stdout)
     except (ValueError, KeyError, TypeError) as e:
         raise WeztermUnavailable(f"unexpected wezterm cli output: {e}") from None
+
+
+def activate_pane(
+    pane_id: int, env: Mapping[str, str] | None = None, runner: Runner = subprocess.run
+) -> None:
+    """Select the pane and its tab. Does not raise the window (measured in M0)."""
+    env = os.environ if env is None else env
+    _run_cli(["activate-pane", "--pane-id", str(pane_id)], env, runner)
