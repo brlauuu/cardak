@@ -29,8 +29,10 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 
 ## Code
 - Small, single-purpose modules.
-- **Layering:** `cli → ui → core → collectors`. `core` never imports `ui`, and
-  `collectors` import nothing from cardak. `cli.py` is the only module at the
+- **Layering:** `cli → {ui, wezterm} → core → collectors`. `core` never imports `ui` or
+  `cardak.wezterm`, `collectors` import nothing from cardak, and `wezterm/` (the Lua
+  module and its installer) imports nothing from cardak. `core/filter.py` is core's only
+  Textual import (`textual.fuzzy`). `cli.py` is the only module at the
   package root besides `__init__.py`; anything else at that level makes `src/cardak`
   and its subpackages import each other (a directory-level cycle enola reports).
 - **One interface per external format.** All WezTerm invocation and parsing lives in
@@ -59,11 +61,19 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   socket `$XDG_RUNTIME_DIR/wezterm/sock`. Set `WEZTERM_UNIX_SOCKET` to the GUI's
   `gui-sock-<pid>` in the same directory, and re-resolve after a connection failure (the
   pid changes when the GUI restarts). Inside a pane the variable is already set.
-- **`activate-pane` does not raise the window**, only selects the pane inside it. Jump to a
-  pane by writing OSC 1337 `SetUserVar=cardak_focus=<nonce>` to the pane's `tty_name`;
-  the Lua handler calls `pane:activate()` + `window:focus()`. KWin honours that only when
-  WezTerm already has focus. From anywhere else (the browser front-end), use the EWMH
-  `_NET_ACTIVE_WINDOW` request with source=2 (`spikes/02_activate_pane.py --fallback`).
+- **Jumping** (`core/navigate.py`): `activate-pane` selects the pane but does not raise
+  its window, so the deck then writes `OSC 1337 SetUserVar=cardak_focus=base64(<pane_id>:<nonce>)`
+  to its **own** `/dev/tty`, and `cardak.lua` (shipped in `src/cardak/wezterm/`) raises the
+  target window. It never writes to another pane's tty. KWin allows the raise because the
+  request comes from the focused WezTerm window (verified live in M2). From anywhere else
+  (the browser front-end, M7), use the EWMH `_NET_ACTIVE_WINDOW` request with source=2
+  (`spikes/02_activate_pane.py --fallback`).
+- `cardak wezterm install` installs `cardak.lua` (only over a file starting with
+  `-- cardak: generated`, else `--force`); users add `require('cardak').apply(config)` to
+  `wezterm.lua` themselves. cardak never reads or edits `wezterm.lua`.
+- **Textual gotchas (M2):** `AUTO_FOCUS` focuses the first focusable widget in compose
+  order even when it is hidden, so the deck focuses its tree explicitly on mount; and
+  `Tree.clear()` leaves the cursor on no line, so a rebuild without a target puts it on row 0.
 - The X11 window title is the **active pane's title**; `set-window-title` does not change it.
 - `cwd` in `wezterm cli list` comes from OSC 7, so it follows the shell, not the foreground
   process. Fallback when it is missing: `/proc/<pid>/cwd`.
@@ -84,7 +94,9 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 - Conventional commits with a scope where it helps: `feat(collectors): ...`,
   `fix(ui): ...`, `docs: ...`, `ci: ...`, `chore: ...`, `release: cut X.Y.Z`. End the subject
   with the issue number when there is one: `(#12)`.
-- Work on a branch and open a PR; `main` only moves through merged PRs.
+- Work on a branch and open a PR; `main` only moves through merged PRs. `main` is
+  protected: the `test` check must pass on an up-to-date branch, no force pushes or
+  deletion, and the rule binds admins.
 
 ## Versioning and releases
 - **The version lives in `pyproject.toml` only.** Nothing else quotes it.
@@ -109,7 +121,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   `add_project` and `PsutilTable.snapshot`).
 - **Four hotspot findings are accepted as design**, reported but not failed:
   `config.load`, `LiveSource._poll`, `LiveSource._reload_if_changed` and
-  `DeckApp._rebuild` (fan-in × fan-out 12–25). Each one coordinates the steps of a
+  `DeckApp._rebuild` (fan-in × fan-out 12–25). M2 adds `DeckApp._render` (5 × 3), which
+  applies the filter, sets the header and rebuilds: the same kind of coordinator. Each one coordinates the steps of a
   single operation; splitting it would only move the fan-out somewhere else.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its

@@ -6,6 +6,7 @@ from textual.pilot import Pilot
 from textual.widgets import Input, Static
 
 from cardak.core.config import ConfigError
+from cardak.core.navigate import JumpResult
 from cardak.core.resolver import Kind
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 from cardak.ui.app import AddProjectScreen, DeckApp
@@ -251,3 +252,166 @@ async def test_config_error_with_markup_is_shown_literally() -> None:
         await pilot.pause()
         assert app.is_running
         assert app.query_one("#banner", Static).display is True
+
+
+RAISED = JumpResult("raised")
+
+
+class StubNavigator:
+    def __init__(self, result: JumpResult = RAISED) -> None:
+        self.result = result
+        self.jumps: list[int] = []
+
+    def jump(self, pane_id: int) -> JumpResult:
+        self.jumps.append(pane_id)
+        return self.result
+
+
+async def test_enter_on_pane_jumps() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1].children[1])
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == [3]
+
+
+async def test_enter_on_group_toggles_without_jumping() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == []
+        assert not app.deck_tree.root.children[0].is_expanded
+
+
+async def test_jump_failure_is_notified() -> None:
+    nav = StubNavigator(JumpResult("failed", "Couldn't jump: [/b] gone"))
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.jump(1)
+        await settle(app, pilot)
+        await pilot.pause()
+        assert app.is_running
+        assert [n.message for n in app._notifications] == [r"Couldn't jump: \[/b] gone"]
+
+
+async def test_j_and_k_move_the_cursor() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        await pilot.pause()
+        await pilot.press("j", "j")
+        assert app.deck_tree.cursor_line == 2
+        await pilot.press("k")
+        assert app.deck_tree.cursor_line == 1
+
+
+async def open_find(app: DeckApp, pilot: Pilot[None], *keys: str) -> None:
+    await pilot.press("slash")
+    await pilot.pause()
+    await pilot.press(*keys)
+    await pilot.pause()
+
+
+async def test_find_filters_and_enter_jumps_to_best() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await open_find(app, pilot, "w", "e", "b")
+        assert app.find_query == "web"
+        assert [label.split()[0] for label in labels(app)] == ["webshop"]
+        assert app.sub_title == '1 of 4 panes match "web"'
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == [1]
+
+
+async def test_escape_restores_the_full_tree() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await open_find(app, pilot, "w", "e", "b")
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.find_query == ""
+        assert len(labels(app)) == 3
+        assert app.query_one("#find", Input).display is False
+        assert app.focused is app.deck_tree
+        assert app.sub_title == "2 projects · 4 panes"
+
+
+async def test_filter_survives_a_refresh() -> None:
+    second = replace(SNAP, n_panes=5)
+    app = DeckApp(StubSource(SNAP, second), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await open_find(app, pilot, "w", "e", "b")
+        app.action_refresh()
+        await settle(app, pilot)
+        assert app.raw == second
+        assert [label.split()[0] for label in labels(app)] == ["webshop"]
+
+
+async def test_no_match_shows_a_message_and_enter_does_nothing() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await open_find(app, pilot, "z", "z", "z")
+        assert labels(app) == ['No pane matches "zzz"']
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == []
+
+
+async def test_typing_j_k_into_find_does_not_move_cursor() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        line = app.deck_tree.cursor_line
+        await open_find(app, pilot, "j", "k", "slash")
+        assert app.query_one("#find", Input).value == "jk/"
+        assert app.deck_tree.cursor_line == line
+
+
+async def test_find_query_with_markup_characters() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await open_find(app, pilot, "left_square_bracket", "slash", "b", "right_square_bracket")
+        await pilot.pause()
+        assert app.is_running
+        assert labels(app) == ['No pane matches "[/b]"']
+
+
+async def test_best_match_in_collapsed_group_selects_group() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.root.children[0].collapse()
+        await pilot.pause()
+        await open_find(app, pilot, "w", "e", "b")
+        cursor = app.deck_tree.cursor_node
+        assert cursor is not None and cursor.data is not None
+        assert cursor.data[1] is None and cursor.data[0].name == "webshop"
+
+
+async def test_cursor_starts_on_the_first_row() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.pause()
+        assert app.deck_tree.cursor_line == 0
+        await pilot.press("j", "enter")
+        await settle(app, pilot)
+        assert nav.jumps == [1]

@@ -55,3 +55,7 @@ def pane_label(r: PaneRow) -> Text:
 
 def unreachable_label(reason: str) -> Text:
     return Text(f"WezTerm not reachable: {reason} — retrying", style="bold red")
+
+
+def no_match_label(query: str) -> Text:
+    return Text(f'No pane matches "{query}"', style="dim italic")
