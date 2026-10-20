@@ -188,6 +188,14 @@ class DeckApp(App[None]):
         if target is not None:
             # New nodes get their line numbers on the next refresh; moving now lands on line 0.
             self.call_after_refresh(tree.move_cursor, target)
+        else:
+            # clear() leaves the cursor on no line, so the first key would only "find" row 0.
+            self.call_after_refresh(self._cursor_to_first_row)
+
+    def _cursor_to_first_row(self) -> None:
+        tree = self.deck_tree
+        if tree.cursor_line < 0 and tree.root.children:
+            tree.cursor_line = 0
 
     def action_find(self) -> None:
         find = self.query_one("#find", Input)

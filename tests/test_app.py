@@ -403,3 +403,15 @@ async def test_best_match_in_collapsed_group_selects_group() -> None:
         cursor = app.deck_tree.cursor_node
         assert cursor is not None and cursor.data is not None
         assert cursor.data[1] is None and cursor.data[0].name == "webshop"
+
+
+async def test_cursor_starts_on_the_first_row() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.pause()
+        assert app.deck_tree.cursor_line == 0
+        await pilot.press("j", "enter")
+        await settle(app, pilot)
+        assert nav.jumps == [1]
