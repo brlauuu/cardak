@@ -178,8 +178,8 @@ Design exploration (browser and TUI variants) can be done separately with Claude
 - [x] Keyboard nav, fuzzy find.
 
 **M3: Themes.**
-- [ ] `cardak themes apply` generates the Lua file; `wezterm.lua` snippet documented in README.
-- [ ] Theme picker in the TUI (lists built-in WezTerm schemes, live preview on the project's window).
+- [x] `cardak themes apply` generates the Lua file; `wezterm.lua` snippet documented in README.
+- [x] Theme picker in the TUI (lists built-in WezTerm schemes, live preview on the project's window).
 
 **M4: Agent awareness.**
 - [ ] Hook installer (`cardak hooks install`, idempotent, backs up settings.json).

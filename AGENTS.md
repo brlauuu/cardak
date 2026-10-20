@@ -8,7 +8,9 @@ agent status (working / waiting / idle), and attributes CPU/RAM to the pane that
 ## Stack
 - **Python 3.13**, managed with **uv** (`uv run`, `uv add`; never pip into the system).
 - **Textual** for the TUI, served in a browser via `textual-serve`.
-- **psutil** for processes, **SQLite** for storage, TOML config at `~/.config/cardak/projects.toml`.
+- **psutil** for processes, **SQLite** for storage, TOML config at `~/.config/cardak/projects.toml`:
+  read with `tomllib`, new projects appended with `tomli-w`, existing keys edited in place with
+  **`tomlkit`** (keeps comments and layout).
 - **WezTerm** is the only supported terminal (`wezterm cli` plus a generated Lua module).
 - Developed and tested on Kubuntu 24.04, KDE Plasma 5.27 on **X11**, WezTerm 20240203.
 
@@ -77,6 +79,29 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 - The X11 window title is the **active pane's title**; `set-window-title` does not change it.
 - `cwd` in `wezterm cli list` comes from OSC 7, so it follows the shell, not the foreground
   process. Fallback when it is missing: `/proc/<pid>/cwd`.
+
+## Themes (M3)
+- Files cardak writes (all atomic, through symlinks, mode kept; never over a file whose first
+  line lacks cardak's marker, except a CLI command given `--force`; only when content changes):
+
+  | Path | Written by | Content |
+  |---|---|---|
+  | `~/.config/wezterm/cardak.lua` | `cardak wezterm install` | static module: focus, theming, preview |
+  | `~/.config/wezterm/cardak_projects.lua` | deck on every config change; `cardak themes apply` | project path → scheme (only when cardak.lua is installed there) |
+  | `~/.config/cardak/tints` | same | `path<TAB>#rrggbb` for the zsh hook |
+  | `~/.config/cardak/tint.zsh` | `cardak themes zsh` | the opt-in per-pane tint hook |
+  | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
+- `cardak.lua`'s second line is `-- cardak-module: N`. Bump `MODULE_VERSION`
+  (`wezterm/generate.py`) whenever the Lua module gains a feature the Python side relies on;
+  the deck and `cardak themes apply` tell users with an older module to re-run
+  `cardak wezterm install`.
+- The scheme list comes from a headless probe: `wezterm --config-file <probe> ls-fonts`
+  evaluates a config that dumps `wezterm.color.get_builtin_schemes()`, without opening a window.
+- Preview is keyed by **project path** (`cardak_preview` user var with JSON), lives only in
+  WezTerm's Lua state, and is cleared by any config reload, which is also what saving does.
+- Live checks with a user WezTerm already running: start the test GUI with
+  `--always-new-process`, address it through its own `gui-sock-<pid>`, and capture windows
+  filtered by `_NET_WM_PID`, so nothing touches the user's windows.
 
 ## Claude Code (measured in M0)
 - `~/.claude/sessions/<pid>.json` maps a running `claude` pid to `sessionId`, `cwd`,
