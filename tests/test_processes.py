@@ -1,4 +1,6 @@
 import os
+import subprocess
+import time
 
 from cardak.collectors.processes import (
     PaneProcs,
@@ -169,3 +171,26 @@ def test_psutil_table_reads_this_process() -> None:
     assert me.rss > 0
     second = {p.pid: p for p in table.snapshot()}
     assert second[os.getpid()].cpu_pct is not None
+
+
+def test_psutil_table_sees_terminals_opened_after_the_first_snapshot() -> None:
+    # psutil memoizes its tty map on first use, so a pane opened later would have no tty.
+    table = PsutilTable()
+    table.snapshot()
+    master, slave = os.openpty()
+    path = os.ttyname(slave)
+    child = subprocess.Popen(["sh", "-c", f"exec sleep 10 < {path}"], start_new_session=True)
+    try:
+        deadline = time.monotonic() + 3
+        found = None
+        while found is None and time.monotonic() < deadline:
+            found = next(
+                (p for p in table.snapshot() if p.pid == child.pid and p.name == "sleep"), None
+            )
+        assert found is not None
+        assert found.tty == path
+    finally:
+        child.kill()
+        child.wait()
+        os.close(master)
+        os.close(slave)

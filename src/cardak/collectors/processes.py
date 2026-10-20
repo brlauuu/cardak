@@ -30,20 +30,36 @@ class ProcessTable(Protocol):
 class PsutilTable:
     """Keeps psutil.Process objects between snapshots: cpu_percent needs two samples."""
 
-    def __init__(self, proc_root: Path = Path("/proc")) -> None:
+    def __init__(self, proc_root: Path = Path("/proc"), dev_root: Path = Path("/dev")) -> None:
         self._proc_root = proc_root
+        self._dev_root = dev_root
         self._seen: dict[tuple[int, float], psutil.Process] = {}
 
-    def _groups(self, pid: int) -> tuple[int, int]:
-        """(pgrp, tpgid) from /proc/<pid>/stat; the comm field may contain spaces."""
+    def _stat(self, pid: int) -> tuple[int, int, int]:
+        """(pgrp, tty_nr, tpgid) from /proc/<pid>/stat; the comm field may contain spaces."""
         stat = (self._proc_root / str(pid) / "stat").read_text()
         fields = stat[stat.rindex(")") + 2 :].split()
-        return int(fields[2]), int(fields[5])
+        return int(fields[2]), int(fields[4]), int(fields[5])
+
+    def _terminal_map(self) -> dict[int, str]:
+        """Device number -> tty path, rebuilt per snapshot.
+
+        psutil's own map (behind Process.terminal) is memoized on first use, so a pane
+        opened after the deck started would never get a tty.
+        """
+        ttys: dict[int, str] = {}
+        for path in [*self._dev_root.glob("tty*"), *self._dev_root.glob("pts/*")]:
+            try:
+                ttys[path.stat().st_rdev] = str(path)
+            except OSError:
+                continue
+        return ttys
 
     def snapshot(self) -> list[ProcInfo]:
         seen: dict[tuple[int, float], psutil.Process] = {}
         infos: list[ProcInfo] = []
-        attrs = ["pid", "ppid", "name", "cmdline", "create_time", "terminal", "memory_info"]
+        ttys = self._terminal_map()
+        attrs = ["pid", "ppid", "name", "cmdline", "create_time", "memory_info"]
         for proc in psutil.process_iter(attrs):
             try:
                 info = proc.info
@@ -51,7 +67,7 @@ class PsutilTable:
                 known = self._seen.get(key)
                 tracked = known or proc
                 cpu = tracked.cpu_percent(None)
-                pgid, tpgid = self._groups(info["pid"])
+                pgid, tty_nr, tpgid = self._stat(info["pid"])
             except (psutil.Error, OSError, ValueError):
                 continue
             seen[key] = tracked
@@ -60,7 +76,7 @@ class PsutilTable:
                 ProcInfo(
                     pid=info["pid"],
                     ppid=info["ppid"] or 0,
-                    tty=info["terminal"],
+                    tty=ttys.get(tty_nr) if tty_nr else None,
                     pgid=pgid,
                     tpgid=tpgid,
                     name=info["name"] or "?",
