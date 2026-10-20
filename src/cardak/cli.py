@@ -3,8 +3,8 @@
 import argparse
 from importlib.metadata import version
 
-from cardak.config import config_path
-from cardak.source import LiveSource
+from cardak.core.config import config_path
+from cardak.core.source import LiveSource
 from cardak.ui.app import DeckApp
 
 

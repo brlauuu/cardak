@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from cardak.config import Config
+from cardak.core.config import Config
 
 Kind = Literal["config", "git", "other"]
 GitLookup = Callable[[Path], Path | None]

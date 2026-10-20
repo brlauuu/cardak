@@ -5,9 +5,9 @@ from pathlib import Path
 from textual.pilot import Pilot
 from textual.widgets import Input, Static
 
-from cardak.config import ConfigError
-from cardak.resolver import Kind
-from cardak.snapshot import DeckSnapshot, Group, PaneRow
+from cardak.core.config import ConfigError
+from cardak.core.resolver import Kind
+from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 from cardak.ui.app import AddProjectScreen, DeckApp
 
 

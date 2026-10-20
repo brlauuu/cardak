@@ -16,12 +16,12 @@ agent status (working / waiting / idle), and attributes CPU/RAM to the pane that
 ```
 pyproject.toml
 src/cardak/
-  config.py  resolver.py  snapshot.py  source.py
+  cli.py                  # cardak [tui]; later: web|daemon|hook|hooks install|themes apply
+  core/{config.py, resolver.py, snapshot.py, source.py}
   collectors/{wezterm.py, processes.py, claude.py}   # M4 adds hooks.py, transcripts.py
   store.py  alerts.py  daemon.py                      # later milestones
   ui/{app.py, widgets.py}                             # M4 adds detail.py
   wezterm/{generate.py, cardak_snippet.lua}           # M3
-  cli.py                  # cardak [tui]; later: web|daemon|hook|hooks install|themes apply
 skills/{checkpoint,where-were-we}/SKILL.md
 spikes/                   # M0 throwaway scripts (PEP 723 inline deps: `uv run spikes/x.py`)
 tests/                    # mirrors src/cardak; fixtures/ holds sanitized recordings
@@ -29,6 +29,10 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 
 ## Code
 - Small, single-purpose modules.
+- **Layering:** `cli → ui → core → collectors`. `core` never imports `ui`, and
+  `collectors` import nothing from cardak. `cli.py` is the only module at the
+  package root besides `__init__.py`; anything else at that level makes `src/cardak`
+  and its subpackages import each other (a directory-level cycle enola reports).
 - **One interface per external format.** All WezTerm invocation and parsing lives in
   `collectors/wezterm.py`; all Claude Code parsing (session files, transcripts, hook
   payloads) lives behind one module. Nothing else touches raw `wezterm cli` output or
@@ -99,4 +103,14 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 - `.enola/` is gitignored, so the baseline is per-machine and a re-pin does not travel in a PR.
 - Re-pin with `enola baseline pin` after a deliberate structural change. A new language
   appearing (the first `.py` / `.lua` files) also makes the old baseline incomparable.
-- Last pinned: after M0, covering only `spikes/`. Re-pin when `src/cardak/` first lands in M1.
+- **M1 re-pinned the baseline** after the review fixes. At the pin: no cycles and no
+  complexity findings (M1 moved the core modules into `core/` to break a
+  `src/cardak` ↔ `src/cardak/ui` cycle, and split `summarize`, `build_snapshot`,
+  `add_project` and `PsutilTable.snapshot`).
+- **Four hotspot findings are accepted as design**, reported but not failed:
+  `config.load`, `LiveSource._poll`, `LiveSource._reload_if_changed` and
+  `DeckApp._rebuild` (fan-in × fan-out 12–25). Each one coordinates the steps of a
+  single operation; splitting it would only move the fan-out somewhere else.
+- enola's complexity and hotspot detectors flag **relative** outliers: fixing the
+  top one promotes the next. Judge a new one by its absolute size, not by its
+  being listed.

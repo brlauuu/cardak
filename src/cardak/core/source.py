@@ -6,12 +6,12 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
 
-from cardak import config as config_mod
 from cardak.collectors import claude, wezterm
 from cardak.collectors.processes import PaneProcs, ProcessSampler
-from cardak.config import Config, ConfigError
-from cardak.resolver import GitLookup, ProjectResolver, run_git
-from cardak.snapshot import ClaudeLookup, DeckSnapshot, build_snapshot
+from cardak.core import config as config_mod
+from cardak.core.config import Config, ConfigError
+from cardak.core.resolver import GitLookup, ProjectResolver, run_git
+from cardak.core.snapshot import ClaudeLookup, DeckSnapshot, build_snapshot
 
 ListPanes = Callable[[Mapping[str, str]], list[wezterm.Pane]]
 Sample = Callable[[Iterable[str]], dict[str, PaneProcs]]

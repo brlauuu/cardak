@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from cardak.resolver import Kind
-from cardak.snapshot import Group, PaneRow
+from cardak.core.resolver import Kind
+from cardak.core.snapshot import Group, PaneRow
 from cardak.ui.widgets import fmt_cpu, fmt_rss, group_label, pane_label, unreachable_label
 
 

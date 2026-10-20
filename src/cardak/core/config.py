@@ -109,29 +109,14 @@ def _with_tilde(path: Path) -> str:
     return f"~/{path.relative_to(home)}" if path.is_relative_to(home) else str(path)
 
 
-def add_project(path: Path, name: str, project_path: Path) -> None:
-    """Append a [[project]] block, keeping the existing text (and its comments) as is."""
-    config = load(path)  # raises ConfigError on a broken file, before anything is written
-    project_path = project_path.expanduser()
-    if any(p.path == project_path for p in config.projects):
-        raise ConfigError(path, f"{project_path} is already configured")
-    target = path.resolve()  # write through a symlink (e.g. a dotfiles repo), don't replace it
-    existing = _read(target) or ""
-    # The header is written by hand: tomli-w emits an array of tables inline
-    # (`project = [...]`), which appended after a table would land inside it.
-    block = "[[project]]\n" + tomli_w.dumps({"name": name, "path": _with_tilde(project_path)})
+def _appended(existing: str, block: str) -> str:
     if not existing or existing.endswith("\n\n"):
-        sep = ""
-    elif existing.endswith("\n"):
-        sep = "\n"
-    else:
-        sep = "\n\n"
-    text = existing + sep + block
-    try:
-        _parse(path, text)
-    except ConfigError:
-        # e.g. projects written inline (`project = [...]`) cannot take a [[project]] table
-        raise ConfigError(path, "cannot append to this file's layout; add it by hand") from None
+        return existing + block
+    return existing + ("\n" if existing.endswith("\n") else "\n\n") + block
+
+
+def _atomic_write(path: Path, target: Path, text: str) -> None:
+    """Replace target with text via a temp file in its directory, keeping its mode."""
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
@@ -148,3 +133,22 @@ def add_project(path: Path, name: str, project_path: Path) -> None:
         if isinstance(e, OSError):
             raise ConfigError(path, f"cannot write: {e}") from e
         raise
+
+
+def add_project(path: Path, name: str, project_path: Path) -> None:
+    """Append a [[project]] block, keeping the existing text (and its comments) as is."""
+    config = load(path)  # raises ConfigError on a broken file, before anything is written
+    project_path = project_path.expanduser()
+    if any(p.path == project_path for p in config.projects):
+        raise ConfigError(path, f"{project_path} is already configured")
+    target = path.resolve()  # write through a symlink (e.g. a dotfiles repo), don't replace it
+    # The header is written by hand: tomli-w emits an array of tables inline
+    # (`project = [...]`), which appended after a table would land inside it.
+    block = "[[project]]\n" + tomli_w.dumps({"name": name, "path": _with_tilde(project_path)})
+    text = _appended(_read(target) or "", block)
+    try:
+        _parse(path, text)
+    except ConfigError:
+        # e.g. projects written inline (`project = [...]`) cannot take a [[project]] table
+        raise ConfigError(path, "cannot append to this file's layout; add it by hand") from None
+    _atomic_write(path, target, text)

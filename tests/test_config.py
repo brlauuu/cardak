@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from cardak.config import Config, ConfigError, Project, add_project, config_path, load
+from cardak.core.config import Config, ConfigError, Project, add_project, config_path, load
 
 SAMPLE = """\
 # my projects

@@ -7,7 +7,7 @@ from pathlib import Path
 from cardak.collectors.claude import ClaudeSession
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane
-from cardak.resolver import Kind, ProjectResolver, Resolved
+from cardak.core.resolver import Kind, ProjectResolver, Resolved
 
 ClaudeLookup = Callable[[int], ClaudeSession | None]
 
@@ -88,6 +88,43 @@ def _cwd_display(cwd: Path | None, root: Path | None, home: Path) -> str:
     return tilde(cwd, home)
 
 
+@dataclass(frozen=True)
+class _Context:
+    procs: Mapping[str, PaneProcs]
+    claude_lookup: ClaudeLookup
+    self_pane_id: int | None
+    home: Path
+
+
+def _row(pane: Pane, root: Path | None, ctx: _Context) -> PaneRow:
+    pp = ctx.procs.get(pane.tty) if pane.tty else None
+    label = _label(pp, ctx.claude_lookup)
+    return PaneRow(
+        pane_id=pane.pane_id,
+        label=label,
+        detail=_detail(pane.title, label),
+        cwd=pane.cwd,
+        cwd_display=_cwd_display(pane.cwd, root, ctx.home),
+        cpu_pct=pp.cpu_pct if pp else None,
+        rss=pp.rss if pp else 0,
+        is_self=pane.pane_id == ctx.self_pane_id,
+    )
+
+
+def _group(resolved: Resolved, members: list[Pane], ctx: _Context) -> Group:
+    rows = tuple(_row(pane, resolved.key, ctx) for pane in members)
+    return Group(
+        kind=resolved.kind,
+        key=resolved.key,
+        name=resolved.name,
+        accent=resolved.accent,
+        path=tilde(resolved.key, ctx.home) if resolved.key else None,
+        cpu_pct=sum(r.cpu_pct or 0.0 for r in rows),
+        rss=sum(r.rss for r in rows),
+        panes=rows,
+    )
+
+
 def build_snapshot(
     panes: Iterable[Pane],
     procs: Mapping[str, PaneProcs],
@@ -99,35 +136,7 @@ def build_snapshot(
     buckets: dict[Resolved, list[Pane]] = {}
     for pane in sorted(panes, key=lambda p: (p.window_id, p.tab_id, p.pane_id)):
         buckets.setdefault(resolver.resolve(pane.cwd), []).append(pane)
-
-    groups: list[Group] = []
-    for resolved, members in sorted(buckets.items(), key=lambda item: _rank(item[0])):
-        rows = []
-        for pane in members:
-            pp = procs.get(pane.tty) if pane.tty else None
-            label = _label(pp, claude_lookup)
-            rows.append(
-                PaneRow(
-                    pane_id=pane.pane_id,
-                    label=label,
-                    detail=_detail(pane.title, label),
-                    cwd=pane.cwd,
-                    cwd_display=_cwd_display(pane.cwd, resolved.key, home),
-                    cpu_pct=pp.cpu_pct if pp else None,
-                    rss=pp.rss if pp else 0,
-                    is_self=pane.pane_id == self_pane_id,
-                )
-            )
-        groups.append(
-            Group(
-                kind=resolved.kind,
-                key=resolved.key,
-                name=resolved.name,
-                accent=resolved.accent,
-                path=tilde(resolved.key, home) if resolved.key else None,
-                cpu_pct=sum(r.cpu_pct or 0.0 for r in rows),
-                rss=sum(r.rss for r in rows),
-                panes=tuple(rows),
-            )
-        )
-    return DeckSnapshot(groups=tuple(groups), n_panes=sum(len(g.panes) for g in groups))
+    ctx = _Context(procs, claude_lookup, self_pane_id, home)
+    ranked = sorted(buckets.items(), key=lambda item: _rank(item[0]))
+    groups = tuple(_group(resolved, members, ctx) for resolved, members in ranked)
+    return DeckSnapshot(groups=groups, n_panes=sum(len(g.panes) for g in groups))

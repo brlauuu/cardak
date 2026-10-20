@@ -3,7 +3,7 @@
 from rich.color import Color, ColorParseError
 from rich.text import Text
 
-from cardak.snapshot import Group, PaneRow
+from cardak.core.snapshot import Group, PaneRow
 
 
 def fmt_cpu(cpu: float | None) -> str:

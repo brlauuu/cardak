@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from cardak.config import Config, Project
-from cardak.resolver import OTHER, ProjectResolver, Resolved, run_git
+from cardak.core.config import Config, Project
+from cardak.core.resolver import OTHER, ProjectResolver, Resolved, run_git
 
 
 class FakeGit:
@@ -46,7 +46,7 @@ def test_prefix_matches_whole_components_only() -> None:
 def test_config_path_with_tilde_and_trailing_slash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from cardak.config import load
+    from cardak.core.config import load
 
     monkeypatch.setenv("HOME", str(tmp_path))
     f = tmp_path / "projects.toml"

@@ -3,9 +3,9 @@ from pathlib import Path
 from cardak.collectors.claude import ClaudeSession
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane
-from cardak.config import Config, Project
-from cardak.resolver import ProjectResolver
-from cardak.snapshot import build_snapshot, tilde
+from cardak.core.config import Config, Project
+from cardak.core.resolver import ProjectResolver
+from cardak.core.snapshot import build_snapshot, tilde
 
 HOME = Path("/home/user")
 R = HOME / "repos"

@@ -13,8 +13,8 @@ from textual.widgets import Footer, Header, Input, Label, Static, Tree
 from textual.widgets.tree import TreeNode
 from textual.worker import Worker
 
-from cardak.config import ConfigError
-from cardak.snapshot import DeckSnapshot, Group, PaneRow
+from cardak.core.config import ConfigError
+from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 from cardak.ui.widgets import group_label, pane_label, unreachable_label
 
 NodeData = tuple[Group, PaneRow | None]

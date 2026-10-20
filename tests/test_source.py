@@ -4,7 +4,7 @@ from pathlib import Path
 
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane, WeztermUnavailable
-from cardak.source import LiveSource
+from cardak.core.source import LiveSource
 
 HOME = Path("/home/user")
 

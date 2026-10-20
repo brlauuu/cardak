@@ -55,6 +55,34 @@ class PsutilTable:
                 continue
         return ttys
 
+    def _read(
+        self,
+        proc: psutil.Process,
+        ttys: dict[int, str],
+        seen: dict[tuple[int, float], psutil.Process],
+    ) -> ProcInfo:
+        """One process; records it in `seen`. Raises psutil.Error/OSError if it vanished."""
+        info = proc.info
+        key = (info["pid"], info["create_time"])
+        known = self._seen.get(key)
+        tracked = known or proc
+        cpu = tracked.cpu_percent(None)
+        pgid, tty_nr, tpgid = self._stat(info["pid"])
+        seen[key] = tracked
+        memory = info["memory_info"]
+        return ProcInfo(
+            pid=info["pid"],
+            ppid=info["ppid"] or 0,
+            tty=ttys.get(tty_nr) if tty_nr else None,
+            pgid=pgid,
+            tpgid=tpgid,
+            name=info["name"] or "?",
+            cmdline=tuple(info["cmdline"] or ()),
+            create_time=info["create_time"],
+            cpu_pct=cpu if known else None,
+            rss=memory.rss if memory else 0,
+        )
+
     def snapshot(self) -> list[ProcInfo]:
         seen: dict[tuple[int, float], psutil.Process] = {}
         infos: list[ProcInfo] = []
@@ -62,30 +90,9 @@ class PsutilTable:
         attrs = ["pid", "ppid", "name", "cmdline", "create_time", "memory_info"]
         for proc in psutil.process_iter(attrs):
             try:
-                info = proc.info
-                key = (info["pid"], info["create_time"])
-                known = self._seen.get(key)
-                tracked = known or proc
-                cpu = tracked.cpu_percent(None)
-                pgid, tty_nr, tpgid = self._stat(info["pid"])
+                infos.append(self._read(proc, ttys, seen))
             except (psutil.Error, OSError, ValueError):
                 continue
-            seen[key] = tracked
-            memory = info["memory_info"]
-            infos.append(
-                ProcInfo(
-                    pid=info["pid"],
-                    ppid=info["ppid"] or 0,
-                    tty=ttys.get(tty_nr) if tty_nr else None,
-                    pgid=pgid,
-                    tpgid=tpgid,
-                    name=info["name"] or "?",
-                    cmdline=tuple(info["cmdline"] or ()),
-                    create_time=info["create_time"],
-                    cpu_pct=cpu if known else None,
-                    rss=memory.rss if memory else 0,
-                )
-            )
         self._seen = seen
         return infos
 
@@ -149,6 +156,37 @@ def _foreground(on_tty: Sequence[ProcInfo]) -> ProcInfo | None:
     return max(on_tty, key=lambda p: p.create_time, default=None)
 
 
+def _split_mcp(
+    tree: list[ProcInfo], children: dict[int, list[ProcInfo]]
+) -> tuple[list[ProcInfo], list[ProcInfo]]:
+    """(work, mcp): MCP servers are direct children of a claude process, with their subtrees."""
+    roots = [c for p in tree if is_claude(p) for c in children.get(p.pid, ()) if is_mcp_server(c)]
+    mcp_pids = {p.pid for p in _subtree(roots, children)}
+    return [p for p in tree if p.pid not in mcp_pids], [p for p in tree if p.pid in mcp_pids]
+
+
+def _total_cpu(procs: Sequence[ProcInfo]) -> float | None:
+    """None when no process has a CPU sample yet (all first-seen)."""
+    values = [p.cpu_pct for p in procs]
+    return None if all(c is None for c in values) else sum(c or 0.0 for c in values)
+
+
+def _pane_procs(on_tty: list[ProcInfo], children: dict[int, list[ProcInfo]]) -> PaneProcs:
+    work, mcp = _split_mcp(_subtree(on_tty, children), children)
+    fg = _foreground(on_tty)
+    claude = next((p for p in work if is_claude(p)), None)
+    return PaneProcs(
+        fg_name=fg.name if fg else None,
+        fg_pid=fg.pid if fg else None,
+        claude_pid=claude.pid if claude else None,
+        cpu_pct=_total_cpu(work),
+        rss=sum(p.rss for p in work),
+        n_procs=len(work),
+        mcp_cpu_pct=sum(p.cpu_pct or 0.0 for p in mcp),
+        mcp_rss=sum(p.rss for p in mcp),
+    )
+
+
 def summarize(procs: Sequence[ProcInfo], ttys: Iterable[str]) -> dict[str, PaneProcs]:
     children: dict[int, list[ProcInfo]] = defaultdict(list)
     by_tty: dict[str, list[ProcInfo]] = defaultdict(list)
@@ -157,32 +195,7 @@ def summarize(procs: Sequence[ProcInfo], ttys: Iterable[str]) -> dict[str, PaneP
             children[p.ppid].append(p)
         if p.tty:
             by_tty[p.tty].append(p)
-
-    result: dict[str, PaneProcs] = {}
-    for tty in ttys:
-        on_tty = by_tty.get(tty, [])
-        tree = _subtree(on_tty, children)
-        mcp_roots = [
-            c for p in tree if is_claude(p) for c in children.get(p.pid, ()) if is_mcp_server(c)
-        ]
-        mcp_pids = {p.pid for p in _subtree(mcp_roots, children)}
-        work = [p for p in tree if p.pid not in mcp_pids]
-        mcp = [p for p in tree if p.pid in mcp_pids]
-        fg = _foreground(on_tty)
-        claude = next((p for p in work if is_claude(p)), None)
-        cpu_values = [p.cpu_pct for p in work]
-        cpu = None if all(c is None for c in cpu_values) else sum(c or 0.0 for c in cpu_values)
-        result[tty] = PaneProcs(
-            fg_name=fg.name if fg else None,
-            fg_pid=fg.pid if fg else None,
-            claude_pid=claude.pid if claude else None,
-            cpu_pct=cpu,
-            rss=sum(p.rss for p in work),
-            n_procs=len(work),
-            mcp_cpu_pct=sum(p.cpu_pct or 0.0 for p in mcp),
-            mcp_rss=sum(p.rss for p in mcp),
-        )
-    return result
+    return {tty: _pane_procs(by_tty.get(tty, []), children) for tty in ttys}
 
 
 class ProcessSampler:
