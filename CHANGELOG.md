@@ -9,5 +9,7 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.1.0 — 2026-10-20
+
 ### Added
 - `cardak` opens a live view of every WezTerm pane grouped by project, with the CPU and memory of everything running in each pane, including builds an agent started. Repos you haven't configured are grouped by their git root, and `a` adds one to your projects. (#2)
