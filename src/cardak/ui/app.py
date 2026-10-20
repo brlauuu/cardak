@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -19,6 +19,7 @@ from cardak.core.filter import filter_snapshot
 from cardak.core.navigate import JumpResult
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 from cardak.core.themes import Scheme, SchemeStore
+from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import group_label, no_match_label, pane_label, unreachable_label
 
 NodeData = tuple[Group, PaneRow | None]
@@ -31,6 +32,10 @@ class DeckSource(Protocol):
     def poll(self) -> DeckSnapshot: ...
 
     def add_project(self, name: str, path: Path) -> None: ...
+
+    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None: ...
+
+    def regenerate(self) -> None: ...
 
 
 class Jumper(Protocol):
@@ -86,10 +91,12 @@ class DeckApp(App[None]):
     AddProjectScreen { align: center middle; }
     #dialog { width: 70; height: auto; border: round $accent; padding: 1 2; background: $surface; }
     #find { display: none; }
+    #banner.warning { background: $warning; }
     #banner { display: none; background: $error; color: $text; padding: 0 1; }
     """
     BINDINGS = [
         Binding("a", "add_project", "Add as project"),
+        Binding("t", "theme", "Theme"),
         Binding("slash", "find", "Find"),
         Binding("escape", "clear_find", "Clear find", show=False),
         Binding("j", "cursor_down", "Down", show=False),
@@ -103,7 +110,7 @@ class DeckApp(App[None]):
         source: DeckSource,
         navigator: Jumper | None = None,
         interval: float = 2.0,
-        previewer: Any = None,
+        previewer: ThemePreviewer | None = None,
         schemes: SchemeStore | None = None,
         load_schemes: Callable[[], Mapping[str, Scheme]] | None = None,
     ) -> None:
@@ -138,6 +145,8 @@ class DeckApp(App[None]):
         self.deck_tree.focus()
         self.action_refresh()
         self.set_interval(self.interval, self.action_refresh)
+        if self.schemes is not None and not self.schemes.get() and self.load_schemes is not None:
+            self.run_worker(self._load_schemes, thread=True, group="schemes", exit_on_error=False)
 
     def action_refresh(self) -> None:
         # Thread workers cannot be cancelled, so never start a poll while one is running:
@@ -160,8 +169,12 @@ class DeckApp(App[None]):
             return
         self.raw = snap
         banner = self.query_one("#banner", Static)
-        banner.update(escape(f"projects.toml: {snap.config_error}") if snap.config_error else "")
-        banner.display = snap.config_error is not None
+        if snap.config_error:
+            banner.update(escape(f"projects.toml: {snap.config_error}"))
+        else:
+            banner.update(escape("\n".join(snap.config_warnings)))
+        banner.display = bool(snap.config_error or snap.config_warnings)
+        banner.set_class(snap.config_error is None and bool(snap.config_warnings), "warning")
         self._render(follow_best=False)
 
     def _render(self, follow_best: bool) -> None:
@@ -319,3 +332,50 @@ class DeckApp(App[None]):
         if result.message:
             severity = "error" if result.kind == "failed" else "information"
             self.notify(escape(result.message), severity=severity)
+
+    def _load_schemes(self) -> None:
+        if self.load_schemes is None or self.schemes is None:
+            return
+        try:
+            self.schemes.set(self.load_schemes())
+        except Exception:  # the picker retries and shows the reason; accents just stay unset
+            return
+        self.source.regenerate()
+        self.call_from_thread(self.action_refresh)
+
+    def _schemes_for_picker(self) -> Mapping[str, Scheme]:
+        if self.schemes is not None and self.schemes.get():
+            return self.schemes.get()
+        if self.load_schemes is None:
+            raise RuntimeError("scheme list not available")
+        schemes = self.load_schemes()
+        if self.schemes is not None:
+            self.schemes.set(schemes)
+        return schemes
+
+    def action_theme(self) -> None:
+        node = self.deck_tree.cursor_node
+        group = node.data[0] if node is not None and node.data is not None else None
+        if group is None or group.kind == "other" or group.key is None:
+            self.notify("Select a project or a repo to theme.", severity="warning")
+            return
+        if not self.source.can_add:
+            self.notify("Fix projects.toml before changing themes.", severity="error")
+            return
+        name, path = group.name, group.key
+
+        def done(scheme: str | None) -> None:
+            if not scheme:
+                return
+            try:
+                self.source.set_theme(path, scheme, name)
+            except ConfigError as e:
+                self.notify(escape(str(e)), severity="error")
+                return
+            self.notify(escape(f"{name}: {scheme}"))
+            self.action_refresh()
+
+        self.push_screen(
+            ThemePickerScreen(name, path, group.theme, self._schemes_for_picker, self.previewer),
+            done,
+        )
