@@ -14,9 +14,10 @@ from textual.widgets.tree import TreeNode
 from textual.worker import Worker
 
 from cardak.core.config import ConfigError
+from cardak.core.filter import filter_snapshot
 from cardak.core.navigate import JumpResult
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
-from cardak.ui.widgets import group_label, pane_label, unreachable_label
+from cardak.ui.widgets import group_label, no_match_label, pane_label, unreachable_label
 
 NodeData = tuple[Group, PaneRow | None]
 
@@ -67,10 +68,13 @@ class DeckApp(App[None]):
     CSS = """
     AddProjectScreen { align: center middle; }
     #dialog { width: 70; height: auto; border: round $accent; padding: 1 2; background: $surface; }
+    #find { display: none; }
     #banner { display: none; background: $error; color: $text; padding: 0 1; }
     """
     BINDINGS = [
         Binding("a", "add_project", "Add as project"),
+        Binding("slash", "find", "Find"),
+        Binding("escape", "clear_find", "Clear find", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("r", "refresh", "Refresh"),
@@ -84,13 +88,17 @@ class DeckApp(App[None]):
         self.source = source
         self.navigator = navigator
         self.interval = interval
+        self.raw: DeckSnapshot | None = None
         self.snapshot: DeckSnapshot | None = None
+        self.find_query = ""
+        self._best: int | None = None
         self._collapsed: set[str] = set()
         self._poll_worker: Worker[None] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static("", id="banner")
+        yield Input(placeholder="find: project, process, title or path", id="find")
         yield Tree[NodeData]("projects", id="tree")
         yield Footer()
 
@@ -100,6 +108,8 @@ class DeckApp(App[None]):
 
     def on_mount(self) -> None:
         self.deck_tree.show_root = False
+        # AUTO_FOCUS would pick the hidden #find input, which then swallows every key.
+        self.deck_tree.focus()
         self.action_refresh()
         self.set_interval(self.interval, self.action_refresh)
 
@@ -120,16 +130,35 @@ class DeckApp(App[None]):
         self.call_from_thread(self.apply_snapshot, snap)
 
     def apply_snapshot(self, snap: DeckSnapshot) -> None:
-        if snap == self.snapshot:
+        if snap == self.raw:
             return
-        self.snapshot = snap
-        self.sub_title = f"{snap.n_projects} projects · {snap.n_panes} panes"
+        self.raw = snap
         banner = self.query_one("#banner", Static)
         banner.update(escape(f"projects.toml: {snap.config_error}") if snap.config_error else "")
         banner.display = snap.config_error is not None
-        self._rebuild(snap)
+        self._render(follow_best=False)
 
-    def _rebuild(self, snap: DeckSnapshot) -> None:
+    def _render(self, follow_best: bool) -> None:
+        raw = self.raw
+        if raw is None:
+            return
+        result = filter_snapshot(raw, self.find_query)
+        self.snapshot = result.snapshot
+        self._best = result.best_pane_id
+        query = self.find_query.strip()
+        if query:
+            self.sub_title = f'{result.n_matches} of {raw.n_panes} panes match "{query}"'
+        else:
+            self.sub_title = f"{raw.n_projects} projects · {raw.n_panes} panes"
+        self._rebuild(
+            result.snapshot,
+            focus_pane=result.best_pane_id if follow_best else None,
+            empty_query=query or None,
+        )
+
+    def _rebuild(
+        self, snap: DeckSnapshot, focus_pane: int | None = None, empty_query: str | None = None
+    ) -> None:
         tree = self.deck_tree
         cursor = tree.cursor_node
         selected = node_id(cursor.data) if cursor else None
@@ -137,21 +166,55 @@ class DeckApp(App[None]):
         if snap.error:
             tree.root.add_leaf(unreachable_label(snap.error))
             return
+        if not snap.groups and empty_query:
+            tree.root.add_leaf(no_match_label(empty_query))
+            return
         target: TreeNode[NodeData] | None = None
         for group in snap.groups:
             data: NodeData = (group, None)
             node = tree.root.add(
                 group_label(group), data=data, expand=node_id(data) not in self._collapsed
             )
-            if node_id(data) == selected:
+            if focus_pane is None and node_id(data) == selected:
                 target = node
             for row in group.panes:
                 leaf = node.add_leaf(pane_label(row), data=(group, row))
-                if node_id((group, row)) == selected:
+                if focus_pane is not None:
+                    if row.pane_id == focus_pane:
+                        # a leaf in a collapsed group has no line; land on its group instead
+                        target = leaf if node.is_expanded else node
+                elif node_id((group, row)) == selected:
                     target = leaf
         if target is not None:
             # New nodes get their line numbers on the next refresh; moving now lands on line 0.
             self.call_after_refresh(tree.move_cursor, target)
+
+    def action_find(self) -> None:
+        find = self.query_one("#find", Input)
+        find.display = True
+        find.focus()
+
+    def action_clear_find(self) -> None:
+        find = self.query_one("#find", Input)
+        if not find.display:
+            return
+        find.value = ""
+        find.display = False
+        self.find_query = ""
+        self._render(follow_best=False)
+        self.deck_tree.focus()
+
+    @on(Input.Changed, "#find")
+    def _find_changed(self, event: Input.Changed) -> None:
+        if event.value == self.find_query:
+            return
+        self.find_query = event.value
+        self._render(follow_best=True)
+
+    @on(Input.Submitted, "#find")
+    def _find_submitted(self, event: Input.Submitted) -> None:
+        if self._best is not None:
+            self.jump(self._best)
 
     @on(Tree.NodeCollapsed)
     def _remember_collapsed(self, event: Tree.NodeCollapsed[NodeData]) -> None:

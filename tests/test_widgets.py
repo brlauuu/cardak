@@ -2,7 +2,14 @@ from pathlib import Path
 
 from cardak.core.resolver import Kind
 from cardak.core.snapshot import Group, PaneRow
-from cardak.ui.widgets import fmt_cpu, fmt_rss, group_label, pane_label, unreachable_label
+from cardak.ui.widgets import (
+    fmt_cpu,
+    fmt_rss,
+    group_label,
+    no_match_label,
+    pane_label,
+    unreachable_label,
+)
 
 
 def group(kind: Kind = "config", accent: str | None = "#fabd2f") -> Group:
@@ -54,3 +61,7 @@ def test_pane_label() -> None:
 
 def test_unreachable_label() -> None:
     assert unreachable_label("x").plain == "WezTerm not reachable: x — retrying"
+
+
+def test_no_match_label() -> None:
+    assert no_match_label("[/b]").plain == 'No pane matches "[/b]"'
