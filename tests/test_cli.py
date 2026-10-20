@@ -52,6 +52,7 @@ def test_tui_gets_a_live_navigator(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     seen: list[DeckApp] = []
     monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr("cardak.cli.read_cached_schemes", lambda cache_dir: None)
     assert main(["--config", str(tmp_path / "p.toml")]) == 0
     nav = seen[0].navigator
     assert isinstance(nav, Navigator)
@@ -68,3 +69,65 @@ def test_wezterm_install_resolves_a_relative_dir(
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     assert main(["wezterm", "install", "--dir", "."]) == 0
     assert f"[==[{tmp_path}/?.lua;]==]" in capsys.readouterr().out
+
+
+@pytest.fixture
+def xdg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.delenv("CARDAK_CONFIG", raising=False)
+    monkeypatch.setattr("cardak.cli.load_schemes", lambda cache_dir: {})  # no real probe
+    return tmp_path
+
+
+def test_themes_apply_without_module(xdg: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    cfg = xdg / "config/cardak/projects.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text('[[project]]\nname = "a"\npath = "/a"\ntheme = "Nord"\n')
+    assert main(["themes", "apply"]) == 0
+    out = capsys.readouterr().out
+    assert f"wrote {xdg / 'config/cardak/tints'}" in out
+    assert "run `cardak wezterm install`" in out
+
+
+def test_themes_apply_with_module(xdg: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from cardak.wezterm.install import install
+
+    install(xdg / "config/wezterm")
+    cfg = xdg / "config/cardak/projects.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text('[[project]]\nname = "a"\npath = "/a"\ntheme = "Nord"\n')
+    assert main(["themes", "apply"]) == 0
+    assert (xdg / "config/wezterm/cardak_projects.lua").read_text().count("[[Nord]]") == 1
+    assert main(["themes", "apply"]) == 0
+    assert "already up to date" in capsys.readouterr().out
+
+
+def test_themes_apply_broken_config(xdg: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    cfg = xdg / "config/cardak/projects.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text("x = = y\n")
+    assert main(["themes", "apply"]) == 1
+    assert "projects.toml" in capsys.readouterr().err
+
+
+def test_themes_zsh(xdg: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["themes", "zsh"]) == 0
+    hook = xdg / "config/cardak/tint.zsh"
+    assert hook.read_text().startswith("# cardak: generated")
+    assert f"source {hook}" in capsys.readouterr().out
+    hook.write_text("# mine\n")
+    assert main(["themes", "zsh"]) == 1
+    assert main(["themes", "zsh", "--force"]) == 0
+
+
+def test_theme_writer_reports_old_module(tmp_path: Path) -> None:
+    from cardak.cli import _theme_writer
+    from cardak.core.config import Config
+    from cardak.core.themes import SchemeStore
+    from cardak.wezterm.install import MARKER
+
+    (tmp_path / "wez").mkdir()
+    (tmp_path / "wez" / "cardak.lua").write_text(MARKER + "\n")
+    write = _theme_writer(tmp_path / "wez", tmp_path / "card", SchemeStore())
+    assert any("older cardak" in w for w in write(Config()))

@@ -2,14 +2,30 @@
 
 import argparse
 import sys
+from collections.abc import Callable
 from importlib.metadata import version
 from pathlib import Path
 
-from cardak.core.config import config_path
-from cardak.core.navigate import Navigator
+from cardak.core.config import Config, ConfigError, config_dir, config_path, load
+from cardak.core.navigate import Navigator, Previewer
 from cardak.core.source import LiveSource
+from cardak.core.themes import SchemeStore
 from cardak.ui.app import DeckApp
+from cardak.wezterm.generate import (
+    MODULE_VERSION,
+    NO_MODULE_MSG,
+    OLD_MODULE_MSG,
+    GenerateError,
+    install_tint_hook,
+    write_generated,
+)
 from cardak.wezterm.install import InstallError, default_dir, install, snippet
+from cardak.wezterm.schemes import (
+    SchemesUnavailable,
+    default_cache_dir,
+    load_schemes,
+    read_cached_schemes,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     inst.add_argument(
         "--force", action="store_true", help="replace a cardak.lua not written by cardak"
     )
+    themes = sub.add_parser("themes", help="per-project WezTerm color schemes")
+    themes_sub = themes.add_subparsers(dest="themes_command", required=True)
+    themes_sub.add_parser("apply", help="regenerate the theme files from projects.toml")
+    zsh = themes_sub.add_parser("zsh", help="install the zsh hook that tints panes by project")
+    zsh.add_argument(
+        "--force", action="store_true", help="replace a tint.zsh not written by cardak"
+    )
     return parser
 
 
@@ -47,10 +70,92 @@ def _wezterm_install(dest: Path | None, force: bool) -> int:
     return 0
 
 
+def _module_message(version: int | None) -> str | None:
+    if version is None:
+        return NO_MODULE_MSG
+    if version < MODULE_VERSION:
+        return OLD_MODULE_MSG
+    return None
+
+
+def _theme_writer(
+    wezterm_dir: Path, cardak_dir: Path, store: SchemeStore
+) -> Callable[[Config], list[str]]:
+    """What the deck runs after every config change: regenerate, return banner warnings."""
+
+    def write(config: Config) -> list[str]:
+        result = write_generated(wezterm_dir, cardak_dir, config, store.get() or None)
+        warnings = [
+            f"projects.toml: {p}" if p.startswith("unknown") else p for p in result.problems
+        ]
+        if result.module_version is not None and result.module_version < MODULE_VERSION:
+            warnings.append(OLD_MODULE_MSG)
+        return warnings
+
+    return write
+
+
+def _themes_apply(config_arg: str | None) -> int:
+    path = config_path(config_arg)
+    try:
+        config = load(path)
+    except ConfigError as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    try:
+        schemes = load_schemes(default_cache_dir())
+    except SchemesUnavailable as e:
+        print(f"cardak: scheme names not checked: {e}", file=sys.stderr)
+        schemes = None
+    result = write_generated(default_dir(), config_dir(), config, schemes)
+    for written in result.written:
+        print(f"wrote {written}")
+    if not result.written:
+        print("theme files already up to date")
+    for problem in result.problems:
+        print(f"warning: {problem}", file=sys.stderr)
+    if message := _module_message(result.module_version):
+        print(message)
+    return 0
+
+
+def _themes_zsh(config_arg: str | None, force: bool) -> int:
+    try:
+        config = load(config_path(config_arg))
+    except ConfigError as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    cardak_dir = config_dir()
+    try:
+        hook = install_tint_hook(cardak_dir, force=force)
+    except GenerateError as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    write_generated(default_dir(), cardak_dir, config, read_cached_schemes(default_cache_dir()))
+    print(f"installed {hook}\n\nAdd this line to your ~/.zshrc:\n\nsource {hook}\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "wezterm":
         return _wezterm_install(args.dir, args.force)
-    lua_file = default_dir() / "cardak.lua"
-    DeckApp(LiveSource(config_path(args.config)), navigator=Navigator.live(lua_file)).run()
+    if args.command == "themes":
+        if args.themes_command == "apply":
+            return _themes_apply(args.config)
+        return _themes_zsh(args.config, args.force)
+    cache_dir = default_cache_dir()
+    store = SchemeStore(read_cached_schemes(cache_dir))
+    source = LiveSource(
+        config_path(args.config),
+        on_config=_theme_writer(default_dir(), config_dir(), store),
+        schemes=store.get,
+    )
+    DeckApp(
+        source,
+        navigator=Navigator.live(default_dir() / "cardak.lua"),
+        previewer=Previewer.live(),
+        schemes=store,
+        load_schemes=lambda: load_schemes(cache_dir),
+    ).run()
     return 0

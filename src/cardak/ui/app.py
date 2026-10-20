@@ -1,7 +1,8 @@
 """The deck: a live tree of WezTerm panes grouped by project."""
 
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -17,6 +18,7 @@ from cardak.core.config import ConfigError
 from cardak.core.filter import filter_snapshot
 from cardak.core.navigate import JumpResult
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
+from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.widgets import group_label, no_match_label, pane_label, unreachable_label
 
 NodeData = tuple[Group, PaneRow | None]
@@ -97,11 +99,20 @@ class DeckApp(App[None]):
     ]
 
     def __init__(
-        self, source: DeckSource, navigator: Jumper | None = None, interval: float = 2.0
+        self,
+        source: DeckSource,
+        navigator: Jumper | None = None,
+        interval: float = 2.0,
+        previewer: Any = None,
+        schemes: SchemeStore | None = None,
+        load_schemes: Callable[[], Mapping[str, Scheme]] | None = None,
     ) -> None:
         super().__init__()
         self.source = source
         self.navigator = navigator
+        self.previewer = previewer
+        self.schemes = schemes
+        self.load_schemes = load_schemes
         self.interval = interval
         self.raw: DeckSnapshot | None = None
         self.snapshot: DeckSnapshot | None = None
