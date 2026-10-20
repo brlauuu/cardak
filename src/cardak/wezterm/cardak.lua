@@ -4,20 +4,28 @@ local wezterm = require 'wezterm'
 
 local M = {}
 
+local function focus_target(id)
+  local pane = wezterm.mux.get_pane(id)
+  if not pane then return end
+  local tab = pane:tab()
+  if not tab then return end
+  local win = tab:window()
+  if not win then return end
+  tab:activate()
+  pane:activate()
+  local gui = win:gui_window()
+  if gui then gui:focus() end
+end
+
 -- The deck sets cardak_focus=<pane_id>:<nonce> on its own pane (the nonce makes every
 -- request a change, which is what fires the event). Raise the target pane's window.
 local function on_user_var(_, _, name, value)
   if name ~= 'cardak_focus' then return end
   local id = tonumber(value:match('^(%d+)'))
   if not id then return end
-  local ok, pane = pcall(wezterm.mux.get_pane, id)
-  if not ok or not pane then return end
-  local tab = pane:tab()
-  if not tab then return end
-  tab:activate()
-  pane:activate()
-  local gui = tab:window():gui_window()
-  if gui then gui:focus() end
+  -- The pane or its tab can close mid-event (get_pane also errors on unknown ids);
+  -- never surface that as a WezTerm error overlay.
+  pcall(focus_target, id)
 end
 
 function M.apply(config)

@@ -35,7 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _wezterm_install(dest: Path | None, force: bool) -> int:
-    dest_dir = dest or default_dir()
+    # absolute: package.path is resolved against WezTerm's cwd, not this shell's
+    dest_dir = dest.expanduser().resolve() if dest else default_dir()
     try:
         result = install(dest_dir, force=force)
     except InstallError as e:

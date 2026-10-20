@@ -54,3 +54,13 @@ def test_tui_gets_a_live_navigator(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     (tmp_path / "wezterm").mkdir()
     (tmp_path / "wezterm" / "cardak.lua").write_text("x")
     assert nav.lua_installed()
+
+
+def test_wezterm_install_resolves_a_relative_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    assert main(["wezterm", "install", "--dir", "."]) == 0
+    assert f"[==[{tmp_path}/?.lua;]==]" in capsys.readouterr().out

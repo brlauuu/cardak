@@ -61,21 +61,23 @@ def _write(path: Path, text: str) -> None:
 def install(dest_dir: Path, force: bool = False) -> InstallResult:
     text = module_text()
     path = dest_dir / "cardak.lua"
-    existing = _existing(path)
+    target = path.resolve()  # write through a symlink (e.g. a dotfiles repo), don't replace it
+    existing = _existing(target)
     if existing == text:
         return InstallResult(path, "unchanged")
     if existing is not None and not existing.startswith(MARKER) and not force:
         raise InstallError(
             f"{path} exists and was not written by cardak; use --force to replace it"
         )
-    _write(path, text)
+    _write(target, text)
     return InstallResult(path, "installed" if existing is None else "updated")
 
 
 def snippet(dest_dir: Path, env: Mapping[str, str] | None = None) -> str:
     load = ""
     if dest_dir != default_dir(env):
-        load = f"package.path = '{dest_dir}/?.lua;' .. package.path\n"
+        # Lua long brackets: no escaping needed for quotes or backslashes in the path
+        load = f"package.path = [==[{dest_dir}/?.lua;]==] .. package.path\n"
     return (
         "Add this line to your wezterm.lua, before `return config`:\n\n"
         f"{load}require('cardak').apply(config)\n\n"

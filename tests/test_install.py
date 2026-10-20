@@ -81,7 +81,33 @@ def test_snippet_for_default_dir(tmp_path: Path) -> None:
 
 def test_snippet_for_other_dir_adds_package_path(tmp_path: Path) -> None:
     text = snippet(tmp_path / "elsewhere", {"HOME": str(tmp_path)})
-    assert f"package.path = '{tmp_path / 'elsewhere'}/?.lua;' .. package.path" in text
+    assert f"package.path = [==[{tmp_path / 'elsewhere'}/?.lua;]==] .. package.path" in text
+
+
+def test_snippet_quotes_odd_paths_safely(tmp_path: Path) -> None:
+    odd = tmp_path / "it's \\ here"
+    text = snippet(odd, {"HOME": str(tmp_path)})
+    assert f"[==[{odd}/?.lua;]==]" in text
+
+
+def test_handler_body_is_protected() -> None:
+    # a pane or tab closing mid-event must not raise a WezTerm error overlay
+    text = module_text()
+    assert "pcall(focus_target, id)" in text
+    assert "local win = tab:window()" in text
+
+
+def test_install_writes_through_a_symlink(tmp_path: Path) -> None:
+    dotfiles = tmp_path / "dotfiles"
+    dotfiles.mkdir()
+    target = dotfiles / "cardak.lua"
+    target.write_text(MARKER + " (old)\n")
+    (tmp_path / "wez").mkdir()
+    link = tmp_path / "wez" / "cardak.lua"
+    link.symlink_to(target)
+    assert install(tmp_path / "wez").status == "updated"
+    assert link.is_symlink()
+    assert target.read_text() == module_text()
 
 
 def test_install_does_not_touch_wezterm_lua(tmp_path: Path) -> None:
