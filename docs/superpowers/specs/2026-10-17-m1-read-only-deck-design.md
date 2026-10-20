@@ -202,3 +202,4 @@ Dependency direction: `cli → ui → snapshot → {collectors, resolver, config
 - An unexpected exception in a poll becomes `DeckSnapshot(error="internal error: …")` instead of killing the app.
 - `add_project` writes the `[[project]]` header itself: tomli-w serializes an array of tables inline, which appended after an existing table would land inside it.
 - The tty of a process comes from `/proc/<pid>/stat` with a device map rebuilt every snapshot, not psutil's `terminal()`, whose map is memoized for the life of the process.
+- `config`, `resolver`, `snapshot` and `source` live in `src/cardak/core/`, so the package layers as `cli → ui → core → collectors` with no directory-level cycle (enola, after review).
