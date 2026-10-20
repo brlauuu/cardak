@@ -121,7 +121,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   `add_project` and `PsutilTable.snapshot`).
 - **Four hotspot findings are accepted as design**, reported but not failed:
   `config.load`, `LiveSource._poll`, `LiveSource._reload_if_changed` and
-  `DeckApp._rebuild` (fan-in × fan-out 12–25). Each one coordinates the steps of a
+  `DeckApp._rebuild` (fan-in × fan-out 12–25). M2 adds `DeckApp._render` (5 × 3), which
+  applies the filter, sets the header and rebuilds: the same kind of coordinator. Each one coordinates the steps of a
   single operation; splitting it would only move the fan-out somewhere else.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its

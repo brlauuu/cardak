@@ -32,24 +32,20 @@ def default_dir(env: Mapping[str, str] | None = None) -> Path:
     return Path(env.get("HOME") or Path.home()) / ".config" / "wezterm"
 
 
-def install(dest_dir: Path, force: bool = False) -> InstallResult:
-    text = module_text()
-    path = dest_dir / "cardak.lua"
+def _existing(path: Path) -> str | None:
     try:
-        existing: str | None = path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        existing = None
+        return None
     except (OSError, UnicodeDecodeError) as e:
         raise InstallError(f"cannot read {path}: {e}") from e
-    if existing == text:
-        return InstallResult(path, "unchanged")
-    if existing is not None and not existing.startswith(MARKER) and not force:
-        raise InstallError(
-            f"{path} exists and was not written by cardak; use --force to replace it"
-        )
+
+
+def _write(path: Path, text: str) -> None:
+    """Atomically replace path with text, mode 0644."""
     try:
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=dest_dir, prefix=".cardak.", suffix=".lua")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".cardak.", suffix=".lua")
     except OSError as e:
         raise InstallError(f"cannot write {path}: {e}") from e
     try:
@@ -60,6 +56,19 @@ def install(dest_dir: Path, force: bool = False) -> InstallResult:
     except OSError as e:
         Path(tmp).unlink(missing_ok=True)
         raise InstallError(f"cannot write {path}: {e}") from e
+
+
+def install(dest_dir: Path, force: bool = False) -> InstallResult:
+    text = module_text()
+    path = dest_dir / "cardak.lua"
+    existing = _existing(path)
+    if existing == text:
+        return InstallResult(path, "unchanged")
+    if existing is not None and not existing.startswith(MARKER) and not force:
+        raise InstallError(
+            f"{path} exists and was not written by cardak; use --force to replace it"
+        )
+    _write(path, text)
     return InstallResult(path, "installed" if existing is None else "updated")
 
 

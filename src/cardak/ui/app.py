@@ -42,6 +42,21 @@ def node_id(data: NodeData | None) -> str | None:
     return f"p:{row.pane_id}" if row else f"g:{group.kind}:{group.key}"
 
 
+def _cursor_target(
+    nodes: dict[str, TreeNode[NodeData]], selected: str | None, focus_pane: int | None
+) -> TreeNode[NodeData] | None:
+    """Where the cursor goes after a rebuild: the best match while searching, else where it was."""
+    if focus_pane is None:
+        return nodes.get(selected) if selected else None
+    leaf = next(
+        (n for n in nodes.values() if n.data and n.data[1] and n.data[1].pane_id == focus_pane),
+        None,
+    )
+    if leaf is None or leaf.parent is None or leaf.parent.is_expanded:
+        return leaf
+    return leaf.parent  # a leaf in a collapsed group has no line; land on its group
+
+
 class AddProjectScreen(ModalScreen[str | None]):
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
@@ -169,22 +184,16 @@ class DeckApp(App[None]):
         if not snap.groups and empty_query:
             tree.root.add_leaf(no_match_label(empty_query))
             return
-        target: TreeNode[NodeData] | None = None
+        nodes: dict[str, TreeNode[NodeData]] = {}
         for group in snap.groups:
             data: NodeData = (group, None)
-            node = tree.root.add(
-                group_label(group), data=data, expand=node_id(data) not in self._collapsed
-            )
-            if focus_pane is None and node_id(data) == selected:
-                target = node
+            gid = node_id(data) or ""
+            node = tree.root.add(group_label(group), data=data, expand=gid not in self._collapsed)
+            nodes[gid] = node
             for row in group.panes:
-                leaf = node.add_leaf(pane_label(row), data=(group, row))
-                if focus_pane is not None:
-                    if row.pane_id == focus_pane:
-                        # a leaf in a collapsed group has no line; land on its group instead
-                        target = leaf if node.is_expanded else node
-                elif node_id((group, row)) == selected:
-                    target = leaf
+                leaf_data: NodeData = (group, row)
+                nodes[node_id(leaf_data) or ""] = node.add_leaf(pane_label(row), data=leaf_data)
+        target = _cursor_target(nodes, selected, focus_pane)
         if target is not None:
             # New nodes get their line numbers on the next refresh; moving now lands on line 0.
             self.call_after_refresh(tree.move_cursor, target)
