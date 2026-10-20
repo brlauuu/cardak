@@ -9,7 +9,20 @@ local M = {}
 -- or the deck whenever projects.toml changes). WezTerm reloads when it changes.
 local ok, data = pcall(require, 'cardak_projects')
 if not ok or type(data) ~= 'table' then data = {} end
-local projects = data.projects or {}
+local default = type(data.default) == 'string' and data.default or nil
+
+-- Every scheme cardak may set. An override holding any other scheme was set by someone
+-- else (a light/dark toggle, say), and cardak leaves that window alone.
+local ours = {}
+if default then ours[default] = true end
+
+local projects = {}
+for _, p in ipairs(type(data.projects) == 'table' and data.projects or {}) do
+  if type(p) == 'table' and type(p.path) == 'string' and type(p.scheme) == 'string' then
+    table.insert(projects, p)
+    ours[p.scheme] = true
+  end
+end
 table.sort(projects, function(a, b) return #a.path > #b.path end) -- longest prefix wins
 
 local previews = {} -- project path -> scheme previewed from the deck's picker
@@ -34,18 +47,29 @@ local function cwd_path(pane)
   return (tostring(cwd):gsub('^file://[^/]*', ''))
 end
 
-local function project_for(path)
-  for _, p in ipairs(projects) do
-    if path == p.path or path:sub(1, #p.path + 1) == p.path .. '/' then return p end
+local function under(path, root)
+  return path == root or path:sub(1, #root + 1) == root .. '/'
+end
+
+-- Previews are keyed by the picker's project path, which may not be in `projects` yet
+-- (a project without a theme, or a git repo being themed for the first time).
+local function preview_for(path)
+  local best, best_len = nil, -1
+  for root, scheme in pairs(previews) do
+    if under(path, root) and #root > best_len then best, best_len = scheme, #root end
   end
-  return nil
+  return best
 end
 
 local function scheme_for(pane)
   local path = cwd_path(pane)
-  local project = path and project_for(path)
-  if project then return previews[project.path] or project.scheme end
-  return data.default
+  if not path then return default end
+  local preview = preview_for(path)
+  if preview then return preview end
+  for _, p in ipairs(projects) do
+    if under(path, p.path) then return p.scheme end
+  end
+  return default
 end
 
 local function sync(window)
@@ -53,7 +77,9 @@ local function sync(window)
   if not pane then return end
   local scheme = scheme_for(pane)
   local overrides = window:get_config_overrides() or {}
-  if overrides.color_scheme ~= scheme then
+  local current = overrides.color_scheme
+  if current ~= nil and not ours[current] then return end
+  if current ~= scheme then
     overrides.color_scheme = scheme
     window:set_config_overrides(overrides)
   end
@@ -75,6 +101,7 @@ local function on_user_var(_, _, name, value)
     if not okp or type(req) ~= 'table' or type(req.path) ~= 'string' then return end
     if type(req.scheme) == 'string' and req.scheme ~= '' then
       previews[req.path] = req.scheme
+      ours[req.scheme] = true
     else
       previews[req.path] = nil
     end

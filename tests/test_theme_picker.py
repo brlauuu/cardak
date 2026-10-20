@@ -15,6 +15,8 @@ PATH = Path("/r/web")
 
 
 class Recorder:
+    in_wezterm = True
+
     def __init__(self) -> None:
         self.calls: list[tuple[Path, str]] = []
 
@@ -129,3 +131,19 @@ async def test_load_failure_accepts_an_exact_name() -> None:
         await pilot.press("enter")
         await pilot.pause()
         assert host.result == "My Scheme"
+
+
+async def test_note_when_preview_is_unavailable() -> None:
+    host = Host(ThemePickerScreen("web", PATH, "Nord", lambda: SCHEMES, None))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        note = host.picker.query_one("#preview-note", Static)
+        assert note.display is True
+        assert "preview" in str(note.render()).lower()
+
+
+async def test_no_note_when_preview_works() -> None:
+    host, _ = picker()
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        assert host.picker.query_one("#preview-note", Static).display is False

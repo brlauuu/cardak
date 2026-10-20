@@ -22,6 +22,8 @@ SchemeLoader = Callable[[], Mapping[str, Scheme]]
 
 
 class ThemePreviewer(Protocol):
+    in_wezterm: bool
+
     def preview(self, project_path: Path, scheme: str) -> bool: ...
 
 
@@ -72,10 +74,16 @@ class ThemePickerScreen(ModalScreen[str | None]):
             yield Label(f"Theme for {escape(self._name)}")
             yield Input(placeholder="filter schemes", id="scheme-find")
             yield Static("loading schemes…", id="picker-status")
+            yield Static(
+                "No live preview: the deck isn't running inside WezTerm.", id="preview-note"
+            )
             yield OptionList(id="schemes")
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
+        self.query_one("#preview-note", Static).display = not (
+            self._previewer is not None and self._previewer.in_wezterm
+        )
         self.run_worker(self._load_worker, thread=True, exit_on_error=False)
 
     def _load_worker(self) -> None:

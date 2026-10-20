@@ -5,6 +5,8 @@
 typeset -g _cardak_tints_file=${XDG_CONFIG_HOME:-$HOME/.config}/cardak/tints
 
 _cardak_tint() {
+  # chpwd also fires in subshells (`x=$(cd dir; …)`); the sequence must not land in their output.
+  (( ZSH_SUBSHELL )) && return 0
   local dir color best="" best_len=0
   if [[ -r $_cardak_tints_file ]]; then
     while IFS=$'\t' read -r dir color; do

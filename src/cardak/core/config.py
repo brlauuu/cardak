@@ -10,7 +10,7 @@ from pathlib import Path
 
 import tomli_w
 import tomlkit
-from tomlkit.items import AoT
+from tomlkit.items import AoT, Table
 
 
 @dataclass(frozen=True)
@@ -165,6 +165,23 @@ def add_project(path: Path, name: str, project_path: Path, theme: str | None = N
     _atomic_write(path, target, text)
 
 
+def _set_key(table: Table, key: str, value: str) -> None:
+    """Set key in a table; a new key goes after its last key, not after trailing comments.
+
+    tomlkit appends new keys at the very end of a table's body, which places them below a
+    blank line or a comment that introduces the *next* table.
+    """
+    if key in table:
+        table[key] = value
+        return
+    body = table.value.body
+    trailing = []
+    while body and body[-1][0] is None:  # whitespace and comment items carry no key
+        trailing.insert(0, body.pop())
+    table.add(key, value)
+    body.extend(trailing)
+
+
 def set_project_theme(path: Path, project_path: Path, theme: str) -> None:
     """Set one project's `theme` in place; comments and layout elsewhere are kept."""
     load(path)  # refuses a broken file before anything is written
@@ -177,7 +194,7 @@ def set_project_theme(path: Path, project_path: Path, theme: str) -> None:
     for table in projects or []:
         raw = table.get("path")
         if isinstance(raw, str) and Path(raw).expanduser() == project_path:
-            table["theme"] = theme
+            _set_key(table, "theme", theme)
             break
     else:
         raise ConfigError(path, f"{project_path} is not a configured project")

@@ -474,3 +474,18 @@ async def test_warnings_show_in_the_banner() -> None:
         banner = app.query_one("#banner", Static)
         assert banner.display is True
         assert banner.has_class("warning")
+
+
+async def test_saving_a_theme_says_how_to_enable_themes() -> None:
+    source = StubSource(SNAP)
+    app = DeckApp(
+        source, interval=3600, schemes=SchemeStore(THEMES), theme_status=lambda: "install it"
+    )
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert "install it" in [n.message for n in app._notifications]

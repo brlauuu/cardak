@@ -113,6 +113,7 @@ class DeckApp(App[None]):
         previewer: ThemePreviewer | None = None,
         schemes: SchemeStore | None = None,
         load_schemes: Callable[[], Mapping[str, Scheme]] | None = None,
+        theme_status: Callable[[], str | None] | None = None,
     ) -> None:
         super().__init__()
         self.source = source
@@ -120,6 +121,7 @@ class DeckApp(App[None]):
         self.previewer = previewer
         self.schemes = schemes
         self.load_schemes = load_schemes
+        self.theme_status = theme_status  # how to enable themes, when they aren't yet
         self.interval = interval
         self.raw: DeckSnapshot | None = None
         self.snapshot: DeckSnapshot | None = None
@@ -373,6 +375,8 @@ class DeckApp(App[None]):
                 self.notify(escape(str(e)), severity="error")
                 return
             self.notify(escape(f"{name}: {scheme}"))
+            if self.theme_status is not None and (hint := self.theme_status()):
+                self.notify(escape(hint), severity="warning")
             self.action_refresh()
 
         self.push_screen(

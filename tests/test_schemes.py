@@ -99,6 +99,7 @@ def test_cache_is_per_version(tmp_path: Path) -> None:
     ("runner", "reason"),
     [
         (FakeWezterm(exc=FileNotFoundError("wezterm")), "not installed"),
+        (FakeWezterm(exc=PermissionError("denied")), "cannot run wezterm"),
         (FakeWezterm(exc=subprocess.TimeoutExpired("wezterm", 20)), "timed out"),
         (FakeWezterm(write=False), "did not write"),
         (FakeWezterm(output="{nope"), "unexpected"),

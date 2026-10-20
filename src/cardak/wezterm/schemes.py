@@ -73,6 +73,8 @@ def _version(runner: Runner) -> str:
         raise SchemesUnavailable("wezterm is not installed") from None
     except subprocess.TimeoutExpired:
         raise SchemesUnavailable("wezterm --version timed out") from None
+    except OSError as e:
+        raise SchemesUnavailable(f"cannot run wezterm: {e}") from None
     words = out.stdout.split()
     return re.sub(r"[^A-Za-z0-9._-]", "_", words[-1]) if words else "unknown"
 
@@ -107,6 +109,8 @@ def _probe(runner: Runner) -> object:
             raise SchemesUnavailable("wezterm is not installed") from None
         except subprocess.TimeoutExpired:
             raise SchemesUnavailable("wezterm timed out listing schemes") from None
+        except OSError as e:
+            raise SchemesUnavailable(f"cannot run wezterm: {e}") from None
         try:
             raw = out.read_text()
         except OSError:

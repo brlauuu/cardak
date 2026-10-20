@@ -132,3 +132,26 @@ def test_tint_hook_emits_osc11(tmp_path: Path) -> None:
     env["TERM_PROGRAM"] = "Konsole"
     quiet = subprocess.run(["zsh", "-f", "-c", script], env=env, capture_output=True, check=True)
     assert quiet.stdout == b""
+
+
+def test_lua_strings_ending_in_a_bracket() -> None:
+    assert lua_str("a]") == "[=[a]]=]"
+    assert lua_str("a]=") == "[[a]=]]"  # the first "]]" comes after the whole value
+
+
+@pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
+def test_tint_hook_stays_out_of_command_substitution(tmp_path: Path) -> None:
+    card = tmp_path / "cardak"
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    hook = install_tint_hook(card)
+    (card / "tints").write_text(f"# cardak: generated\n{proj}\t#102030\n")
+    env = {
+        "HOME": str(tmp_path),
+        "XDG_CONFIG_HOME": str(tmp_path),
+        "TERM_PROGRAM": "WezTerm",
+        "PATH": "/usr/bin:/bin",
+    }
+    script = f'source {hook} >/dev/null; x=$(cd {str(proj)!r}; pwd); print -r -- "X=$x"'
+    out = subprocess.run(["zsh", "-f", "-c", script], env=env, capture_output=True, check=True)
+    assert out.stdout == f"X={proj}\n".encode()

@@ -17,6 +17,7 @@ from cardak.wezterm.generate import (
     OLD_MODULE_MSG,
     GenerateError,
     install_tint_hook,
+    module_version,
     write_generated,
 )
 from cardak.wezterm.install import InstallError, default_dir, install, snippet
@@ -157,5 +158,6 @@ def main(argv: list[str] | None = None) -> int:
         previewer=Previewer.live(),
         schemes=store,
         load_schemes=lambda: load_schemes(cache_dir),
+        theme_status=lambda: _module_message(module_version(default_dir() / "cardak.lua")),
     ).run()
     return 0

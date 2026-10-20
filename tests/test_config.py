@@ -258,3 +258,17 @@ def test_set_project_theme_keeps_symlink_and_mode(tmp_path: Path, home: Path) ->
     assert link.is_symlink()
     assert target.stat().st_mode & 0o777 == 0o640
     assert load(link).projects[1].theme == "Nord"
+
+
+def test_set_project_theme_inserts_before_the_next_sections_comment(tmp_path: Path) -> None:
+    f = tmp_path / "projects.toml"
+    before = (
+        '[[project]]\nname = "a"\npath = "/a"\n\n'
+        '# --- section b ---\n[[project]]\nname = "b"\npath = "/b"\n'
+    )
+    f.write_text(before)
+    set_project_theme(f, Path("/a"), "Nord")
+    assert f.read_text() == (
+        '[[project]]\nname = "a"\npath = "/a"\ntheme = "Nord"\n\n'
+        '# --- section b ---\n[[project]]\nname = "b"\npath = "/b"\n'
+    )

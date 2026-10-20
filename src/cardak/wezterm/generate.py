@@ -39,7 +39,8 @@ class GenerateResult:
 def lua_str(s: str) -> str:
     """A Lua long-bracket string: no escaping, whatever quotes or backslashes s holds."""
     level = 0
-    while f"]{'=' * level}]" in s:
+    # A trailing "]" + level "=" would merge with the closing bracket, so it also bumps the level.
+    while f"]{'=' * level}]" in s or s.endswith(f"]{'=' * level}"):
         level += 1
     eq = "=" * level
     return f"[{eq}[{s}]{eq}]"
