@@ -14,6 +14,7 @@ from textual.widgets.tree import TreeNode
 from textual.worker import Worker
 
 from cardak.core.config import ConfigError
+from cardak.core.navigate import JumpResult
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 from cardak.ui.widgets import group_label, pane_label, unreachable_label
 
@@ -27,6 +28,10 @@ class DeckSource(Protocol):
     def poll(self) -> DeckSnapshot: ...
 
     def add_project(self, name: str, path: Path) -> None: ...
+
+
+class Jumper(Protocol):
+    def jump(self, pane_id: int) -> JumpResult: ...
 
 
 def node_id(data: NodeData | None) -> str | None:
@@ -66,13 +71,18 @@ class DeckApp(App[None]):
     """
     BINDINGS = [
         Binding("a", "add_project", "Add as project"),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
         Binding("r", "refresh", "Refresh"),
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self, source: DeckSource, interval: float = 2.0) -> None:
+    def __init__(
+        self, source: DeckSource, navigator: Jumper | None = None, interval: float = 2.0
+    ) -> None:
         super().__init__()
         self.source = source
+        self.navigator = navigator
         self.interval = interval
         self.snapshot: DeckSnapshot | None = None
         self._collapsed: set[str] = set()
@@ -187,3 +197,34 @@ class DeckApp(App[None]):
             self.action_refresh()
 
         self.push_screen(AddProjectScreen(path, path.name), done)
+
+    def action_cursor_down(self) -> None:
+        self.deck_tree.action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        self.deck_tree.action_cursor_up()
+
+    @on(Tree.NodeSelected)
+    def _selected(self, event: Tree.NodeSelected[NodeData]) -> None:
+        data = event.node.data
+        if data is not None and data[1] is not None:  # a group row toggles itself (auto_expand)
+            self.jump(data[1].pane_id)
+
+    def jump(self, pane_id: int) -> None:
+        navigator = self.navigator
+        if navigator is None:
+            return
+
+        def work() -> None:
+            try:
+                result = navigator.jump(pane_id)
+            except Exception as e:  # a navigator bug must not take the deck down
+                result = JumpResult("failed", f"Couldn't jump: {e!r}")
+            self.call_from_thread(self._report_jump, result)
+
+        self.run_worker(work, thread=True, group="jump", exit_on_error=False)
+
+    def _report_jump(self, result: JumpResult) -> None:
+        if result.message:
+            severity = "error" if result.kind == "failed" else "information"
+            self.notify(escape(result.message), severity=severity)

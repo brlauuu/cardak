@@ -6,6 +6,7 @@ from textual.pilot import Pilot
 from textual.widgets import Input, Static
 
 from cardak.core.config import ConfigError
+from cardak.core.navigate import JumpResult
 from cardak.core.resolver import Kind
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 from cardak.ui.app import AddProjectScreen, DeckApp
@@ -251,3 +252,63 @@ async def test_config_error_with_markup_is_shown_literally() -> None:
         await pilot.pause()
         assert app.is_running
         assert app.query_one("#banner", Static).display is True
+
+
+RAISED = JumpResult("raised")
+
+
+class StubNavigator:
+    def __init__(self, result: JumpResult = RAISED) -> None:
+        self.result = result
+        self.jumps: list[int] = []
+
+    def jump(self, pane_id: int) -> JumpResult:
+        self.jumps.append(pane_id)
+        return self.result
+
+
+async def test_enter_on_pane_jumps() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1].children[1])
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == [3]
+
+
+async def test_enter_on_group_toggles_without_jumping() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == []
+        assert not app.deck_tree.root.children[0].is_expanded
+
+
+async def test_jump_failure_is_notified() -> None:
+    nav = StubNavigator(JumpResult("failed", "Couldn't jump: [/b] gone"))
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.jump(1)
+        await settle(app, pilot)
+        await pilot.pause()
+        assert app.is_running
+        assert [n.message for n in app._notifications] == [r"Couldn't jump: \[/b] gone"]
+
+
+async def test_j_and_k_move_the_cursor() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        await pilot.pause()
+        await pilot.press("j", "j")
+        assert app.deck_tree.cursor_line == 2
+        await pilot.press("k")
+        assert app.deck_tree.cursor_line == 1

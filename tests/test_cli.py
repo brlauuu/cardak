@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from cardak.cli import main
+from cardak.core.navigate import Navigator
 from cardak.ui.app import DeckApp
 
 
@@ -41,3 +42,15 @@ def test_wezterm_install_refuses_foreign_file(
     (tmp_path / "cardak.lua").write_text("-- mine\n")
     assert main(["wezterm", "install", "--dir", str(tmp_path)]) == 1
     assert "--force" in capsys.readouterr().err
+
+
+def test_tui_gets_a_live_navigator(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: list[DeckApp] = []
+    monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert main(["--config", str(tmp_path / "p.toml")]) == 0
+    nav = seen[0].navigator
+    assert isinstance(nav, Navigator)
+    (tmp_path / "wezterm").mkdir()
+    (tmp_path / "wezterm" / "cardak.lua").write_text("x")
+    assert nav.lua_installed()

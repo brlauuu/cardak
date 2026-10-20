@@ -6,6 +6,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from cardak.core.config import config_path
+from cardak.core.navigate import Navigator
 from cardak.core.source import LiveSource
 from cardak.ui.app import DeckApp
 from cardak.wezterm.install import InstallError, default_dir, install, snippet
@@ -49,5 +50,6 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "wezterm":
         return _wezterm_install(args.dir, args.force)
-    DeckApp(LiveSource(config_path(args.config))).run()
+    lua_file = default_dir() / "cardak.lua"
+    DeckApp(LiveSource(config_path(args.config)), navigator=Navigator.live(lua_file)).run()
     return 0
