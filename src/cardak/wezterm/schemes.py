@@ -45,22 +45,25 @@ def _hex(value: object) -> str | None:
     return value if isinstance(value, str) and HEX.match(value) else None
 
 
+def _scheme(name: object, colors: object) -> Scheme | None:
+    """One probe entry, or None when it isn't usable (e.g. `rgba(...)` instead of hex)."""
+    if not isinstance(name, str) or not isinstance(colors, dict):
+        return None
+    background, foreground = _hex(colors.get("background")), _hex(colors.get("foreground"))
+    ansi = colors.get("ansi")
+    if background is None or foreground is None or not isinstance(ansi, list):
+        return None
+    ansi_hex = tuple(a for a in ansi if _hex(a))
+    if len(ansi_hex) != len(ansi):
+        return None
+    return Scheme(name, background, foreground, _hex(colors.get("cursor_bg")), ansi_hex)
+
+
 def parse_schemes(data: object) -> dict[str, Scheme]:
     if not isinstance(data, dict):
         raise SchemesUnavailable("unexpected probe output")
-    schemes: dict[str, Scheme] = {}
-    for name, c in sorted(data.items()):
-        if not isinstance(name, str) or not isinstance(c, dict):
-            continue
-        background, foreground = _hex(c.get("background")), _hex(c.get("foreground"))
-        ansi = c.get("ansi")
-        if background is None or foreground is None or not isinstance(ansi, list):
-            continue
-        ansi_hex = tuple(a for a in ansi if _hex(a))
-        if len(ansi_hex) != len(ansi):
-            continue
-        schemes[name] = Scheme(name, background, foreground, _hex(c.get("cursor_bg")), ansi_hex)
-    return schemes
+    parsed = (_scheme(name, colors) for name, colors in sorted(data.items()))
+    return {s.name: s for s in parsed if s is not None}
 
 
 def _version(runner: Runner) -> str:
