@@ -2,15 +2,18 @@
 
 import os
 import re
-import tempfile
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import tomli_w
-import tomlkit
-from tomlkit.items import AoT, Table
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tomlkit.items import Table
+
+# tomli_w and tomlkit are imported where projects.toml is written: `cardak hook` loads this
+# module on every Claude Code hook and only reads.
 
 
 @dataclass(frozen=True)
@@ -161,6 +164,8 @@ def _atomic_write(path: Path, target: Path, text: str) -> None:
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
+        import tempfile
+
         fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".projects.", suffix=".toml")
     except OSError as e:
         raise ConfigError(path, f"cannot write: {e}") from e
@@ -188,6 +193,8 @@ def add_project(path: Path, name: str, project_path: Path, theme: str | None = N
     entry = {"name": name, "path": _with_tilde(project_path)}
     if theme:
         entry["theme"] = theme
+    import tomli_w
+
     block = "[[project]]\n" + tomli_w.dumps(entry)
 
     text = _appended(_read(target) or "", block)
@@ -199,7 +206,7 @@ def add_project(path: Path, name: str, project_path: Path, theme: str | None = N
     _atomic_write(path, target, text)
 
 
-def _set_key(table: Table, key: str, value: str) -> None:
+def _set_key(table: "Table", key: str, value: str) -> None:
     """Set key in a table; a new key goes after its last key, not after trailing comments.
 
     tomlkit appends new keys at the very end of a table's body, which places them below a
@@ -220,6 +227,9 @@ def set_project_theme(path: Path, project_path: Path, theme: str) -> None:
     """Set one project's `theme` in place; comments and layout elsewhere are kept."""
     load(path)  # refuses a broken file before anything is written
     target = path.resolve()
+    import tomlkit
+    from tomlkit.items import AoT
+
     doc = tomlkit.parse(_read(target) or "")
     projects = doc.get("project")
     if projects is not None and not isinstance(projects, AoT):

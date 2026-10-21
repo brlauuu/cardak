@@ -1,7 +1,11 @@
+import os
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
 import pytest
+from hookfix import text
 
 from cardak.cli import main
 from cardak.core.navigate import Navigator
@@ -131,3 +135,23 @@ def test_theme_writer_reports_old_module(tmp_path: Path) -> None:
     (tmp_path / "wez" / "cardak.lua").write_text(MARKER + "\n")
     write = _theme_writer(tmp_path / "wez", tmp_path / "card", SchemeStore())
     assert any("older cardak" in w for w in write(Config()))
+
+
+def test_hook_does_not_import_textual(tmp_path: Path) -> None:
+    script = (
+        "import io, sys\n"
+        f"sys.stdin = io.StringIO({text('stop-finished')!r})\n"
+        "from cardak.cli import main\n"
+        "assert main(['hook']) == 0\n"
+        "heavy = sorted(m for m in ('textual', 'psutil', 'rich') if m in sys.modules)\n"
+        "assert not heavy, heavy\n"
+    )
+    config = tmp_path / "p.toml"
+    config.write_text('[notify]\ndesktop = false\nsound = "off"\n')
+    env = os.environ | {"XDG_STATE_HOME": str(tmp_path), "CARDAK_CONFIG": str(config)}
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert (tmp_path / "cardak" / "cardak.db").exists()

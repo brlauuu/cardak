@@ -1,16 +1,16 @@
-"""Command-line entry point: `cardak [--config PATH] [tui]`, `cardak wezterm install`."""
+"""Command-line entry point: `cardak [--config PATH] [tui]`, `cardak wezterm install`, ….
+
+`cardak hook` runs on every Claude Code hook, so the deck's heavy imports (Textual, psutil)
+are deferred to the commands that need them.
+"""
 
 import argparse
 import sys
 from collections.abc import Callable
-from importlib.metadata import version
 from pathlib import Path
 
 from cardak.core.config import Config, ConfigError, config_dir, config_path, load
-from cardak.core.navigate import Navigator, Previewer
-from cardak.core.source import LiveSource
 from cardak.core.themes import SchemeStore
-from cardak.ui.app import DeckApp
 from cardak.wezterm.generate import (
     MODULE_VERSION,
     NO_MODULE_MSG,
@@ -29,18 +29,29 @@ from cardak.wezterm.schemes import (
 )
 
 
+class _Version(argparse.Action):
+    """--version, reading the package metadata only when asked (it is slow to import)."""
+
+    def __call__(self, parser: argparse.ArgumentParser, *_args: object) -> None:
+        from importlib.metadata import version
+
+        print(f"cardak {version('cardak')}")
+        parser.exit()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cardak",
         description="Project-centric deck for WezTerm panes and Claude Code sessions.",
     )
-    parser.add_argument("--version", action="version", version=f"cardak {version('cardak')}")
+    parser.add_argument("--version", action=_Version, nargs=0, help="show the version and exit")
     parser.add_argument(
         "--config",
         help="projects.toml to use (default: $CARDAK_CONFIG, else ~/.config/cardak/projects.toml)",
     )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("tui", help="open the deck (the default)")
+    sub.add_parser("hook", help="record a Claude Code hook event (run by Claude Code)")
     wez = sub.add_parser("wezterm", help="WezTerm integration")
     wez_sub = wez.add_subparsers(dest="wezterm_command", required=True)
     inst = wez_sub.add_parser("install", help="install cardak.lua so jumps raise windows")
@@ -139,16 +150,28 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "hook":
+        from cardak.core import hook
+
+        return hook.main(sys.stdin)
     if args.command == "wezterm":
         return _wezterm_install(args.dir, args.force)
     if args.command == "themes":
         if args.themes_command == "apply":
             return _themes_apply(args.config)
         return _themes_zsh(args.config, args.force)
+    return _deck(args.config)
+
+
+def _deck(config_arg: str | None) -> int:
+    from cardak.core.navigate import Navigator, Previewer
+    from cardak.core.source import LiveSource
+    from cardak.ui.app import DeckApp
+
     cache_dir = default_cache_dir()
     store = SchemeStore(read_cached_schemes(cache_dir))
     source = LiveSource(
-        config_path(args.config),
+        config_path(config_arg),
         on_config=_theme_writer(default_dir(), config_dir(), store),
         schemes=store.get,
     )

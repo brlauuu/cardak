@@ -126,6 +126,12 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   waiting for your input") fires.
 - `/clear` sends `SessionEnd` (`reason: clear`) and a `SessionStart` (`source: clear`) with a
   **new `session_id`** from the same pane.
+- **`cardak hook` budget: < 150 ms.** Measured median 124 ms (`.venv/bin/cardak hook` with
+  a `Stop` payload, notifications off; bare `python -c pass` is 22 ms). Keep Textual,
+  psutil, tomlkit, tomli_w and `importlib.metadata` out of its import path: `cli.py` imports
+  the deck lazily, `config.py` imports the TOML writers where it writes, and
+  `tests/test_cli.py::test_hook_does_not_import_textual` guards it. Check
+  `python -X importtime -c "import cardak.cli"` after adding imports.
 - `SessionStart` and `SessionEnd` have no `permission_mode`. In `auto` mode, plain `ls` and
   file writes run with no `PermissionRequest`.
 - Sessions driven from a pty did not get `~/.claude/sessions/<pid>.json` or a transcript
