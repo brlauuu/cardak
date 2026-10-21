@@ -6,16 +6,17 @@ a busy timeout, and `BEGIN IMMEDIATE` around each read-modify-write.
 
 import json
 import sqlite3
-from collections.abc import Callable, Mapping
-from dataclasses import astuple, fields
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import astuple, dataclass, fields
 from pathlib import Path
 from typing import TypeVar
 
 from cardak.core.agents import SessionState, mark_seen
 from cardak.core.config import state_dir
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 KEEP_SECONDS = 7 * 86_400
+SUMMARY_KEEP_SECONDS = 62 * 86_400  # longer than a month: the spend cap counts them
 MAX_EVENTS = 10_000
 BUSY_TIMEOUT = 2.0
 
@@ -35,7 +36,33 @@ CREATE TABLE IF NOT EXISTS events (
     payload_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
+CREATE TABLE IF NOT EXISTS summaries (
+    session_id TEXT NOT NULL,
+    wait_since REAL NOT NULL,
+    text TEXT,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (session_id, wait_since)
+);
+CREATE INDEX IF NOT EXISTS summaries_created ON summaries (created_at);
 """
+
+
+@dataclass(frozen=True)
+class SummaryRow:
+    """One waiting summary: `wait_since` is the session's status_since for that wait."""
+
+    session_id: str
+    wait_since: float
+    text: str | None  # None: the model's output was rejected
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+    created_at: float
 
 
 class StoreError(Exception):
@@ -163,6 +190,59 @@ class Store:
         except sqlite3.Error as e:
             raise StoreError(str(e)) from e
 
+    def event_at(self, session_id: str, ts: float) -> tuple[str, str] | None:
+        """The event (name, payload) a session recorded at exactly `ts`."""
+        try:
+            row = self._con.execute(
+                "SELECT event, payload_json FROM events WHERE session_id = ? AND ts = ? LIMIT 1",
+                (session_id, ts),
+            ).fetchone()
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+        return (row[0], row[1]) if row else None
+
+    def add_summary(self, row: SummaryRow) -> None:
+        try:
+            self._con.execute(
+                "INSERT OR IGNORE INTO summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?)", astuple(row)
+            )
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+
+    def has_summary(self, session_id: str, wait_since: float) -> bool:
+        try:
+            row = self._con.execute(
+                "SELECT 1 FROM summaries WHERE session_id = ? AND wait_since = ?",
+                (session_id, wait_since),
+            ).fetchone()
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+        return row is not None
+
+    def summaries_for(self, waits: Iterable[tuple[str, float]]) -> dict[str, str]:
+        """session_id -> summary text, for the given waits that have one."""
+        found: dict[str, str] = {}
+        try:
+            for session_id, wait_since in waits:
+                row = self._con.execute(
+                    "SELECT text FROM summaries WHERE session_id = ? AND wait_since = ?",
+                    (session_id, wait_since),
+                ).fetchone()
+                if row and row[0] is not None:
+                    found[session_id] = row[0]
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+        return found
+
+    def spend_since(self, ts: float) -> float:
+        try:
+            row = self._con.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM summaries WHERE created_at >= ?", (ts,)
+            ).fetchone()
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+        return float(row[0])
+
     def event_count(self) -> int:
         return self._con.execute("SELECT count(*) FROM events").fetchone()[0]
 
@@ -173,6 +253,9 @@ class Store:
                 "DELETE FROM agent_sessions WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,)
             )
             self._con.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
+            self._con.execute(
+                "DELETE FROM summaries WHERE created_at < ?", (now - SUMMARY_KEEP_SECONDS,)
+            )
             self._con.execute(
                 "DELETE FROM events WHERE rowid NOT IN "
                 "(SELECT rowid FROM events ORDER BY ts DESC LIMIT ?)",

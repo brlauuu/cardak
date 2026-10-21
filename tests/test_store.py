@@ -7,7 +7,7 @@ import pytest
 
 from cardak.core.agents import SessionState
 from cardak.core.config import state_dir
-from cardak.core.store import SCHEMA_VERSION, Store, StoreError, db_path
+from cardak.core.store import SCHEMA_VERSION, Store, StoreError, SummaryRow, db_path
 
 DAY = 86_400.0
 
@@ -68,7 +68,7 @@ def test_creates_parent_dir_and_schema_version(tmp_path: Path) -> None:
     path = tmp_path / "deep" / "cardak.db"
     Store(path).close()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 1
+    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -138,7 +138,7 @@ def test_newer_schema_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "db"
     Store(path).close()
     con = sqlite3.connect(path)
-    con.execute("PRAGMA user_version = 2")
+    con.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
     con.close()
     with pytest.raises(StoreError):
         Store(path)
@@ -148,3 +148,67 @@ def test_unopenable_path_raises_store_error(tmp_path: Path) -> None:
     (tmp_path / "file").write_text("x")
     with pytest.raises(StoreError):
         Store(tmp_path / "file" / "db")
+
+
+def summary_row(
+    sid: str = "s", since: float = 10.0, text: str | None = "did x; needs y",
+    cost: float = 0.001, at: float = 100.0,
+) -> SummaryRow:  # fmt: skip
+    return SummaryRow(sid, since, text, "claude-haiku-5-5", 1500, 30, cost, at)
+
+
+def test_summary_roundtrip(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    store.add_summary(summary_row())
+    store.add_summary(summary_row(sid="t", text=None))
+    assert store.has_summary("s", 10.0) and store.has_summary("t", 10.0)
+    assert not store.has_summary("s", 11.0)
+    waits = [("s", 10.0), ("t", 10.0), ("s", 11.0)]
+    assert store.summaries_for(waits) == {"s": "did x; needs y"}
+    assert store.summaries_for([]) == {}
+
+
+def test_add_summary_ignores_a_second_row_for_the_same_wait(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    store.add_summary(summary_row(text="first"))
+    store.add_summary(summary_row(text="second"))
+    assert store.summaries_for([("s", 10.0)]) == {"s": "first"}
+
+
+def test_spend_since(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    assert store.spend_since(0.0) == 0.0
+    store.add_summary(summary_row(sid="a", cost=0.25, at=50.0))
+    store.add_summary(summary_row(sid="b", cost=0.5, at=150.0))
+    assert store.spend_since(100.0) == 0.5
+
+
+def test_event_at(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    store.record_event("s", "PermissionRequest", '{"x": 1}', 12.5)
+    assert store.event_at("s", 12.5) == ("PermissionRequest", '{"x": 1}')
+    assert store.event_at("s", 12.6) is None
+    assert store.event_at("t", 12.5) is None
+
+
+def test_prune_keeps_summaries_62_days(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    store.add_summary(summary_row(sid="old", at=0.0))
+    store.add_summary(summary_row(sid="new", at=10 * DAY))
+    store.prune(62 * DAY + 1)
+    assert not store.has_summary("old", 10.0)
+    assert store.has_summary("new", 10.0)
+
+
+def test_v1_database_gains_summaries(tmp_path: Path) -> None:
+    path = tmp_path / "db"
+    Store(path).close()
+    con = sqlite3.connect(path)
+    con.execute("DROP TABLE summaries")
+    con.execute("PRAGMA user_version = 1")
+    con.commit()
+    con.close()
+    store = Store(path)
+    store.add_summary(summary_row())
+    assert store.has_summary("s", 10.0)
+    assert SCHEMA_VERSION == 2
