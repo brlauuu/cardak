@@ -344,3 +344,10 @@ def test_fresh_session_counts_its_age_from_its_first_event() -> None:
     # live check: a new session showed "idle 20747d", counted from the epoch
     state, _ = apply(None, ev("SessionStart", source="startup"), 7, 500.0)
     assert state.status_since == 500.0
+
+
+def test_resumed_session_is_live_again() -> None:
+    # review: --resume keeps the session id; a SessionStart after SessionEnd must revive it
+    state, _ = run(ev("SessionStart"), ev("SessionEnd", reason="prompt_input_exit"),
+                   ev("SessionStart", source="resume"))  # fmt: skip
+    assert state.ended_at is None

@@ -1,7 +1,10 @@
+import json
 from dataclasses import replace
 from pathlib import Path
 
 from textual.app import App
+from textual.widgets import Collapsible
+from textual.widgets._collapsible import CollapsibleTitle
 
 from cardak.core.agents import SessionState
 from cardak.ui.detail import DetailScreen, TranscriptScreen, detail_text
@@ -84,3 +87,23 @@ async def test_detail_screen_keys() -> None:
         await pilot.press("escape")
         await pilot.pause()
         assert app.results == [None]
+
+
+async def test_transcript_with_brackets_in_a_tool_call(tmp_path: Path) -> None:
+    # review: a command containing "[/]" crashed the deck (Collapsible titles are markup)
+    f = tmp_path / "t.jsonl"
+    use = {
+        "type": "tool_use",
+        "id": "t1",
+        "name": "Bash",
+        "input": {"command": 'grep "[/]" f [id]'},
+    }
+    f.write_text(json.dumps({"type": "assistant", "message": {"content": [use]}}) + "\n")
+    app = Host(DetailScreen(replace(PERMISSION, transcript_path=f), "demo"))
+    async with app.run_test() as pilot:
+        await pilot.press("t")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert isinstance(app.screen, TranscriptScreen)
+        shown = [str(c.query_one(CollapsibleTitle).render()) for c in app.screen.query(Collapsible)]
+        assert len(shown) == 1 and shown[0].endswith('Bash: grep "[/]" f [id]')

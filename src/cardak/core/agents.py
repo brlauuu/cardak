@@ -141,7 +141,8 @@ Handler = Callable[[SessionState, HookEvent, float], SessionState]
 
 
 def _on_session_start(s: SessionState, e: HookEvent, now: float) -> SessionState:
-    return _set_status(s, "idle", None, None, now)
+    # `--resume` keeps the session id, so a session that ended can start again
+    return _set_status(replace(s, ended_at=None), "idle", None, None, now)
 
 
 def _on_prompt(s: SessionState, e: HookEvent, now: float) -> SessionState:

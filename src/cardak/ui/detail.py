@@ -11,6 +11,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.markup import escape
 from textual.screen import Screen
 from textual.widgets import Button, Collapsible, Footer, Header, Static
 
@@ -123,7 +124,8 @@ def _entry_widget(entry: Entry) -> Static | Collapsible:
         body = json.dumps(dict(entry.tool_input), indent=2, ensure_ascii=False)
         if entry.text:
             body += f"\n\n{entry.text}"
-        return Collapsible(Static(Text(body)), title=summary, collapsed=True)
+        # titles are markup: a command like `grep "[/]"` must stay literal text
+        return Collapsible(Static(Text(body)), title=escape(summary), collapsed=True)
     if entry.kind == "thinking":
         return Collapsible(Static(Text(entry.text)), title="thinking", collapsed=True)
     who = "you" if entry.kind == "user" else "claude"
@@ -156,7 +158,9 @@ class TranscriptScreen(Screen[None]):
         self.action_reload()
 
     def action_reload(self) -> None:
-        self.run_worker(self._load, thread=True, group="transcript", exclusive=True)
+        self.run_worker(
+            self._load, thread=True, group="transcript", exclusive=True, exit_on_error=False
+        )
 
     def _load(self) -> None:
         entries, earlier = read_transcript(self.path, self.limit)

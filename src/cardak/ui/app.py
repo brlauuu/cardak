@@ -157,9 +157,7 @@ class DeckApp(App[None]):
     )  # fmt: skip
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if action in self.DECK_ACTIONS and len(self.screen_stack) > 1:
-            return False
-        return True
+        return not (action in self.DECK_ACTIONS and len(self.screen_stack) > 1)
 
     def __init__(
         self,

@@ -5,19 +5,23 @@ always exit 0: stdout can reach the conversation, and exit code 2 blocks a tool 
 it imports no Textual or psutil, and any failure goes to hook.log instead.
 """
 
+from __future__ import annotations
+
 import os
 import time
 import traceback
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from cardak.collectors.hooks import parse
 from cardak.core.agents import apply
-from cardak.core.alerts import Spawn, alert, spawn_detached
 from cardak.core.config import Config, ConfigError, config_path, load, state_dir
 from cardak.core.focus import focus_path, focused_pane, read_history
 from cardak.core.store import Store, db_path
+
+if TYPE_CHECKING:
+    from cardak.core.alerts import Spawn
 
 LOG_MAX = 1_000_000
 MAX_PAYLOAD = 20_000  # a tool's output can be huge; the event log keeps the start
@@ -45,7 +49,7 @@ def run(
     store: Store,
     config_file: Path,
     focus_file: Path,
-    spawn: Spawn = spawn_detached,
+    spawn: Spawn | None = None,
 ) -> None:
     event = parse(text)
     if event is None:
@@ -63,7 +67,10 @@ def run(
         config = load(config_file)
     except ConfigError:
         config = Config()
-    alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn)
+    # imported only when pinging: alerts reads the sound pack
+    from cardak.core.alerts import alert, spawn_detached
+
+    alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn or spawn_detached)
 
 
 def _log(env: Mapping[str, str], message: str) -> None:

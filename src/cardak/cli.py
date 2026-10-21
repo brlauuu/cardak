@@ -1,45 +1,37 @@
 """Command-line entry point: `cardak [--config PATH] [tui]`, `cardak wezterm install`, ….
 
-`cardak hook` runs on every Claude Code hook, so the deck's heavy imports (Textual, psutil)
-are deferred to the commands that need them.
+`cardak hook` runs on every Claude Code hook (several per tool call), so it is dispatched
+before argument parsing, and every other command imports what it needs when it runs.
+`tests/test_cli.py::test_hook_imports_only_what_it_needs` guards this.
 """
 
-import argparse
+from __future__ import annotations
+
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from cardak.core.config import Config, ConfigError, config_dir, config_path, load
-from cardak.core.themes import SchemeStore
-from cardak.wezterm.generate import (
-    MODULE_VERSION,
-    NO_MODULE_MSG,
-    OLD_MODULE_MSG,
-    GenerateError,
-    install_tint_hook,
-    module_version,
-    write_generated,
-)
-from cardak.wezterm.install import InstallError, default_dir, install, snippet
-from cardak.wezterm.schemes import (
-    SchemesUnavailable,
-    default_cache_dir,
-    load_schemes,
-    read_cached_schemes,
-)
 
+if TYPE_CHECKING:
+    import argparse
 
-class _Version(argparse.Action):
-    """--version, reading the package metadata only when asked (it is slow to import)."""
-
-    def __call__(self, parser: argparse.ArgumentParser, *_args: object) -> None:
-        from importlib.metadata import version
-
-        print(f"cardak {version('cardak')}")
-        parser.exit()
+    from cardak.core.themes import SchemeStore
 
 
 def build_parser() -> argparse.ArgumentParser:
+    import argparse
+
+    class _Version(argparse.Action):
+        """--version, reading the package metadata only when asked (it is slow to import)."""
+
+        def __call__(self, parser: argparse.ArgumentParser, *_args: object) -> None:
+            from importlib.metadata import version
+
+            print(f"cardak {version('cardak')}")
+            parser.exit()
+
     parser = argparse.ArgumentParser(
         prog="cardak",
         description="Project-centric deck for WezTerm panes and Claude Code sessions.",
@@ -159,6 +151,8 @@ def _write_settings(path: Path, before: dict, after: dict, yes: bool, install: b
 
 
 def _wezterm_install(dest: Path | None, force: bool) -> int:
+    from cardak.wezterm.install import InstallError, default_dir, install, snippet
+
     # absolute: package.path is resolved against WezTerm's cwd, not this shell's
     dest_dir = dest.expanduser().resolve() if dest else default_dir()
     try:
@@ -172,6 +166,8 @@ def _wezterm_install(dest: Path | None, force: bool) -> int:
 
 
 def _module_message(version: int | None) -> str | None:
+    from cardak.wezterm.generate import MODULE_VERSION, NO_MODULE_MSG, OLD_MODULE_MSG
+
     if version is None:
         return NO_MODULE_MSG
     if version < MODULE_VERSION:
@@ -183,6 +179,7 @@ def _theme_writer(
     wezterm_dir: Path, cardak_dir: Path, store: SchemeStore
 ) -> Callable[[Config], list[str]]:
     """What the deck runs after every config change: regenerate, return banner warnings."""
+    from cardak.wezterm.generate import MODULE_VERSION, OLD_MODULE_MSG, write_generated
 
     def write(config: Config) -> list[str]:
         result = write_generated(wezterm_dir, cardak_dir, config, store.get() or None)
@@ -197,6 +194,10 @@ def _theme_writer(
 
 
 def _themes_apply(config_arg: str | None) -> int:
+    from cardak.wezterm.generate import write_generated
+    from cardak.wezterm.install import default_dir
+    from cardak.wezterm.schemes import SchemesUnavailable, default_cache_dir, load_schemes
+
     path = config_path(config_arg)
     try:
         config = load(path)
@@ -221,6 +222,10 @@ def _themes_apply(config_arg: str | None) -> int:
 
 
 def _themes_zsh(config_arg: str | None, force: bool) -> int:
+    from cardak.wezterm.generate import GenerateError, install_tint_hook, write_generated
+    from cardak.wezterm.install import default_dir
+    from cardak.wezterm.schemes import default_cache_dir, read_cached_schemes
+
     try:
         config = load(config_path(config_arg))
     except ConfigError as e:
@@ -238,11 +243,11 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    if args.command == "hook":
+    if (sys.argv[1:] if argv is None else argv) == ["hook"]:
         from cardak.core import hook
 
         return hook.main(sys.stdin)
+    args = build_parser().parse_args(argv)
     if args.command == "hooks":
         return _hooks(args.hooks_command, args.settings, getattr(args, "yes", False))
     if args.command == "wezterm":
@@ -259,7 +264,11 @@ def _deck(config_arg: str | None) -> int:
     from cardak.core.navigate import Navigator, Previewer
     from cardak.core.source import LiveSource
     from cardak.core.store import Store, StoreError, db_path
+    from cardak.core.themes import SchemeStore
     from cardak.ui.app import DeckApp
+    from cardak.wezterm.generate import module_version
+    from cardak.wezterm.install import default_dir
+    from cardak.wezterm.schemes import default_cache_dir, load_schemes, read_cached_schemes
 
     cache_dir = default_cache_dir()
     store = SchemeStore(read_cached_schemes(cache_dir))
