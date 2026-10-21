@@ -24,9 +24,17 @@ class Project:
 
 
 @dataclass(frozen=True)
+class NotifySettings:
+    desktop: bool = True  # notify-send when a session starts waiting
+    sound: str = "random"  # "random" | "off" | a bundled name | a file name in sounds_dir
+    sounds_dir: Path | None = None
+
+
+@dataclass(frozen=True)
 class Config:
     projects: tuple[Project, ...] = ()
     defaults: dict[str, object] = field(default_factory=dict)
+    notify: NotifySettings = NotifySettings()
 
 
 class ConfigError(Exception):
@@ -116,7 +124,25 @@ def load(path: Path) -> Config:
     defaults = data.get("defaults", {})
     if not isinstance(defaults, dict):
         raise ConfigError(path, "[defaults] must be a table")
-    return Config(projects=tuple(projects), defaults=dict(defaults))
+    return Config(projects=tuple(projects), defaults=dict(defaults), notify=_notify(path, data))
+
+
+def _notify(path: Path, data: Mapping[str, object]) -> NotifySettings:
+    raw = data.get("notify", {})
+    if not isinstance(raw, dict):
+        raise ConfigError(path, "[notify] must be a table")
+    desktop, sound, sounds_dir = (
+        raw.get("desktop", True),
+        raw.get("sound", "random"),
+        raw.get("sounds_dir"),
+    )
+    if not isinstance(desktop, bool):
+        raise ConfigError(path, "[notify] desktop must be true or false")
+    if not isinstance(sound, str):
+        raise ConfigError(path, "[notify] sound must be a string")
+    if sounds_dir is not None and not isinstance(sounds_dir, str):
+        raise ConfigError(path, "[notify] sounds_dir must be a string")
+    return NotifySettings(desktop, sound, Path(sounds_dir).expanduser() if sounds_dir else None)
 
 
 def _with_tilde(path: Path) -> str:
