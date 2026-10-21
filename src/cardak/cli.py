@@ -278,4 +278,6 @@ def _deck(config_arg: str | None) -> int:
         theme_status=lambda: _module_message(module_version(default_dir() / "cardak.lua")),
         hooks_status=_hooks_hint,
     ).run()
+    if agents is not None:
+        agents.close()
     return 0

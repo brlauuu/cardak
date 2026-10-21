@@ -70,6 +70,7 @@ def test_creates_parent_dir_and_schema_version(tmp_path: Path) -> None:
     con = sqlite3.connect(path)
     assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 1
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    con.close()
 
 
 def test_live_sessions_skips_ended(tmp_path: Path) -> None:

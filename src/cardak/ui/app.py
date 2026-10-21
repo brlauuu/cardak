@@ -23,6 +23,7 @@ from cardak.core.filter import filter_snapshot, waiting_only
 from cardak.core.navigate import JumpResult
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 from cardak.core.themes import Scheme, SchemeStore
+from cardak.ui.detail import DetailScreen
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
     group_label,
@@ -128,6 +129,7 @@ class DeckApp(App[None]):
         Binding("a", "add_project", "Add as project"),
         Binding("t", "theme", "Theme"),
         Binding("w", "waiting_only", "Waiting"),
+        Binding("i", "detail", "Details"),
         Binding("slash", "find", "Find"),
         Binding("escape", "clear_find", "Clear find", show=False),
         Binding("j", "cursor_down", "Down", show=False),
@@ -277,6 +279,28 @@ class DeckApp(App[None]):
         else:
             # clear() leaves the cursor on no line, so the first key would only "find" row 0.
             self.call_after_refresh(self._cursor_to_first_row)
+
+    def action_detail(self) -> None:
+        node = self.deck_tree.cursor_node
+        row = node.data.row if node is not None and node.data is not None else None
+        if row is None or not row.is_claude:
+            self.notify("Select a Claude session.", severity="warning")
+            return
+        state = self.source.session(row.agent.session_id) if row.agent else None
+        if state is None:
+            self.notify(
+                "No status recorded for this session yet (sessions started before "
+                "`cardak hooks install` report nothing).",
+                severity="warning",
+            )
+            return
+        project = row.agent.project if row.agent else ""
+
+        def done(pane_id: int | None) -> None:
+            if pane_id is not None:
+                self.jump(pane_id)
+
+        self.push_screen(DetailScreen(state, project), done)
 
     def action_waiting_only(self) -> None:
         self.waiting_only = not self.waiting_only

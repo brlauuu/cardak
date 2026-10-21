@@ -91,6 +91,11 @@ class Store:
     def close(self) -> None:
         self._con.close()
 
+    def __del__(self) -> None:
+        con = getattr(self, "_con", None)  # absent when __init__ failed
+        if con is not None:
+            con.close()
+
     def _get(self, session_id: str) -> SessionState | None:
         row = self._con.execute(
             "SELECT * FROM agent_sessions WHERE session_id = ?", (session_id,)

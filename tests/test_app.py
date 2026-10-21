@@ -12,6 +12,7 @@ from cardak.core.resolver import Kind
 from cardak.core.snapshot import WAITING_NAME, AgentView, DeckSnapshot, Group, PaneRow
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.app import AddProjectScreen, DeckApp, Node, node_id
+from cardak.ui.detail import DetailScreen
 from cardak.ui.theme_picker import ThemePickerScreen
 
 
@@ -626,3 +627,36 @@ async def test_hooks_hint_once() -> None:
 def test_node_id_none() -> None:
     assert node_id(None) is None
     assert node_id(Node(SNAP.groups[0])) == "g:config:/repos/webshop"
+
+
+async def test_i_opens_detail_on_claude_rows_only() -> None:
+    snap = waiting_snap(agent_row(7, "waiting", "finished"), others=(row(2),))
+    source = StubSource(snap)
+    source.sessions["s7"] = SessionState("s7", pane_id=7, status="waiting", kind="finished")
+    nav = StubNavigator()
+    app = DeckApp(source, navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        project = app.deck_tree.root.children[1]
+        app.deck_tree.move_cursor(project.children[2])  # the shell pane
+        await pilot.press("i")
+        await pilot.pause()
+        assert not isinstance(app.screen, DetailScreen)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])
+        await pilot.press("i")
+        await pilot.pause()
+        assert isinstance(app.screen, DetailScreen)
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == [7]
+
+
+async def test_i_without_a_record_says_so() -> None:
+    snap = waiting_snap(agent_row(7, "waiting", "finished"))
+    app = DeckApp(StubSource(snap), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])
+        await pilot.press("i")
+        await pilot.pause()
+        assert any("No status" in str(n.message) for n in app._notifications)  # noqa: SLF001

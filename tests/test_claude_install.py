@@ -10,6 +10,7 @@ from cardak.claude.install import (
     EVENTS,
     SettingsError,
     changes,
+    default_settings_path,
     find_executable,
     hook_command,
     is_cardak,
@@ -19,7 +20,7 @@ from cardak.claude.install import (
     with_hooks,
     without_hooks,
 )
-from cardak.cli import main
+from cardak.cli import HOOKS_HINT, _hooks_hint, main
 
 FIXTURES = Path(__file__).parent / "fixtures" / "settings"
 CMD = "/home/user/.local/bin/cardak hook"
@@ -237,16 +238,12 @@ def test_cli_without_executable(
 
 
 def test_default_settings_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from cardak.claude.install import default_settings_path
-
     monkeypatch.setenv("HOME", str(tmp_path))
     assert default_settings_path() == tmp_path / ".claude" / "settings.json"
     assert os.environ["HOME"] == str(tmp_path)
 
 
 def test_hooks_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from cardak.cli import HOOKS_HINT, _hooks_hint
-
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr("cardak.cli.sys.argv", ["/home/user/.local/bin/cardak"])
     assert _hooks_hint() == HOOKS_HINT
