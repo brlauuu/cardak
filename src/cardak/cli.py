@@ -1,46 +1,62 @@
-"""Command-line entry point: `cardak [--config PATH] [tui]`, `cardak wezterm install`."""
+"""Command-line entry point: `cardak [--config PATH] [tui]`, `cardak wezterm install`, ….
 
-import argparse
+`cardak hook` runs on every Claude Code hook (several per tool call), so it is dispatched
+before argument parsing, and every other command imports what it needs when it runs.
+`tests/test_cli.py::test_hook_imports_only_what_it_needs` guards this.
+"""
+
+from __future__ import annotations
+
 import sys
 from collections.abc import Callable
-from importlib.metadata import version
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from cardak.core.config import Config, ConfigError, config_dir, config_path, load
-from cardak.core.navigate import Navigator, Previewer
-from cardak.core.source import LiveSource
-from cardak.core.themes import SchemeStore
-from cardak.ui.app import DeckApp
-from cardak.wezterm.generate import (
-    MODULE_VERSION,
-    NO_MODULE_MSG,
-    OLD_MODULE_MSG,
-    GenerateError,
-    install_tint_hook,
-    module_version,
-    write_generated,
-)
-from cardak.wezterm.install import InstallError, default_dir, install, snippet
-from cardak.wezterm.schemes import (
-    SchemesUnavailable,
-    default_cache_dir,
-    load_schemes,
-    read_cached_schemes,
-)
+
+if TYPE_CHECKING:
+    import argparse
+
+    from cardak.core.themes import SchemeStore
 
 
 def build_parser() -> argparse.ArgumentParser:
+    import argparse
+
+    class _Version(argparse.Action):
+        """--version, reading the package metadata only when asked (it is slow to import)."""
+
+        def __call__(self, parser: argparse.ArgumentParser, *_args: object) -> None:
+            from importlib.metadata import version
+
+            print(f"cardak {version('cardak')}")
+            parser.exit()
+
     parser = argparse.ArgumentParser(
         prog="cardak",
         description="Project-centric deck for WezTerm panes and Claude Code sessions.",
     )
-    parser.add_argument("--version", action="version", version=f"cardak {version('cardak')}")
+    parser.add_argument("--version", action=_Version, nargs=0, help="show the version and exit")
     parser.add_argument(
         "--config",
         help="projects.toml to use (default: $CARDAK_CONFIG, else ~/.config/cardak/projects.toml)",
     )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("tui", help="open the deck (the default)")
+    sub.add_parser("hook", help="record a Claude Code hook event (run by Claude Code)")
+    hooks = sub.add_parser("hooks", help="Claude Code hooks for agent status")
+    hooks_sub = hooks.add_subparsers(dest="hooks_command", required=True)
+    for name, text in (
+        ("install", "add cardak's hooks to Claude Code's settings.json"),
+        ("uninstall", "remove cardak's hooks from Claude Code's settings.json"),
+        ("status", "show whether cardak's hooks are installed"),
+    ):
+        cmd = hooks_sub.add_parser(name, help=text)
+        cmd.add_argument(
+            "--settings", type=Path, help="settings file (default: ~/.claude/settings.json)"
+        )
+        if name != "status":
+            cmd.add_argument("--yes", action="store_true", help="don't ask before writing")
     wez = sub.add_parser("wezterm", help="WezTerm integration")
     wez_sub = wez.add_subparsers(dest="wezterm_command", required=True)
     inst = wez_sub.add_parser("install", help="install cardak.lua so jumps raise windows")
@@ -58,7 +74,85 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+HOOKS_HINT = "Run `cardak hooks install` to see Claude Code sessions' status."
+
+
+def _hooks_hint() -> str | None:
+    """The deck's one-time hint when cardak's hooks aren't (fully) installed."""
+    from cardak.claude import install as claude
+
+    exe = claude.find_executable(sys.argv[0])
+    try:
+        settings = claude.load_settings(claude.default_settings_path())
+    except claude.SettingsError:
+        return HOOKS_HINT
+    if exe is not None and claude.status(settings, claude.hook_command(exe)) == "installed":
+        return None
+    if exe is None and claude.status(settings, "cardak hook") != "missing":
+        return None  # installed from some other path; nothing to compare it with
+    return HOOKS_HINT
+
+
+HOOK_STATUS_TEXT = {
+    "installed": "installed",
+    "partial": "partly installed (run `cardak hooks install`)",
+    "missing": "not installed",
+}
+
+
+def _hooks(command: str, settings_arg: Path | None, yes: bool) -> int:
+    from cardak.claude import install as claude
+
+    path = settings_arg or claude.default_settings_path()
+    exe = claude.find_executable(sys.argv[0])
+    if exe is None:
+        print(
+            "cardak: can't find the cardak executable to register; is it on PATH?", file=sys.stderr
+        )
+        return 1
+    hook = claude.hook_command(exe)
+    try:
+        before = claude.load_settings(path)
+        if command == "status":
+            print(f"{HOOK_STATUS_TEXT[claude.status(before, hook)]}: {path}")
+            return 0
+        install = command == "install"
+        after = claude.with_hooks(before, hook) if install else claude.without_hooks(before)
+    except claude.SettingsError as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    if after == before:
+        print(f"cardak hooks already {'installed' if install else 'absent'}: {path}")
+        return 0
+    return _write_settings(path, before, after, yes, install)
+
+
+def _write_settings(path: Path, before: dict, after: dict, yes: bool, install: bool) -> int:
+    """Show what changes, ask (unless --yes), back up and write settings.json."""
+    from datetime import datetime
+
+    from cardak.claude import install as claude
+
+    print(f"{path}:")
+    print("\n".join(f"  {line}" for line in claude.changes(before, after)))
+    now = datetime.now()
+    if path.exists():
+        print(f"A backup goes to {claude.backup_path(path, now)}")
+    if not yes and input(f"Write {path}? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("Nothing written.")
+        return 0
+    try:
+        claude.save_settings(path, after, now)
+    except OSError as e:
+        print(f"cardak: cannot write {path}: {e}", file=sys.stderr)
+        return 1
+    print("Done. New Claude Code sessions report their status to the deck." if install else "Done.")
+    return 0
+
+
 def _wezterm_install(dest: Path | None, force: bool) -> int:
+    from cardak.wezterm.install import InstallError, default_dir, install, snippet
+
     # absolute: package.path is resolved against WezTerm's cwd, not this shell's
     dest_dir = dest.expanduser().resolve() if dest else default_dir()
     try:
@@ -72,6 +166,8 @@ def _wezterm_install(dest: Path | None, force: bool) -> int:
 
 
 def _module_message(version: int | None) -> str | None:
+    from cardak.wezterm.generate import MODULE_VERSION, NO_MODULE_MSG, OLD_MODULE_MSG
+
     if version is None:
         return NO_MODULE_MSG
     if version < MODULE_VERSION:
@@ -83,6 +179,7 @@ def _theme_writer(
     wezterm_dir: Path, cardak_dir: Path, store: SchemeStore
 ) -> Callable[[Config], list[str]]:
     """What the deck runs after every config change: regenerate, return banner warnings."""
+    from cardak.wezterm.generate import MODULE_VERSION, OLD_MODULE_MSG, write_generated
 
     def write(config: Config) -> list[str]:
         result = write_generated(wezterm_dir, cardak_dir, config, store.get() or None)
@@ -97,6 +194,10 @@ def _theme_writer(
 
 
 def _themes_apply(config_arg: str | None) -> int:
+    from cardak.wezterm.generate import write_generated
+    from cardak.wezterm.install import default_dir
+    from cardak.wezterm.schemes import SchemesUnavailable, default_cache_dir, load_schemes
+
     path = config_path(config_arg)
     try:
         config = load(path)
@@ -121,6 +222,10 @@ def _themes_apply(config_arg: str | None) -> int:
 
 
 def _themes_zsh(config_arg: str | None, force: bool) -> int:
+    from cardak.wezterm.generate import GenerateError, install_tint_hook, write_generated
+    from cardak.wezterm.install import default_dir
+    from cardak.wezterm.schemes import default_cache_dir, read_cached_schemes
+
     try:
         config = load(config_path(config_arg))
     except ConfigError as e:
@@ -138,19 +243,46 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if (sys.argv[1:] if argv is None else argv) == ["hook"]:
+        from cardak.core import hook
+
+        return hook.main(sys.stdin)
     args = build_parser().parse_args(argv)
+    if args.command == "hooks":
+        return _hooks(args.hooks_command, args.settings, getattr(args, "yes", False))
     if args.command == "wezterm":
         return _wezterm_install(args.dir, args.force)
     if args.command == "themes":
         if args.themes_command == "apply":
             return _themes_apply(args.config)
         return _themes_zsh(args.config, args.force)
+    return _deck(args.config)
+
+
+def _deck(config_arg: str | None) -> int:
+    from cardak.core.focus import focus_path, read_history
+    from cardak.core.navigate import Navigator, Previewer
+    from cardak.core.source import LiveSource
+    from cardak.core.store import Store, StoreError, db_path
+    from cardak.core.themes import SchemeStore
+    from cardak.ui.app import DeckApp
+    from cardak.wezterm.generate import module_version
+    from cardak.wezterm.install import default_dir
+    from cardak.wezterm.schemes import default_cache_dir, load_schemes, read_cached_schemes
+
     cache_dir = default_cache_dir()
     store = SchemeStore(read_cached_schemes(cache_dir))
+    try:
+        agents: Store | None = Store(db_path())
+    except StoreError as e:
+        print(f"cardak: agent status unavailable: {e}", file=sys.stderr)
+        agents = None
     source = LiveSource(
-        config_path(args.config),
+        config_path(config_arg),
         on_config=_theme_writer(default_dir(), config_dir(), store),
         schemes=store.get,
+        store=agents,
+        focus_history=lambda: read_history(focus_path()),
     )
     DeckApp(
         source,
@@ -159,5 +291,8 @@ def main(argv: list[str] | None = None) -> int:
         schemes=store,
         load_schemes=lambda: load_schemes(cache_dir),
         theme_status=lambda: _module_message(module_version(default_dir() / "cardak.lua")),
+        hooks_status=_hooks_hint,
     ).run()
+    if agents is not None:
+        agents.close()
     return 0

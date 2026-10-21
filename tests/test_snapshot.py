@@ -3,9 +3,10 @@ from pathlib import Path
 from cardak.collectors.claude import ClaudeSession
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane
+from cardak.core.agents import SessionState
 from cardak.core.config import Config, Project
 from cardak.core.resolver import ProjectResolver
-from cardak.core.snapshot import build_snapshot, tilde
+from cardak.core.snapshot import WAITING_NAME, PaneRow, build_snapshot, tilde
 
 HOME = Path("/home/user")
 R = HOME / "repos"
@@ -152,3 +153,68 @@ def test_group_carries_theme() -> None:
     themed = Config(projects=(Project(name="webshop", path=R / "webshop", theme="Nord"),))
     s = build_snapshot(PANES, PROCS, ProjectResolver(themed, git=fake_git), sessions, 0, HOME)
     assert s.groups[0].theme == "Nord"
+
+
+def agents_snap(*states: SessionState):
+    return build_snapshot(
+        PANES, PROCS, ProjectResolver(CONFIG, git=fake_git), sessions, 0, HOME, sessions=states
+    )
+
+
+def rows_by_pane(s) -> dict[int, PaneRow]:
+    return {r.pane_id: r for g in s.groups if g.kind != "waiting" for r in g.panes}
+
+
+def test_agent_joined_by_pane_id() -> None:
+    s = agents_snap(SessionState("x", pane_id=5, status="working", current_tool="Edit a.py"))
+    row = rows_by_pane(s)[5]
+    assert row.is_claude and row.agent is not None
+    assert (row.agent.status, row.agent.current_tool, row.agent.project) == (
+        "working", "Edit a.py", "webshop",
+    )  # fmt: skip
+
+
+def test_agent_joined_by_session_id_fallback() -> None:
+    s = agents_snap(SessionState("s", pane_id=None, status="idle"))
+    assert rows_by_pane(s)[4].agent is not None
+    assert rows_by_pane(s)[4].agent.session_id == "s"  # type: ignore[union-attr]
+
+
+def test_newest_session_wins_per_pane() -> None:
+    s = agents_snap(
+        SessionState("old", pane_id=5, status="waiting", kind="finished", started_at=1.0),
+        SessionState("new", pane_id=5, status="idle", started_at=2.0),
+    )
+    agent = rows_by_pane(s)[5].agent
+    assert agent is not None and agent.session_id == "new"
+    assert s.n_waiting == 0
+
+
+def test_claude_without_record() -> None:
+    row = rows_by_pane(agents_snap())[5]
+    assert row.is_claude and row.agent is None
+
+
+def test_non_claude_pane_ignores_session_on_its_pane() -> None:
+    row = rows_by_pane(agents_snap(SessionState("x", pane_id=2, status="waiting",
+                                                kind="finished")))[2]  # fmt: skip
+    assert not row.is_claude and row.agent is None
+
+
+def test_waiting_group_first_oldest_first() -> None:
+    s = agents_snap(
+        SessionState("s", status="waiting", kind="question", status_since=20.0, reason="Q?"),
+        SessionState("x", pane_id=5, status="waiting", kind="finished", status_since=10.0),
+    )
+    first = s.groups[0]
+    assert (first.kind, first.name) == ("waiting", WAITING_NAME)
+    assert [r.pane_id for r in first.panes] == [5, 4]
+    assert first.panes[1].agent is not None and first.panes[1].agent.reason == "Q?"
+    assert s.n_waiting == 2
+    assert (s.n_projects, s.n_panes) == (3, 6)
+
+
+def test_no_waiting_group_when_none_wait() -> None:
+    s = agents_snap(SessionState("x", pane_id=5, status="working"))
+    assert all(g.kind != "waiting" for g in s.groups)
+    assert s.n_waiting == 0

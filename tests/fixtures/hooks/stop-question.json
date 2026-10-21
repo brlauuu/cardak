@@ -1,0 +1,21 @@
+{
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "/home/user/.claude/projects/-home-user-repos-demo/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "/home/user/repos/demo",
+    "scratchpad_dir": "/tmp/scratch",
+    "prompt_id": "00000000-0000-4000-8000-000000000010",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "Stop",
+    "stop_hook_active": false,
+    "last_assistant_message": "Should I merge the drafts or keep them separate?",
+    "background_tasks": [],
+    "session_crons": []
+  },
+  "env": {
+    "WEZTERM_PANE": "present"
+  }
+}

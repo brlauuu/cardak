@@ -1,0 +1,36 @@
+{
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000003",
+    "transcript_path": "/home/user/.claude/projects/-home-user-repos-demo/00000000-0000-4000-8000-000000000003.jsonl",
+    "cwd": "/home/user/repos/demo",
+    "scratchpad_dir": "/tmp/scratch",
+    "prompt_id": "00000000-0000-4000-8000-000000000004",
+    "permission_mode": "default",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PermissionRequest",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "touch made.txt",
+      "description": "Create empty file made.txt in working directory"
+    },
+    "permission_suggestions": [
+      {
+        "type": "addDirectories",
+        "directories": [
+          "/home/user/repos/demo"
+        ],
+        "destination": "session"
+      },
+      {
+        "type": "setMode",
+        "mode": "acceptEdits",
+        "destination": "session"
+      }
+    ]
+  },
+  "env": {
+    "WEZTERM_PANE": "present"
+  }
+}

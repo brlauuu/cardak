@@ -1,7 +1,11 @@
+import os
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
 import pytest
+from hookfix import text
 
 from cardak.cli import main
 from cardak.core.navigate import Navigator
@@ -52,7 +56,7 @@ def test_tui_gets_a_live_navigator(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     seen: list[DeckApp] = []
     monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setattr("cardak.cli.read_cached_schemes", lambda cache_dir: None)
+    monkeypatch.setattr("cardak.wezterm.schemes.read_cached_schemes", lambda cache_dir: None)
     assert main(["--config", str(tmp_path / "p.toml")]) == 0
     nav = seen[0].navigator
     assert isinstance(nav, Navigator)
@@ -76,7 +80,9 @@ def xdg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.delenv("CARDAK_CONFIG", raising=False)
-    monkeypatch.setattr("cardak.cli.load_schemes", lambda cache_dir: {})  # no real probe
+    monkeypatch.setattr(
+        "cardak.wezterm.schemes.load_schemes", lambda cache_dir: {}
+    )  # no real probe
     return tmp_path
 
 
@@ -131,3 +137,42 @@ def test_theme_writer_reports_old_module(tmp_path: Path) -> None:
     (tmp_path / "wez" / "cardak.lua").write_text(MARKER + "\n")
     write = _theme_writer(tmp_path / "wez", tmp_path / "card", SchemeStore())
     assert any("older cardak" in w for w in write(Config()))
+
+
+def test_hook_does_not_import_textual(tmp_path: Path) -> None:
+    script = (
+        "import io, sys\n"
+        f"sys.stdin = io.StringIO({text('stop-finished')!r})\n"
+        "from cardak.cli import main\n"
+        "assert main(['hook']) == 0\n"
+        "heavy = sorted(m for m in ('textual', 'psutil', 'rich') if m in sys.modules)\n"
+        "assert not heavy, heavy\n"
+    )
+    config = tmp_path / "p.toml"
+    config.write_text('[notify]\ndesktop = false\nsound = "off"\n')
+    env = os.environ | {"XDG_STATE_HOME": str(tmp_path), "CARDAK_CONFIG": str(config)}
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert (tmp_path / "cardak" / "cardak.db").exists()
+
+
+def test_hook_imports_only_what_it_needs(tmp_path: Path) -> None:
+    # review: 160-240 ms under load; the hook loaded the WezTerm modules, argparse and alerts
+    script = (
+        "import io, sys\n"
+        f"sys.stdin = io.StringIO({text('user_prompt_submit')!r})\n"
+        "sys.argv = ['cardak', 'hook']\n"
+        "from cardak.cli import main\n"
+        "assert main() == 0\n"
+        "loaded = [m for m in ('argparse', 'cardak.core.alerts', 'cardak.core.themes',\n"
+        "          'cardak.wezterm.generate', 'cardak.wezterm.schemes') if m in sys.modules]\n"
+        "assert not loaded, loaded\n"
+    )
+    env = os.environ | {"XDG_STATE_HOME": str(tmp_path), "CARDAK_CONFIG": str(tmp_path / "p")}
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr

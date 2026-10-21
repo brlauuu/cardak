@@ -11,7 +11,7 @@ from cardak.core.themes import Scheme, project_tint
 from cardak.wezterm.files import write_atomic
 from cardak.wezterm.install import MARKER
 
-MODULE_VERSION = 2
+MODULE_VERSION = 3
 ZSH_MARKER = "# cardak: generated"
 PROJECTS_FILE = "cardak_projects.lua"
 TINTS_FILE = "tints"
@@ -21,7 +21,7 @@ NO_MODULE_MSG = (
     "and add the line it prints to wezterm.lua."
 )
 OLD_MODULE_MSG = (
-    "Your cardak.lua is from an older cardak; run `cardak wezterm install` to enable themes."
+    "Your cardak.lua is from an older cardak; run `cardak wezterm install` to update it."
 )
 
 

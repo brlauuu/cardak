@@ -1,16 +1,31 @@
 """Turn collector output into the grouped view the deck renders. Pure: no I/O."""
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from cardak.collectors.claude import ClaudeSession
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane
+from cardak.core.agents import SessionState, Status, WaitKind
 from cardak.core.resolver import Kind, ProjectResolver, Resolved
 
 ClaudeLookup = Callable[[int], ClaudeSession | None]
 AccentFor = Callable[[Resolved], str | None]
+GroupKind = Kind | Literal["waiting"]
+WAITING_NAME = "Waiting on you"
+
+
+@dataclass(frozen=True)
+class AgentView:
+    session_id: str
+    status: Status
+    kind: WaitKind | None
+    since: float
+    reason: str | None
+    current_tool: str | None
+    project: str
 
 
 @dataclass(frozen=True)
@@ -23,11 +38,13 @@ class PaneRow:
     cpu_pct: float | None
     rss: int
     is_self: bool
+    is_claude: bool = False
+    agent: AgentView | None = None  # None: not Claude, or no hook record for its session
 
 
 @dataclass(frozen=True)
 class Group:
-    kind: Kind
+    kind: GroupKind
     key: Path | None
     name: str
     accent: str | None
@@ -45,10 +62,11 @@ class DeckSnapshot:
     error: str | None = None
     config_error: str | None = None
     config_warnings: tuple[str, ...] = ()
+    n_waiting: int = 0
 
     @property
     def n_projects(self) -> int:
-        return sum(1 for g in self.groups if g.kind != "other")
+        return sum(1 for g in self.groups if g.kind not in ("other", "waiting"))
 
 
 def tilde(path: Path, home: Path) -> str:
@@ -98,9 +116,35 @@ class _Context:
     self_pane_id: int | None
     home: Path
     accent_for: AccentFor | None = None
+    by_pane: Mapping[int, SessionState] | None = None
+    by_session: Mapping[str, SessionState] | None = None
 
 
-def _row(pane: Pane, root: Path | None, ctx: _Context) -> PaneRow:
+def _session_for(pane_id: int, claude_pid: int, ctx: _Context) -> SessionState | None:
+    if ctx.by_pane and pane_id in ctx.by_pane:
+        return ctx.by_pane[pane_id]
+    meta = ctx.claude_lookup(claude_pid)  # fallback: the pid's ~/.claude/sessions record
+    return ctx.by_session.get(meta.session_id) if meta and ctx.by_session else None
+
+
+def _agent(pp: PaneProcs | None, pane_id: int, project: str, ctx: _Context) -> AgentView | None:
+    if pp is None or pp.claude_pid is None:
+        return None
+    state = _session_for(pane_id, pp.claude_pid, ctx)
+    if state is None:
+        return None
+    return AgentView(
+        session_id=state.session_id,
+        status=state.status,
+        kind=state.kind,
+        since=state.status_since,
+        reason=state.reason,
+        current_tool=state.current_tool,
+        project=project,
+    )
+
+
+def _row(pane: Pane, resolved: Resolved, ctx: _Context) -> PaneRow:
     pp = ctx.procs.get(pane.tty) if pane.tty else None
     label = _label(pp, ctx.claude_lookup)
     return PaneRow(
@@ -108,15 +152,17 @@ def _row(pane: Pane, root: Path | None, ctx: _Context) -> PaneRow:
         label=label,
         detail=_detail(pane.title, label),
         cwd=pane.cwd,
-        cwd_display=_cwd_display(pane.cwd, root, ctx.home),
+        cwd_display=_cwd_display(pane.cwd, resolved.key, ctx.home),
         cpu_pct=pp.cpu_pct if pp else None,
         rss=pp.rss if pp else 0,
         is_self=pane.pane_id == ctx.self_pane_id,
+        is_claude=pp is not None and pp.claude_pid is not None,
+        agent=_agent(pp, pane.pane_id, resolved.name, ctx),
     )
 
 
 def _group(resolved: Resolved, members: list[Pane], ctx: _Context) -> Group:
-    rows = tuple(_row(pane, resolved.key, ctx) for pane in members)
+    rows = tuple(_row(pane, resolved, ctx) for pane in members)
     return Group(
         kind=resolved.kind,
         key=resolved.key,
@@ -142,11 +188,38 @@ def build_snapshot(
     self_pane_id: int | None,
     home: Path,
     accent_for: AccentFor | None = None,
+    sessions: Sequence[SessionState] = (),
 ) -> DeckSnapshot:
     buckets: dict[Resolved, list[Pane]] = {}
     for pane in sorted(panes, key=lambda p: (p.window_id, p.tab_id, p.pane_id)):
         buckets.setdefault(resolver.resolve(pane.cwd), []).append(pane)
-    ctx = _Context(procs, claude_lookup, self_pane_id, home, accent_for)
+    by_pane: dict[int, SessionState] = {}
+    for s in sorted(sessions, key=lambda s: s.started_at):  # /clear: the newest one wins
+        if s.pane_id is not None and s.ended_at is None:
+            by_pane[s.pane_id] = s
+    by_session = {s.session_id: s for s in sessions if s.ended_at is None}
+    ctx = _Context(procs, claude_lookup, self_pane_id, home, accent_for, by_pane, by_session)
     ranked = sorted(buckets.items(), key=lambda item: _rank(item[0]))
     groups = tuple(_group(resolved, members, ctx) for resolved, members in ranked)
-    return DeckSnapshot(groups=groups, n_panes=sum(len(g.panes) for g in groups))
+    n_panes = sum(len(g.panes) for g in groups)
+    waiting = _waiting_group(groups)
+    if waiting is None:
+        return DeckSnapshot(groups=groups, n_panes=n_panes)
+    return DeckSnapshot(groups=(waiting, *groups), n_panes=n_panes, n_waiting=len(waiting.panes))
+
+
+def _waiting_group(groups: Iterable[Group]) -> Group | None:
+    rows = [r for g in groups for r in g.panes if r.agent and r.agent.status == "waiting"]
+    if not rows:
+        return None
+    rows.sort(key=lambda r: r.agent.since if r.agent else 0.0)
+    return Group(
+        kind="waiting",
+        key=None,
+        name=WAITING_NAME,
+        accent=None,
+        path=None,
+        cpu_pct=0.0,
+        rss=0,
+        panes=tuple(rows),
+    )

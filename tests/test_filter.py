@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from cardak.core.filter import filter_snapshot
+from cardak.core.filter import filter_snapshot, waiting_only
 from cardak.core.resolver import Kind
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 
@@ -78,3 +78,32 @@ def test_no_match() -> None:
 def test_error_snapshot_passes_through() -> None:
     err = DeckSnapshot(error="no WezTerm GUI socket found")
     assert filter_snapshot(err, "web").snapshot is err
+
+
+def waiting_group(*rows: PaneRow) -> Group:
+    return Group(
+        kind="waiting", key=None, name="Waiting on you", accent=None, path=None,
+        cpu_pct=0.0, rss=0, panes=rows,
+    )  # fmt: skip
+
+
+def test_waiting_only() -> None:
+    snap = DeckSnapshot(
+        groups=(waiting_group(row(2)), group("config", "web", row(1), row(2))), n_panes=2,
+        n_waiting=1,
+    )  # fmt: skip
+    only = waiting_only(snap)
+    assert [g.kind for g in only.groups] == ["waiting"]
+    assert waiting_only(DeckSnapshot(groups=(group("config", "web", row(1)),))).groups == ()
+
+
+def test_find_counts_exclude_waiting_group() -> None:
+    snap = DeckSnapshot(
+        groups=(waiting_group(row(2, label="claude")),
+                group("config", "web", row(1), row(2, label="claude"))),
+        n_panes=2, n_waiting=1,
+    )  # fmt: skip
+    result = filter_snapshot(snap, "claude")
+    assert result.n_matches == 1
+    assert result.snapshot.n_panes == 1
+    assert [g.kind for g in result.snapshot.groups] == ["waiting", "config"]

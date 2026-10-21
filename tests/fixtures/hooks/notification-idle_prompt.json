@@ -1,0 +1,15 @@
+{
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "/home/user/.claude/projects/-home-user-repos-demo/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "/home/user/repos/demo",
+    "scratchpad_dir": "/tmp/scratch",
+    "prompt_id": "00000000-0000-4000-8000-000000000009",
+    "hook_event_name": "Notification",
+    "message": "Claude is waiting for your input",
+    "notification_type": "idle_prompt"
+  },
+  "env": {
+    "WEZTERM_PANE": "present"
+  }
+}

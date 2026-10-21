@@ -5,6 +5,7 @@ import pytest
 from cardak.core.config import (
     Config,
     ConfigError,
+    NotifySettings,
     Project,
     add_project,
     config_dir,
@@ -272,3 +273,31 @@ def test_set_project_theme_inserts_before_the_next_sections_comment(tmp_path: Pa
         '[[project]]\nname = "a"\npath = "/a"\ntheme = "Nord"\n\n'
         '# --- section b ---\n[[project]]\nname = "b"\npath = "/b"\n'
     )
+
+
+def test_notify_defaults(tmp_path: Path) -> None:
+    f = tmp_path / "p.toml"
+    f.write_text(SAMPLE)
+    assert load(f).notify == NotifySettings(desktop=True, sound="random", sounds_dir=None)
+
+
+def test_notify_parsed(tmp_path: Path, home: Path) -> None:
+    f = tmp_path / "p.toml"
+    f.write_text('[notify]\ndesktop = false\nsound = "bell"\nsounds_dir = "~/sounds"\n')
+    assert load(f).notify == NotifySettings(False, "bell", home / "sounds")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '[notify]\ndesktop = "yes"\n',
+        "notify = 3\n",
+        "[notify]\nsound = 1\n",
+        "[notify]\nsounds_dir = []\n",
+    ],
+)
+def test_notify_bad_types(tmp_path: Path, text: str) -> None:
+    f = tmp_path / "p.toml"
+    f.write_text(text)
+    with pytest.raises(ConfigError, match=r"notify"):
+        load(f)

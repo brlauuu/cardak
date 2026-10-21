@@ -1,0 +1,14 @@
+{
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000002",
+    "transcript_path": "/home/user/.claude/projects/-home-user-repos-demo/00000000-0000-4000-8000-000000000002.jsonl",
+    "cwd": "/home/user/repos/demo",
+    "scratchpad_dir": "/tmp/scratch",
+    "prompt_id": "00000000-0000-4000-8000-000000000011",
+    "hook_event_name": "SessionEnd",
+    "reason": "prompt_input_exit"
+  },
+  "env": {
+    "WEZTERM_PANE": "present"
+  }
+}

@@ -2,15 +2,17 @@
 
 import os
 import re
-import tempfile
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import tomli_w
-import tomlkit
-from tomlkit.items import AoT, Table
+if TYPE_CHECKING:
+    from tomlkit.items import Table
+
+# tomli_w and tomlkit are imported where projects.toml is written: `cardak hook` loads this
+# module on every Claude Code hook and only reads.
 
 
 @dataclass(frozen=True)
@@ -24,9 +26,17 @@ class Project:
 
 
 @dataclass(frozen=True)
+class NotifySettings:
+    desktop: bool = True  # notify-send when a session starts waiting
+    sound: str = "random"  # "random" | "off" | a bundled name | a file name in sounds_dir
+    sounds_dir: Path | None = None
+
+
+@dataclass(frozen=True)
 class Config:
     projects: tuple[Project, ...] = ()
     defaults: dict[str, object] = field(default_factory=dict)
+    notify: NotifySettings = NotifySettings()
 
 
 class ConfigError(Exception):
@@ -43,6 +53,14 @@ def config_dir(env: Mapping[str, str] | None = None) -> Path:
     if env.get("XDG_CONFIG_HOME"):
         return Path(env["XDG_CONFIG_HOME"]) / "cardak"
     return Path(env.get("HOME") or Path.home()) / ".config" / "cardak"
+
+
+def state_dir(env: Mapping[str, str] | None = None) -> Path:
+    """Where cardak keeps runtime state: the agent database, focus history, hook log."""
+    env = os.environ if env is None else env
+    if env.get("XDG_STATE_HOME"):
+        return Path(env["XDG_STATE_HOME"]) / "cardak"
+    return Path(env.get("HOME") or Path.home()) / ".local" / "state" / "cardak"
 
 
 def config_path(cli_value: str | None = None, env: Mapping[str, str] | None = None) -> Path:
@@ -108,7 +126,25 @@ def load(path: Path) -> Config:
     defaults = data.get("defaults", {})
     if not isinstance(defaults, dict):
         raise ConfigError(path, "[defaults] must be a table")
-    return Config(projects=tuple(projects), defaults=dict(defaults))
+    return Config(projects=tuple(projects), defaults=dict(defaults), notify=_notify(path, data))
+
+
+def _notify(path: Path, data: Mapping[str, object]) -> NotifySettings:
+    raw = data.get("notify", {})
+    if not isinstance(raw, dict):
+        raise ConfigError(path, "[notify] must be a table")
+    desktop, sound, sounds_dir = (
+        raw.get("desktop", True),
+        raw.get("sound", "random"),
+        raw.get("sounds_dir"),
+    )
+    if not isinstance(desktop, bool):
+        raise ConfigError(path, "[notify] desktop must be true or false")
+    if not isinstance(sound, str):
+        raise ConfigError(path, "[notify] sound must be a string")
+    if sounds_dir is not None and not isinstance(sounds_dir, str):
+        raise ConfigError(path, "[notify] sounds_dir must be a string")
+    return NotifySettings(desktop, sound, Path(sounds_dir).expanduser() if sounds_dir else None)
 
 
 def _with_tilde(path: Path) -> str:
@@ -127,6 +163,8 @@ def _atomic_write(path: Path, target: Path, text: str) -> None:
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
+        import tempfile
+
         fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".projects.", suffix=".toml")
     except OSError as e:
         raise ConfigError(path, f"cannot write: {e}") from e
@@ -154,6 +192,8 @@ def add_project(path: Path, name: str, project_path: Path, theme: str | None = N
     entry = {"name": name, "path": _with_tilde(project_path)}
     if theme:
         entry["theme"] = theme
+    import tomli_w
+
     block = "[[project]]\n" + tomli_w.dumps(entry)
 
     text = _appended(_read(target) or "", block)
@@ -165,7 +205,7 @@ def add_project(path: Path, name: str, project_path: Path, theme: str | None = N
     _atomic_write(path, target, text)
 
 
-def _set_key(table: Table, key: str, value: str) -> None:
+def _set_key(table: "Table", key: str, value: str) -> None:
     """Set key in a table; a new key goes after its last key, not after trailing comments.
 
     tomlkit appends new keys at the very end of a table's body, which places them below a
@@ -186,6 +226,9 @@ def set_project_theme(path: Path, project_path: Path, theme: str) -> None:
     """Set one project's `theme` in place; comments and layout elsewhere are kept."""
     load(path)  # refuses a broken file before anything is written
     target = path.resolve()
+    import tomlkit
+    from tomlkit.items import AoT
+
     doc = tomlkit.parse(_read(target) or "")
     projects = doc.get("project")
     if projects is not None and not isinstance(projects, AoT):
