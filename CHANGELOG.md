@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.4.0 — 2026-10-21
+
 ### Added
 - The deck shows which Claude Code session is waiting on you, and why. Each Claude pane gets a dot (orange: waiting, green: working, grey: idle), and a "Waiting on you" group at the top lists waiting sessions oldest first, with the reason: a tool to approve, a question for you, or a finished turn. Run `cardak hooks install` once; it backs up `~/.claude/settings.json` and asks before writing. (#32)
 - One desktop notification and one sound when a session starts waiting, even with the deck closed, and none if you're already looking at that pane. Pick a sound, `random` or `off`, or add your own in `[notify]` in projects.toml. (#32)
