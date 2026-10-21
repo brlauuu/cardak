@@ -242,3 +242,16 @@ def test_default_settings_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     monkeypatch.setenv("HOME", str(tmp_path))
     assert default_settings_path() == tmp_path / ".claude" / "settings.json"
     assert os.environ["HOME"] == str(tmp_path)
+
+
+def test_hooks_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.cli import HOOKS_HINT, _hooks_hint
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("cardak.cli.sys.argv", ["/home/user/.local/bin/cardak"])
+    assert _hooks_hint() == HOOKS_HINT
+    settings = tmp_path / ".claude" / "settings.json"
+    save_settings(settings, with_hooks({}, CMD), NOW)
+    assert _hooks_hint() is None
+    settings.write_text("{broken")
+    assert _hooks_hint() == HOOKS_HINT

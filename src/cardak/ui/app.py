@@ -1,9 +1,12 @@
 """The deck: a live tree of WezTerm panes grouped by project."""
 
+import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
+from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -14,15 +17,34 @@ from textual.widgets import Footer, Header, Input, Label, Static, Tree
 from textual.widgets.tree import TreeNode
 from textual.worker import Worker
 
+from cardak.core.agents import SessionState
 from cardak.core.config import ConfigError
-from cardak.core.filter import filter_snapshot
+from cardak.core.filter import filter_snapshot, waiting_only
 from cardak.core.navigate import JumpResult
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
-from cardak.ui.widgets import group_label, no_match_label, pane_label, unreachable_label
+from cardak.ui.widgets import (
+    group_label,
+    no_match_label,
+    nothing_waiting_label,
+    pane_label,
+    reason_label,
+    unreachable_label,
+    waiting_label,
+)
 
-NodeData = tuple[Group, PaneRow | None]
+
+@dataclass(frozen=True)
+class Node:
+    """What a tree line shows: a group, a pane in it, or a waiting pane's reason line."""
+
+    group: Group
+    row: PaneRow | None = None
+    role: Literal["group", "pane", "reason"] = "group"
+
+
+NodeData = Node
 
 
 class DeckSource(Protocol):
@@ -37,6 +59,10 @@ class DeckSource(Protocol):
 
     def regenerate(self) -> None: ...
 
+    def mark_seen_pane(self, pane_id: int) -> None: ...
+
+    def session(self, session_id: str) -> SessionState | None: ...
+
 
 class Jumper(Protocol):
     def jump(self, pane_id: int) -> JumpResult: ...
@@ -45,8 +71,12 @@ class Jumper(Protocol):
 def node_id(data: NodeData | None) -> str | None:
     if data is None:
         return None
-    group, row = data
-    return f"p:{row.pane_id}" if row else f"g:{group.kind}:{group.key}"
+    if data.row is None:
+        return f"g:{data.group.kind}:{data.group.key}"
+    if data.role == "reason":
+        return f"r:{data.row.pane_id}"
+    # the same pane can be listed twice: under "Waiting on you" and in its project
+    return f"{'w' if data.group.kind == 'waiting' else 'p'}:{data.row.pane_id}"
 
 
 def _cursor_target(
@@ -56,7 +86,7 @@ def _cursor_target(
     if focus_pane is None:
         return nodes.get(selected) if selected else None
     leaf = next(
-        (n for n in nodes.values() if n.data and n.data[1] and n.data[1].pane_id == focus_pane),
+        (n for n in nodes.values() if n.data and n.data.row and n.data.row.pane_id == focus_pane),
         None,
     )
     if leaf is None or leaf.parent is None or leaf.parent.is_expanded:
@@ -97,6 +127,7 @@ class DeckApp(App[None]):
     BINDINGS = [
         Binding("a", "add_project", "Add as project"),
         Binding("t", "theme", "Theme"),
+        Binding("w", "waiting_only", "Waiting"),
         Binding("slash", "find", "Find"),
         Binding("escape", "clear_find", "Clear find", show=False),
         Binding("j", "cursor_down", "Down", show=False),
@@ -114,6 +145,7 @@ class DeckApp(App[None]):
         schemes: SchemeStore | None = None,
         load_schemes: Callable[[], Mapping[str, Scheme]] | None = None,
         theme_status: Callable[[], str | None] | None = None,
+        hooks_status: Callable[[], str | None] | None = None,
     ) -> None:
         super().__init__()
         self.source = source
@@ -122,6 +154,8 @@ class DeckApp(App[None]):
         self.schemes = schemes
         self.load_schemes = load_schemes
         self.theme_status = theme_status  # how to enable themes, when they aren't yet
+        self.hooks_status = hooks_status  # how to enable agent status, when it isn't yet
+        self.waiting_only = False
         self.interval = interval
         self.raw: DeckSnapshot | None = None
         self.snapshot: DeckSnapshot | None = None
@@ -147,6 +181,8 @@ class DeckApp(App[None]):
         self.deck_tree.focus()
         self.action_refresh()
         self.set_interval(self.interval, self.action_refresh)
+        if self.hooks_status is not None and (hint := self.hooks_status()):
+            self.notify(escape(hint), severity="warning")
         if self.schemes is not None and not self.schemes.get() and self.load_schemes is not None:
             self.run_worker(self._load_schemes, thread=True, group="schemes", exit_on_error=False)
 
@@ -183,7 +219,8 @@ class DeckApp(App[None]):
         raw = self.raw
         if raw is None:
             return
-        result = filter_snapshot(raw, self.find_query)
+        shown = waiting_only(raw) if self.waiting_only else raw
+        result = filter_snapshot(shown, self.find_query)
         self.snapshot = result.snapshot
         self._best = result.best_pane_id
         query = self.find_query.strip()
@@ -191,6 +228,8 @@ class DeckApp(App[None]):
             self.sub_title = f'{result.n_matches} of {raw.n_panes} panes match "{query}"'
         else:
             self.sub_title = f"{raw.n_projects} projects · {raw.n_panes} panes"
+        if raw.n_waiting:
+            self.sub_title += f" · {raw.n_waiting} waiting"
         self._rebuild(
             result.snapshot,
             focus_pane=result.best_pane_id if follow_best else None,
@@ -210,15 +249,27 @@ class DeckApp(App[None]):
         if not snap.groups and empty_query:
             tree.root.add_leaf(no_match_label(empty_query))
             return
+        if not snap.groups and self.waiting_only:
+            tree.root.add_leaf(nothing_waiting_label())
+            return
+        now = time.time()
         nodes: dict[str, TreeNode[NodeData]] = {}
+
+        def leaf(parent: TreeNode[NodeData], label: Text, data: Node) -> None:
+            nodes[node_id(data) or ""] = parent.add_leaf(label, data=data)
+
         for group in snap.groups:
-            data: NodeData = (group, None)
+            data = Node(group)
             gid = node_id(data) or ""
             node = tree.root.add(group_label(group), data=data, expand=gid not in self._collapsed)
             nodes[gid] = node
             for row in group.panes:
-                leaf_data: NodeData = (group, row)
-                nodes[node_id(leaf_data) or ""] = node.add_leaf(pane_label(row), data=leaf_data)
+                if group.kind == "waiting":
+                    leaf(node, waiting_label(row, now), Node(group, row, "pane"))
+                    continue
+                leaf(node, pane_label(row, now), Node(group, row, "pane"))
+                if row.agent and row.agent.status == "waiting":
+                    leaf(node, reason_label(row), Node(group, row, "reason"))
         target = _cursor_target(nodes, selected, focus_pane)
         if target is not None:
             # New nodes get their line numbers on the next refresh; moving now lands on line 0.
@@ -226,6 +277,10 @@ class DeckApp(App[None]):
         else:
             # clear() leaves the cursor on no line, so the first key would only "find" row 0.
             self.call_after_refresh(self._cursor_to_first_row)
+
+    def action_waiting_only(self) -> None:
+        self.waiting_only = not self.waiting_only
+        self._render(follow_best=False)
 
     def _cursor_to_first_row(self) -> None:
         tree = self.deck_tree
@@ -273,7 +328,7 @@ class DeckApp(App[None]):
         node = self.deck_tree.cursor_node
         if node is None or node.data is None:
             return None
-        group, row = node.data
+        group, row = node.data.group, node.data.row
         if group.kind == "git":
             return group.key
         if group.kind == "other" and row is not None:
@@ -313,8 +368,8 @@ class DeckApp(App[None]):
     @on(Tree.NodeSelected)
     def _selected(self, event: Tree.NodeSelected[NodeData]) -> None:
         data = event.node.data
-        if data is not None and data[1] is not None:  # a group row toggles itself (auto_expand)
-            self.jump(data[1].pane_id)
+        if data is not None and data.row is not None:  # a group row toggles itself (auto_expand)
+            self.jump(data.row.pane_id)
 
     def jump(self, pane_id: int) -> None:
         navigator = self.navigator
@@ -324,9 +379,13 @@ class DeckApp(App[None]):
         def work() -> None:
             try:
                 result = navigator.jump(pane_id)
+                if result.kind != "failed":
+                    self.source.mark_seen_pane(pane_id)
             except Exception as e:  # a navigator bug must not take the deck down
                 result = JumpResult("failed", f"Couldn't jump: {e!r}")
             self.call_from_thread(self._report_jump, result)
+            if result.kind != "failed":
+                self.call_from_thread(self.action_refresh)
 
         self.run_worker(work, thread=True, group="jump", exit_on_error=False)
 
@@ -357,7 +416,7 @@ class DeckApp(App[None]):
 
     def action_theme(self) -> None:
         node = self.deck_tree.cursor_node
-        group = node.data[0] if node is not None and node.data is not None else None
+        group = node.data.group if node is not None and node.data is not None else None
         if group is None or group.kind == "other" or group.key is None:
             self.notify("Select a project or a repo to theme.", severity="warning")
             return

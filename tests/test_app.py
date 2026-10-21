@@ -5,12 +5,13 @@ from pathlib import Path
 from textual.pilot import Pilot
 from textual.widgets import Input, Static
 
+from cardak.core.agents import SessionState
 from cardak.core.config import ConfigError
 from cardak.core.navigate import JumpResult
 from cardak.core.resolver import Kind
-from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
+from cardak.core.snapshot import WAITING_NAME, AgentView, DeckSnapshot, Group, PaneRow
 from cardak.core.themes import Scheme, SchemeStore
-from cardak.ui.app import AddProjectScreen, DeckApp
+from cardak.ui.app import AddProjectScreen, DeckApp, Node, node_id
 from cardak.ui.theme_picker import ThemePickerScreen
 
 
@@ -58,6 +59,8 @@ class StubSource:
         self.added: list[tuple[str, Path]] = []
         self.themes: list[tuple[Path, str, str | None]] = []
         self.regenerated = 0
+        self.seen_panes: list[int] = []
+        self.sessions: dict[str, SessionState] = {}
 
     def poll(self) -> DeckSnapshot:
         return self.snaps.pop(0) if len(self.snaps) > 1 else self.snaps[0]
@@ -72,6 +75,12 @@ class StubSource:
 
     def regenerate(self) -> None:
         self.regenerated += 1
+
+    def mark_seen_pane(self, pane_id: int) -> None:
+        self.seen_panes.append(pane_id)
+
+    def session(self, session_id: str) -> SessionState | None:
+        return self.sessions.get(session_id)
 
 
 class BrokenSource(StubSource):
@@ -120,7 +129,7 @@ async def test_cursor_survives_refresh() -> None:
         await settle(app, pilot)
         cursor = app.deck_tree.cursor_node
         assert cursor is not None and cursor.data is not None
-        assert cursor.data[1] is not None and cursor.data[1].pane_id == 3
+        assert cursor.data.row is not None and cursor.data.row.pane_id == 3
 
 
 async def test_unreachable_message() -> None:
@@ -412,7 +421,7 @@ async def test_best_match_in_collapsed_group_selects_group() -> None:
         await open_find(app, pilot, "w", "e", "b")
         cursor = app.deck_tree.cursor_node
         assert cursor is not None and cursor.data is not None
-        assert cursor.data[1] is None and cursor.data[0].name == "webshop"
+        assert cursor.data.row is None and cursor.data.group.name == "webshop"
 
 
 async def test_cursor_starts_on_the_first_row() -> None:
@@ -489,3 +498,131 @@ async def test_saving_a_theme_says_how_to_enable_themes() -> None:
         await pilot.press("enter")
         await settle(app, pilot)
         assert "install it" in [n.message for n in app._notifications]
+
+
+def agent_row(pane_id: int, status: str, kind: str | None = None, since: float = 0.0) -> PaneRow:
+    agent = AgentView(f"s{pane_id}", status, kind, since, "Merge them?", None, "webshop")  # type: ignore[arg-type]
+    return replace(row(pane_id), label="claude", is_claude=True, agent=agent)
+
+
+def waiting_snap(*waiting_rows: PaneRow, others: tuple[PaneRow, ...] = ()) -> DeckSnapshot:
+    project = group("config", "webshop", Path("/repos/webshop"), *waiting_rows, *others)
+    waiting = Group(
+        kind="waiting", key=None, name=WAITING_NAME, accent=None, path=None,
+        cpu_pct=0.0, rss=0, panes=waiting_rows,
+    )  # fmt: skip
+    groups = (waiting, project) if waiting_rows else (project,)
+    return DeckSnapshot(
+        groups=groups, n_panes=len(waiting_rows) + len(others), n_waiting=len(waiting_rows)
+    )
+
+
+def all_nodes(app: DeckApp) -> list:
+    out, todo = [], list(app.deck_tree.root.children)
+    while todo:
+        node = todo.pop(0)
+        out.append(node)
+        todo[0:0] = list(node.children)
+    return out
+
+
+async def test_waiting_rows_have_their_own_node_ids() -> None:
+    snap = waiting_snap(agent_row(7, "waiting", "question"))
+    nav = StubNavigator()
+    source = StubSource(snap)
+    app = DeckApp(source, navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        ids = [node_id(n.data) for n in all_nodes(app)]
+        assert ids == ["g:waiting:None", "w:7", "g:config:/repos/webshop", "p:7", "r:7"]
+        for target in (1, 4):  # the waiting row and the reason line
+            app.deck_tree.move_cursor(all_nodes(app)[target])
+            await pilot.press("enter")
+            await settle(app, pilot)
+        assert nav.jumps == [7, 7]
+        app.deck_tree.root.children[0].collapse()
+        await pilot.pause()
+        app.action_refresh()
+        await settle(app, pilot)
+        assert not app.deck_tree.root.children[0].is_expanded
+
+
+async def test_waiting_row_has_reason_line() -> None:
+    snap = waiting_snap(
+        agent_row(7, "waiting", "question"), others=(agent_row(8, "working"), agent_row(9, "idle"))
+    )
+    app = DeckApp(StubSource(snap), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        project = app.deck_tree.root.children[1]
+        roles = [
+            (n.data.role, n.data.row.pane_id)
+            for n in project.children
+            if n.data is not None and n.data.row is not None
+        ]
+        assert roles == [("pane", 7), ("reason", 7), ("pane", 8), ("pane", 9)]
+        assert "Your answer: Merge them?" in str(project.children[1].label)
+        assert str(app.deck_tree.root.children[0].label) == WAITING_NAME
+
+
+async def test_w_toggles_waiting_only() -> None:
+    snap = waiting_snap(agent_row(7, "waiting", "finished"), others=(row(2),))
+    app = DeckApp(StubSource(snap), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("w")
+        await pilot.pause()
+        assert [str(n.label) for n in app.deck_tree.root.children] == [WAITING_NAME]
+        await pilot.press("w")
+        await pilot.pause()
+        assert len(app.deck_tree.root.children) == 2
+
+
+async def test_w_with_nobody_waiting() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("w")
+        await pilot.pause()
+        assert labels(app) == ["Nobody is waiting on you."]
+
+
+async def test_header_counts_waiting() -> None:
+    snap = waiting_snap(agent_row(7, "waiting", "finished"), agent_row(8, "waiting", "question"))
+    app = DeckApp(StubSource(snap), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        assert app.sub_title.endswith("· 2 waiting")
+
+
+async def test_jump_marks_seen() -> None:
+    snap = waiting_snap(agent_row(7, "waiting", "finished"))
+    for result, expected in ((RAISED, [7]), (JumpResult("failed", "no"), [])):
+        source = StubSource(snap)
+        app = DeckApp(source, navigator=StubNavigator(result), interval=3600)
+        async with app.run_test() as pilot:
+            await settle(app, pilot)
+            app.jump(7)
+            await settle(app, pilot)
+            assert source.seen_panes == expected
+
+
+async def test_hooks_hint_once() -> None:
+    calls: list[int] = []
+
+    def hint() -> str:
+        calls.append(1)
+        return "Run `cardak hooks install` for agent status"
+
+    app = DeckApp(StubSource(SNAP), interval=3600, hooks_status=hint)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.action_refresh()
+        await settle(app, pilot)
+        assert calls == [1]
+        assert any("hooks install" in str(n.message) for n in app._notifications)  # noqa: SLF001
+
+
+def test_node_id_none() -> None:
+    assert node_id(None) is None
+    assert node_id(Node(SNAP.groups[0])) == "g:config:/repos/webshop"

@@ -82,6 +82,25 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+HOOKS_HINT = "Run `cardak hooks install` to see Claude Code sessions' status."
+
+
+def _hooks_hint() -> str | None:
+    """The deck's one-time hint when cardak's hooks aren't (fully) installed."""
+    from cardak.claude import install as claude
+
+    exe = claude.find_executable(sys.argv[0])
+    try:
+        settings = claude.load_settings(claude.default_settings_path())
+    except claude.SettingsError:
+        return HOOKS_HINT
+    if exe is not None and claude.status(settings, claude.hook_command(exe)) == "installed":
+        return None
+    if exe is None and claude.status(settings, "cardak hook") != "missing":
+        return None  # installed from some other path; nothing to compare it with
+    return HOOKS_HINT
+
+
 def _hooks(command: str, settings_arg: Path | None, yes: bool) -> int:
     from datetime import datetime
 
@@ -257,5 +276,6 @@ def _deck(config_arg: str | None) -> int:
         schemes=store,
         load_schemes=lambda: load_schemes(cache_dir),
         theme_status=lambda: _module_message(module_version(default_dir() / "cardak.lua")),
+        hooks_status=_hooks_hint,
     ).run()
     return 0
