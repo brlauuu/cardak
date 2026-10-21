@@ -2,21 +2,34 @@
 
 import os
 import threading
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
+from typing import Protocol
 
 from cardak.collectors import claude, wezterm
 from cardak.collectors.processes import PaneProcs, ProcessSampler
 from cardak.core import config as config_mod
+from cardak.core.agents import FocusChange, SessionState, seen_by_focus
+from cardak.core.alerts import bundled_sounds, check
 from cardak.core.config import Config, ConfigError
 from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
 from cardak.core.snapshot import ClaudeLookup, DeckSnapshot, build_snapshot
+from cardak.core.store import StoreError
 from cardak.core.themes import Scheme, project_accent
 
 ListPanes = Callable[[Mapping[str, str]], list[wezterm.Pane]]
 Sample = Callable[[Iterable[str]], dict[str, PaneProcs]]
 Stamp = tuple[int, int, int, int] | None
+
+
+class AgentStore(Protocol):
+    def live_sessions(self) -> list[SessionState]: ...
+
+    def get(self, session_id: str) -> SessionState | None: ...
+
+    def mark_seen(self, session_id: str, now: float) -> None: ...
 
 
 class LiveSource:
@@ -33,6 +46,9 @@ class LiveSource:
         home: Path | None = None,
         on_config: Callable[[Config], Sequence[str]] | None = None,
         schemes: Callable[[], Mapping[str, Scheme]] | None = None,
+        store: AgentStore | None = None,
+        focus_history: Callable[[], Sequence[FocusChange]] = lambda: [],
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -46,6 +62,11 @@ class LiveSource:
         self._lock = threading.Lock()
         self._on_config = on_config
         self._schemes: Callable[[], Mapping[str, Scheme]] = schemes or (lambda: {})
+        self._store = store
+        self._focus_history = focus_history
+        self._clock = clock
+        self._notify_warnings: tuple[str, ...] = ()
+        self._store_warning: str | None = None
         self._config = Config()
         self._warnings: tuple[str, ...] = ()
         self._config_error: str | None = None
@@ -78,6 +99,7 @@ class LiveSource:
             self._config_error = str(e)
             self._warnings = ()
         self._config = cfg
+        self._notify_warnings = tuple(check(cfg.notify, bundled_sounds()))
         self._resolver = ProjectResolver(cfg, self._git)
         if self._config_error is None:
             self._run_on_config()
@@ -114,13 +136,57 @@ class LiveSource:
         with self._lock:
             return self._poll()
 
+    def _sessions(self) -> list[SessionState]:
+        """Live sessions, after marking the ones the user has looked at as seen."""
+        if self._store is None:
+            return []
+        try:
+            live = self._store.live_sessions()
+            history, now = self._focus_history(), self._clock()
+            seen = [s for s in live if seen_by_focus(s, history, now)]
+            for s in seen:
+                self._store.mark_seen(s.session_id, now)
+            if seen:
+                live = self._store.live_sessions()
+        except StoreError as e:
+            self._store_warning = f"agent status unavailable: {e}"
+            return []
+        self._store_warning = None
+        return live
+
+    def mark_seen_pane(self, pane_id: int) -> None:
+        """The user jumped to this pane: its waiting session has been seen."""
+        with self._lock:
+            if self._store is None:
+                return
+            now = self._clock()
+            try:
+                for s in self._store.live_sessions():
+                    if s.pane_id == pane_id and s.status == "waiting":
+                        self._store.mark_seen(s.session_id, now)
+            except StoreError as e:
+                self._store_warning = f"agent status unavailable: {e}"
+
+    def session(self, session_id: str) -> SessionState | None:
+        with self._lock:
+            if self._store is None:
+                return None
+            try:
+                return self._store.get(session_id)
+            except StoreError:
+                return None
+
+    def _warnings_now(self) -> tuple[str, ...]:
+        extra = (self._store_warning,) if self._store_warning else ()
+        return (*self._warnings, *self._notify_warnings, *extra)
+
     def _poll(self) -> DeckSnapshot:
         self._reload_if_changed()
         try:
             panes = self._list_panes(self._env)
         except wezterm.WeztermUnavailable as e:
             return DeckSnapshot(
-                error=str(e), config_error=self._config_error, config_warnings=self._warnings
+                error=str(e), config_error=self._config_error, config_warnings=self._warnings_now()
             )
         procs = self._sample([p.tty for p in panes if p.tty])
         snap = build_snapshot(
@@ -131,8 +197,9 @@ class LiveSource:
             self._self_pane,
             self._home,
             accent_for=self._accent_for,
+            sessions=self._sessions(),
         )
-        return replace(snap, config_error=self._config_error, config_warnings=self._warnings)
+        return replace(snap, config_error=self._config_error, config_warnings=self._warnings_now())
 
     def add_project(self, name: str, path: Path) -> None:
         with self._lock:

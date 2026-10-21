@@ -37,5 +37,10 @@ def filter_snapshot(snap: DeckSnapshot, query: str) -> FilterResult:
                 best, best_score = row.pane_id, score
         if kept:
             groups.append(replace(group, panes=tuple(kept)))
-    n = sum(len(g.panes) for g in groups)
+    n = sum(len(g.panes) for g in groups if g.kind != "waiting")
     return FilterResult(replace(snap, groups=tuple(groups), n_panes=n), best, n)
+
+
+def waiting_only(snap: DeckSnapshot) -> DeckSnapshot:
+    """The deck's `w` view: just the "Waiting on you" group."""
+    return replace(snap, groups=tuple(g for g in snap.groups if g.kind == "waiting"))

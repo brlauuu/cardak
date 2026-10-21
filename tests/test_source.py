@@ -4,8 +4,10 @@ from pathlib import Path
 
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane, WeztermUnavailable
+from cardak.core.agents import FocusChange, SessionState, mark_seen
 from cardak.core.config import Config
 from cardak.core.source import LiveSource
+from cardak.core.store import StoreError
 
 HOME = Path("/home/user")
 
@@ -207,3 +209,95 @@ def test_accents_come_from_schemes(tmp_path: Path) -> None:
         schemes=lambda: red,
     )
     assert source.poll().groups[0].accent == "#ff0000"
+
+
+class FakeStore:
+    def __init__(self, *states: SessionState, broken: bool = False) -> None:
+        self.states = {s.session_id: s for s in states}
+        self.seen: list[tuple[str, float]] = []
+        self.broken = broken
+
+    def live_sessions(self) -> list[SessionState]:
+        if self.broken:
+            raise StoreError("database is locked")
+        return list(self.states.values())
+
+    def get(self, session_id: str) -> SessionState | None:
+        return self.states.get(session_id)
+
+    def mark_seen(self, session_id: str, now: float) -> None:
+        self.seen.append((session_id, now))
+        self.states[session_id] = mark_seen(self.states[session_id], now)
+
+
+def claude_sample(ttys: Iterable[str]) -> dict[str, PaneProcs]:
+    return {t: PaneProcs("claude", 1, 50, 1.0, 10, 1, 0.0, 0) for t in ttys}
+
+
+def agent_source(tmp_path: Path, store: FakeStore, history=(), now: float = 102.0) -> LiveSource:
+    return LiveSource(
+        tmp_path / "projects.toml",
+        env={},
+        list_panes=panes,
+        sample=claude_sample,
+        claude_lookup=lambda pid: None,
+        git=no_git,
+        home=HOME,
+        store=store,
+        focus_history=lambda: list(history),
+        clock=lambda: now,
+    )
+
+
+WAITING = SessionState("w", pane_id=1, status="waiting", kind="finished", status_since=100.0)
+
+
+def test_poll_shows_agents(tmp_path: Path) -> None:
+    snap = agent_source(tmp_path, FakeStore(WAITING)).poll()
+    assert snap.n_waiting == 1 and snap.groups[0].kind == "waiting"
+
+
+def test_poll_marks_seen_by_focus(tmp_path: Path) -> None:
+    store = FakeStore(WAITING)
+    snap = agent_source(tmp_path, store, history=[FocusChange(1, 100.2)]).poll()
+    assert store.seen == [("w", 102.0)]
+    assert snap.n_waiting == 0  # re-read after marking
+
+
+def test_poll_without_focus_leaves_waiting(tmp_path: Path) -> None:
+    store = FakeStore(WAITING)
+    agent_source(tmp_path, store, history=[FocusChange(0, 100.2)]).poll()
+    assert store.seen == []
+
+
+def test_mark_seen_pane(tmp_path: Path) -> None:
+    other = SessionState("o", pane_id=0, status="waiting", kind="finished")
+    working = SessionState("k", pane_id=1, status="working")
+    store = FakeStore(WAITING, other, working)
+    agent_source(tmp_path, store).mark_seen_pane(1)
+    assert store.seen == [("w", 102.0)]
+
+
+def test_session_lookup(tmp_path: Path) -> None:
+    source = agent_source(tmp_path, FakeStore(WAITING))
+    assert source.session("w") == WAITING
+    assert source.session("nope") is None
+
+
+def test_store_errors_become_a_warning(tmp_path: Path) -> None:
+    snap = agent_source(tmp_path, FakeStore(broken=True)).poll()
+    assert snap.n_waiting == 0
+    assert any("agent status unavailable" in w for w in snap.config_warnings)
+
+
+def test_notify_warnings_reach_banner(tmp_path: Path) -> None:
+    (tmp_path / "projects.toml").write_text('[notify]\nsound = "nope"\n')
+    snap = agent_source(tmp_path, FakeStore()).poll()
+    assert any('sound "nope"' in w for w in snap.config_warnings)
+
+
+def test_no_store_means_no_agents(tmp_path: Path) -> None:
+    source = make(tmp_path / "projects.toml")
+    assert source.poll().n_waiting == 0
+    source.mark_seen_pane(1)
+    assert source.session("w") is None

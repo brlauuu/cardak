@@ -230,16 +230,25 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _deck(config_arg: str | None) -> int:
+    from cardak.core.focus import focus_path, read_history
     from cardak.core.navigate import Navigator, Previewer
     from cardak.core.source import LiveSource
+    from cardak.core.store import Store, StoreError, db_path
     from cardak.ui.app import DeckApp
 
     cache_dir = default_cache_dir()
     store = SchemeStore(read_cached_schemes(cache_dir))
+    try:
+        agents: Store | None = Store(db_path())
+    except StoreError as e:
+        print(f"cardak: agent status unavailable: {e}", file=sys.stderr)
+        agents = None
     source = LiveSource(
         config_path(config_arg),
         on_config=_theme_writer(default_dir(), config_dir(), store),
         schemes=store.get,
+        store=agents,
+        focus_history=lambda: read_history(focus_path()),
     )
     DeckApp(
         source,
