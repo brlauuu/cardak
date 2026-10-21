@@ -7,6 +7,7 @@ from rich.text import Text
 
 from cardak.core.agents import KIND_LABELS
 from cardak.core.snapshot import AgentView, Group, PaneRow
+from cardak.core.summary import TAGS
 
 WAITING = "dark_orange"
 WORKING = "green"
@@ -57,10 +58,22 @@ def agent_dot(row: PaneRow) -> Text:
     return Text("○ ", style=IDLE)
 
 
+def _cut(text: str, limit: int = MAX_REASON) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def _reason(agent: AgentView) -> str:
     label = KIND_LABELS[agent.kind] if agent.kind else "Waiting"
-    text = " ".join(f"{label}: {agent.reason or ''}".split()).rstrip(":")
-    return text if len(text) <= MAX_REASON else text[: MAX_REASON - 1] + "…"
+    return _cut(" ".join(f"{label}: {agent.reason or ''}".split()).rstrip(":"))
+
+
+def _why(agent: AgentView) -> Text:
+    """The waiting tag and summary when there is one, else the kind and raw reason."""
+    if agent.summary and agent.kind:
+        tag = TAGS[agent.kind]
+        summary = _cut(agent.summary, MAX_REASON - len(tag) - 2)
+        return Text(tag, style=f"bold {WAITING}").append(f"  {summary}")
+    return Text(_reason(agent))
 
 
 def group_label(g: Group) -> Text:
@@ -104,7 +117,9 @@ def pane_label(r: PaneRow, now: float | None = None) -> Text:
 
 def reason_label(r: PaneRow) -> Text:
     """The second line under a waiting session in its project group."""
-    return Text(f"    ↳ {_reason(r.agent)}" if r.agent else "", style=WAITING)
+    if r.agent is None:
+        return Text("", style=WAITING)
+    return Text("    ↳ ", style=WAITING).append_text(_why(r.agent))
 
 
 def waiting_label(r: PaneRow, now: float | None = None) -> Text:
@@ -115,8 +130,8 @@ def waiting_label(r: PaneRow, now: float | None = None) -> Text:
         return text.append(r.label, style="bold")
     text.append(f"{r.agent.project} · claude", style="bold")
     text.append(f"  {age(now - r.agent.since)}", style=WAITING)
-    text.append(f"  {_reason(r.agent)}")
-    return text
+    text.append("  ")
+    return text.append_text(_why(r.agent))
 
 
 def unreachable_label(reason: str) -> Text:

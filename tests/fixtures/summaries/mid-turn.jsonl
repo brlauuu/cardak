@@ -1,0 +1,6 @@
+{"type": "user", "message": {"role": "user", "content": "first task"}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "PREVIOUS TURN TEXT"}]}}
+{"type": "user", "message": {"role": "user", "content": "fix the retry bug"}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "hmm", "signature": "x"}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "CURRENT TURN TEXT: fixed the retry loop in client.rs."}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "cargo test"}}]}}

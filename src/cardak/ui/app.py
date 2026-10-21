@@ -22,6 +22,7 @@ from cardak.core.config import ConfigError
 from cardak.core.filter import filter_snapshot, waiting_only
 from cardak.core.navigate import JumpResult
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
+from cardak.core.summary import SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.detail import DetailScreen
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
@@ -63,6 +64,8 @@ class DeckSource(Protocol):
     def mark_seen_pane(self, pane_id: int) -> None: ...
 
     def session(self, session_id: str) -> SessionState | None: ...
+
+    def summary_info(self, state: SessionState) -> SummaryInfo | None: ...
 
 
 class Jumper(Protocol):
@@ -178,6 +181,7 @@ class DeckApp(App[None]):
         self.load_schemes = load_schemes
         self.theme_status = theme_status  # how to enable themes, when they aren't yet
         self.hooks_status = hooks_status  # how to enable agent status, when it isn't yet
+        self._cap_noticed = False  # the summary-limit notice shows once per run
         self.waiting_only = False
         self.interval = interval
         self.raw: DeckSnapshot | None = None
@@ -236,6 +240,15 @@ class DeckApp(App[None]):
             banner.update(escape("\n".join(snap.config_warnings)))
         banner.display = bool(snap.config_error or snap.config_warnings)
         banner.set_class(snap.config_error is None and bool(snap.config_warnings), "warning")
+        if snap.summary_capped and not self._cap_noticed:
+            self._cap_noticed = True
+            self.notify(
+                escape(
+                    f"Summary limit of ${snap.summary_limit:.2f} reached for this month; showing "
+                    "raw reasons. Change it in [summary] in projects.toml."
+                ),
+                severity="warning",
+            )
         self._render(follow_best=False)
 
     def _render(self, follow_best: bool) -> None:
@@ -316,7 +329,7 @@ class DeckApp(App[None]):
             if pane_id is not None:
                 self.jump(pane_id)
 
-        self.push_screen(DetailScreen(state, project), done)
+        self.push_screen(DetailScreen(state, project, self.source.summary_info(state)), done)
 
     def action_waiting_only(self) -> None:
         self.waiting_only = not self.waiting_only

@@ -26,6 +26,7 @@ class AgentView:
     reason: str | None
     current_tool: str | None
     project: str
+    summary: str | None = None  # the current wait's summary, when one was written
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,8 @@ class DeckSnapshot:
     config_error: str | None = None
     config_warnings: tuple[str, ...] = ()
     n_waiting: int = 0
+    summary_capped: bool = False  # this month's summaries reached [summary] monthly_limit_usd
+    summary_limit: float = 0.0
 
     @property
     def n_projects(self) -> int:
@@ -118,6 +121,7 @@ class _Context:
     accent_for: AccentFor | None = None
     by_pane: Mapping[int, SessionState] | None = None
     by_session: Mapping[str, SessionState] | None = None
+    summaries: Mapping[str, str] | None = None
 
 
 def _session_for(pane_id: int, claude_pid: int, ctx: _Context) -> SessionState | None:
@@ -141,6 +145,7 @@ def _agent(pp: PaneProcs | None, pane_id: int, project: str, ctx: _Context) -> A
         reason=state.reason,
         current_tool=state.current_tool,
         project=project,
+        summary=(ctx.summaries or {}).get(state.session_id) if state.status == "waiting" else None,
     )
 
 
@@ -189,6 +194,7 @@ def build_snapshot(
     home: Path,
     accent_for: AccentFor | None = None,
     sessions: Sequence[SessionState] = (),
+    summaries: Mapping[str, str] | None = None,
 ) -> DeckSnapshot:
     buckets: dict[Resolved, list[Pane]] = {}
     for pane in sorted(panes, key=lambda p: (p.window_id, p.tab_id, p.pane_id)):
@@ -198,7 +204,9 @@ def build_snapshot(
         if s.pane_id is not None and s.ended_at is None:
             by_pane[s.pane_id] = s
     by_session = {s.session_id: s for s in sessions if s.ended_at is None}
-    ctx = _Context(procs, claude_lookup, self_pane_id, home, accent_for, by_pane, by_session)
+    ctx = _Context(
+        procs, claude_lookup, self_pane_id, home, accent_for, by_pane, by_session, summaries
+    )
     ranked = sorted(buckets.items(), key=lambda item: _rank(item[0]))
     groups = tuple(_group(resolved, members, ctx) for resolved, members in ranked)
     n_panes = sum(len(g.panes) for g in groups)

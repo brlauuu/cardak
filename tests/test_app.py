@@ -10,6 +10,7 @@ from cardak.core.config import ConfigError
 from cardak.core.navigate import JumpResult
 from cardak.core.resolver import Kind
 from cardak.core.snapshot import WAITING_NAME, AgentView, DeckSnapshot, Group, PaneRow
+from cardak.core.summary import SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.app import AddProjectScreen, DeckApp, Node, node_id
 from cardak.ui.detail import DetailScreen, TranscriptScreen
@@ -62,6 +63,7 @@ class StubSource:
         self.regenerated = 0
         self.seen_panes: list[int] = []
         self.sessions: dict[str, SessionState] = {}
+        self.info: SummaryInfo | None = None
 
     def poll(self) -> DeckSnapshot:
         return self.snaps.pop(0) if len(self.snaps) > 1 else self.snaps[0]
@@ -82,6 +84,9 @@ class StubSource:
 
     def session(self, session_id: str) -> SessionState | None:
         return self.sessions.get(session_id)
+
+    def summary_info(self, state: SessionState) -> SummaryInfo | None:
+        return self.info
 
 
 class BrokenSource(StubSource):
@@ -680,3 +685,33 @@ async def test_deck_keys_do_nothing_on_other_screens() -> None:
         await pilot.pause()
         assert isinstance(app.screen, TranscriptScreen)
         assert not app.waiting_only
+
+
+async def test_cap_notice_shows_once() -> None:
+    capped = replace(SNAP, summary_capped=True, summary_limit=5.0)
+    source = StubSource(capped, replace(capped, n_panes=capped.n_panes + 1))
+    app = DeckApp(source, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.action_refresh()
+        await settle(app, pilot)
+        messages = [str(n.message) for n in app._notifications]  # noqa: SLF001
+        notices = [m for m in messages if "Summary limit" in m]
+        assert notices == [
+            r"Summary limit of $5.00 reached for this month; showing raw reasons. "
+            r"Change it in \[summary] in projects.toml."
+        ]
+
+
+async def test_detail_gets_summary_info() -> None:
+    snap = waiting_snap(agent_row(7, "waiting", "finished"))
+    source = StubSource(snap)
+    source.sessions["s7"] = SessionState("s7", pane_id=7, status="waiting", kind="finished")
+    source.info = SummaryInfo("Did x; nothing asked", 0.1, 5.0)
+    app = DeckApp(source, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])
+        await pilot.press("i")
+        await pilot.pause()
+        assert isinstance(app.screen, DetailScreen) and app.screen.info == source.info

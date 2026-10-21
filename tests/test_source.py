@@ -1,5 +1,6 @@
 import threading
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 from pathlib import Path
 
 from cardak.collectors.processes import PaneProcs
@@ -8,6 +9,7 @@ from cardak.core.agents import FocusChange, SessionState, mark_seen
 from cardak.core.config import Config
 from cardak.core.source import LiveSource
 from cardak.core.store import StoreError
+from cardak.core.summary import SummaryInfo
 
 HOME = Path("/home/user")
 
@@ -212,10 +214,33 @@ def test_accents_come_from_schemes(tmp_path: Path) -> None:
 
 
 class FakeStore:
-    def __init__(self, *states: SessionState, broken: bool = False) -> None:
+    def __init__(
+        self,
+        *states: SessionState,
+        broken: bool = False,
+        summaries: dict[tuple[str, float], str] | None = None,
+        spend: float = 0.0,
+        error: str | None = None,
+    ) -> None:
         self.states = {s.session_id: s for s in states}
         self.seen: list[tuple[str, float]] = []
         self.broken = broken
+        self.summaries = summaries or {}
+        self.spend = spend
+        self.spend_asked: list[float] = []
+        self.error = error
+
+    def latest_error_since(self, ts: float) -> str | None:
+        return self.error
+
+    def summaries_for(self, waits: Iterable[tuple[str, float]]) -> dict[str, str]:
+        return {sid: self.summaries[(sid, t)] for sid, t in waits if (sid, t) in self.summaries}
+
+    def spend_since(self, ts: float) -> float:
+        self.spend_asked.append(ts)
+        if self.spend < 0:
+            raise StoreError("database is locked")
+        return self.spend
 
     def live_sessions(self) -> list[SessionState]:
         if self.broken:
@@ -234,7 +259,9 @@ def claude_sample(ttys: Iterable[str]) -> dict[str, PaneProcs]:
     return {t: PaneProcs("claude", 1, 50, 1.0, 10, 1, 0.0, 0) for t in ttys}
 
 
-def agent_source(tmp_path: Path, store: FakeStore, history=(), now: float = 102.0) -> LiveSource:
+def agent_source(
+    tmp_path: Path, store: FakeStore, history=(), now: float = 102.0, key_file: Path | None = None
+) -> LiveSource:
     return LiveSource(
         tmp_path / "projects.toml",
         env={},
@@ -246,6 +273,7 @@ def agent_source(tmp_path: Path, store: FakeStore, history=(), now: float = 102.
         store=store,
         focus_history=lambda: list(history),
         clock=lambda: now,
+        key_file=key_file,
     )
 
 
@@ -301,3 +329,78 @@ def test_no_store_means_no_agents(tmp_path: Path) -> None:
     assert source.poll().n_waiting == 0
     source.mark_seen_pane(1)
     assert source.session("w") is None
+
+
+def key(tmp_path: Path, mode: int = 0o600) -> Path:
+    path = tmp_path / "anthropic_key"
+    path.write_text("k")
+    path.chmod(mode)
+    return path
+
+
+def test_source_reads_summaries_for_current_waits(tmp_path: Path) -> None:
+    store = FakeStore(WAITING, summaries={("w", 100.0): "Did x; nothing asked", ("w", 5.0): "old"})
+    snap = agent_source(tmp_path, store, key_file=key(tmp_path)).poll()
+    assert snap.groups[0].panes[0].agent.summary == "Did x; nothing asked"  # type: ignore[union-attr]
+
+
+def test_source_flags_the_cap(tmp_path: Path) -> None:
+    now = datetime(2026, 10, 21, 12).timestamp()
+    store = FakeStore(WAITING, spend=5.0)
+    assert agent_source(tmp_path, store, now=now, key_file=key(tmp_path)).poll().summary_capped
+    assert store.spend_asked[-1] == datetime(2026, 10, 1).timestamp()
+    store.spend = 4.99
+    assert not agent_source(tmp_path, store, now=now, key_file=key(tmp_path)).poll().summary_capped
+
+
+def test_source_without_key_file_has_no_summaries(tmp_path: Path) -> None:
+    store = FakeStore(WAITING, summaries={("w", 100.0): "S"}, spend=9.0)
+    snap = agent_source(tmp_path, store).poll()
+    assert snap.groups[0].panes[0].agent.summary is None  # type: ignore[union-attr]
+    assert not snap.summary_capped
+
+
+def test_source_disabled_summaries(tmp_path: Path) -> None:
+    (tmp_path / "projects.toml").write_text("[summary]\nmonthly_limit_usd = 0\n")
+    store = FakeStore(WAITING, summaries={("w", 100.0): "S"}, spend=9.0)
+    source = agent_source(tmp_path, store, key_file=key(tmp_path))
+    snap = source.poll()
+    assert snap.groups[0].panes[0].agent.summary is None  # type: ignore[union-attr]
+    assert not snap.summary_capped
+    assert source.summary_info(WAITING) is None
+
+
+def test_source_warns_about_an_open_key(tmp_path: Path) -> None:
+    snap = agent_source(tmp_path, FakeStore(), key_file=key(tmp_path, 0o644)).poll()
+    assert (
+        "anthropic_key is readable by other users; run chmod 600 ~/.config/cardak/anthropic_key"
+        in snap.config_warnings
+    )
+
+
+def test_summary_info(tmp_path: Path) -> None:
+    store = FakeStore(WAITING, summaries={("w", 100.0): "Did x; needs y"}, spend=0.42)
+    source = agent_source(tmp_path, store, key_file=key(tmp_path))
+    assert source.summary_info(WAITING) == SummaryInfo("Did x; needs y", 0.42, 5.0)
+    other = SessionState("o", status="waiting", kind="finished", status_since=1.0)
+    assert source.summary_info(other) == SummaryInfo(None, 0.42, 5.0)
+
+
+def test_summary_store_errors(tmp_path: Path) -> None:
+    store = FakeStore(WAITING, summaries={("w", 100.0): "S"}, spend=-1.0)
+    source = agent_source(tmp_path, store, key_file=key(tmp_path))
+    snap = source.poll()
+    assert snap.groups[0].panes[0].agent.summary is None  # type: ignore[union-attr]
+    assert any("agent status unavailable" in w for w in snap.config_warnings)
+    assert source.summary_info(WAITING) is None
+
+
+def test_source_warns_when_summaries_fail(tmp_path: Path) -> None:
+    store = FakeStore(WAITING, error="AuthenticationError: invalid x-api-key")
+    source = agent_source(tmp_path, store, key_file=key(tmp_path))
+    assert (
+        "waiting summaries failing: AuthenticationError: invalid x-api-key; "
+        "see ~/.local/state/cardak/hook.log"
+    ) in source.poll().config_warnings
+    store.error = None
+    assert not any("failing" in w for w in source.poll().config_warnings)

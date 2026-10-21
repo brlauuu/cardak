@@ -17,6 +17,7 @@ from cardak.core.config import Config, ConfigError
 from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
 from cardak.core.snapshot import ClaudeLookup, DeckSnapshot, build_snapshot
 from cardak.core.store import StoreError
+from cardak.core.summary import SummaryInfo, key_warning, month_start
 from cardak.core.themes import Scheme, project_accent
 
 ListPanes = Callable[[Mapping[str, str]], list[wezterm.Pane]]
@@ -30,6 +31,12 @@ class AgentStore(Protocol):
     def get(self, session_id: str) -> SessionState | None: ...
 
     def mark_seen(self, session_id: str, now: float) -> None: ...
+
+    def summaries_for(self, waits: Iterable[tuple[str, float]]) -> dict[str, str]: ...
+
+    def spend_since(self, ts: float) -> float: ...
+
+    def latest_error_since(self, ts: float) -> str | None: ...
 
 
 class LiveSource:
@@ -49,6 +56,7 @@ class LiveSource:
         store: AgentStore | None = None,
         focus_history: Callable[[], Sequence[FocusChange]] = lambda: [],
         clock: Callable[[], float] = time.time,
+        key_file: Path | None = None,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -65,6 +73,8 @@ class LiveSource:
         self._store = store
         self._focus_history = focus_history
         self._clock = clock
+        self._key_file = key_file  # None: no waiting summaries in this deck
+        self._summary_warning: str | None = None
         self._notify_warnings: tuple[str, ...] = ()
         self._store_warning: str | None = None
         self._config = Config()
@@ -154,6 +164,47 @@ class LiveSource:
         self._store_warning = None
         return live
 
+    def _summary_store(self) -> AgentStore | None:
+        """The store to read summaries from, or None when this deck shows none."""
+        if self._key_file is None or not self._config.summary.enabled:
+            return None
+        return self._store
+
+    def _summaries(self, live: Sequence[SessionState]) -> tuple[dict[str, str], bool]:
+        """Summaries of the current waits, and whether this month's spend reached the cap."""
+        self._summary_warning = None
+        store = self._summary_store()
+        if store is None:
+            return {}, False
+        waits = [(s.session_id, s.status_since) for s in live if s.status == "waiting"]
+        start = month_start(self._clock())
+        try:
+            found = store.summaries_for(waits)
+            spend = store.spend_since(start)
+            error = store.latest_error_since(start)
+        except StoreError as e:
+            self._store_warning = f"agent status unavailable: {e}"
+            return {}, False
+        if error:
+            self._summary_warning = (
+                f"waiting summaries failing: {error}; see ~/.local/state/cardak/hook.log"
+            )
+        return found, spend >= self._config.summary.monthly_limit_usd
+
+    def summary_info(self, state: SessionState) -> SummaryInfo | None:
+        """The detail panel's summary lines for a session; None when summaries are off."""
+        with self._lock:
+            store = self._summary_store()
+            if store is None:
+                return None
+            try:
+                found = store.summaries_for([(state.session_id, state.status_since)])
+                spend = store.spend_since(month_start(self._clock()))
+            except StoreError:
+                return None
+            limit = self._config.summary.monthly_limit_usd
+            return SummaryInfo(found.get(state.session_id), spend, limit)
+
     def mark_seen_pane(self, pane_id: int) -> None:
         """The user jumped to this pane: its waiting session has been seen."""
         with self._lock:
@@ -178,7 +229,9 @@ class LiveSource:
 
     def _warnings_now(self) -> tuple[str, ...]:
         extra = (self._store_warning,) if self._store_warning else ()
-        return (*self._warnings, *self._notify_warnings, *extra)
+        key = key_warning(self._key_file) if self._key_file is not None else None
+        summary = (self._summary_warning,) if self._summary_warning else ()
+        return (*self._warnings, *self._notify_warnings, *extra, *((key,) if key else ()), *summary)
 
     def _poll(self) -> DeckSnapshot:
         self._reload_if_changed()
@@ -189,6 +242,8 @@ class LiveSource:
                 error=str(e), config_error=self._config_error, config_warnings=self._warnings_now()
             )
         procs = self._sample([p.tty for p in panes if p.tty])
+        sessions = self._sessions()
+        summaries, capped = self._summaries(sessions)
         snap = build_snapshot(
             panes,
             procs,
@@ -197,9 +252,16 @@ class LiveSource:
             self._self_pane,
             self._home,
             accent_for=self._accent_for,
-            sessions=self._sessions(),
+            sessions=sessions,
+            summaries=summaries,
         )
-        return replace(snap, config_error=self._config_error, config_warnings=self._warnings_now())
+        return replace(
+            snap,
+            config_error=self._config_error,
+            config_warnings=self._warnings_now(),
+            summary_capped=capped,
+            summary_limit=self._config.summary.monthly_limit_usd,
+        )
 
     def add_project(self, name: str, path: Path) -> None:
         with self._lock:

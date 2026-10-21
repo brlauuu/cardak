@@ -17,6 +17,7 @@ from textual.widgets import Button, Collapsible, Footer, Header, Static
 
 from cardak.collectors.transcripts import Entry, read_transcript
 from cardak.core.agents import KIND_LABELS, SessionState, tool_summary
+from cardak.core.summary import SummaryInfo
 from cardak.ui.widgets import IDLE, WAITING, WORKING, age
 
 MAX_WORDS = 100
@@ -52,22 +53,30 @@ def _shown_path(path: str, cwd: Path | None) -> str:
     return str(p.relative_to(cwd)) if cwd and p.is_relative_to(cwd) else path
 
 
-def detail_text(state: SessionState, project: str, now: float) -> Text:
-    text = Text()
-    color = {"waiting": WAITING, "working": WORKING}.get(state.status, IDLE)
-    text.append("● " if state.status != "idle" else "○ ", style=f"bold {color}")
-    text.append(f"{project} · claude", style="bold")
-    text.append(f"  {state.status} {age(now - state.status_since)}\n\n", style=color)
-
+def _needs(text: Text, state: SessionState, summary: str | None) -> None:
     text.append("NEEDS  ", style="bold")
     if state.status == "waiting" and state.kind:
         text.append(f"{KIND_LABELS[state.kind]}\n", style=f"bold {WAITING}")
+        if summary:
+            text.append(f"  Summary: {summary}\n")
         keep = "start" if state.kind == "permission" else "end"
         text.append(f"  {_words(state.reason or '', keep)}\n")
     elif state.status == "working":
         text.append(f"Working: {state.current_tool or '…'}\n")
     else:
         text.append("Nothing\n")
+
+
+def detail_text(
+    state: SessionState, project: str, now: float, info: SummaryInfo | None = None
+) -> Text:
+    text = Text()
+    color = {"waiting": WAITING, "working": WORKING}.get(state.status, IDLE)
+    text.append("● " if state.status != "idle" else "○ ", style=f"bold {color}")
+    text.append(f"{project} · claude", style="bold")
+    text.append(f"  {state.status} {age(now - state.status_since)}\n\n", style=color)
+
+    _needs(text, state, info.text if info is not None else None)
 
     if state.last_prompt:
         asked = f"  ({age(now - state.last_prompt_at)} ago)" if state.last_prompt_at else ""
@@ -80,6 +89,8 @@ def detail_text(state: SessionState, project: str, now: float) -> Text:
     for path in state.turn_files:
         text.append("  edited ", style="green")
         text.append(f"{_shown_path(path, state.cwd)}\n")
+    if info is not None:
+        text.append(f"\nSummaries this month: ${info.month_spend:.2f} of ${info.limit:.2f}\n")
     text.rstrip()
     return text
 
@@ -93,15 +104,16 @@ class DetailScreen(Screen[int | None]):
         Binding("escape", "back", "Back"),
     ]
 
-    def __init__(self, state: SessionState, project: str) -> None:
+    def __init__(self, state: SessionState, project: str, info: SummaryInfo | None = None) -> None:
         super().__init__()
         self.state = state
         self.project = project
+        self.info = info
 
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalScroll():
-            yield Static(detail_text(self.state, self.project, time.time()), id="detail")
+            yield Static(detail_text(self.state, self.project, time.time(), self.info), id="detail")
         yield Footer()
 
     def action_jump(self) -> None:

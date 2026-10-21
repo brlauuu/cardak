@@ -8,6 +8,7 @@ it imports no Textual or psutil, and any failure goes to hook.log instead.
 from __future__ import annotations
 
 import os
+import sys
 import time
 import traceback
 from collections.abc import Mapping
@@ -15,8 +16,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
 from cardak.collectors.hooks import parse
-from cardak.core.agents import apply
-from cardak.core.config import Config, ConfigError, config_path, load, state_dir
+from cardak.core.agents import Ping, apply
+from cardak.core.config import (
+    Config,
+    ConfigError,
+    anthropic_key_path,
+    config_path,
+    load,
+    state_dir,
+)
 from cardak.core.focus import focus_path, focused_pane, read_history
 from cardak.core.store import Store, db_path
 
@@ -41,6 +49,13 @@ def _pane(env: Mapping[str, str]) -> int | None:
     return int(pane) if pane.isdigit() else None
 
 
+def summarize_argv(session_id: str, wait_since: float) -> list[str]:
+    """`cardak summarize` under this interpreter: no new module at the package root needed."""
+    script = "import sys; from cardak.cli import main; sys.exit(main())"
+    # -P: never put the cwd (the Claude session's project) on sys.path
+    return [sys.executable, "-P", "-c", script, "summarize", session_id, repr(wait_since)]
+
+
 def run(
     text: str,
     env: Mapping[str, str],
@@ -49,6 +64,7 @@ def run(
     store: Store,
     config_file: Path,
     focus_file: Path,
+    key_file: Path,
     spawn: Spawn | None = None,
 ) -> None:
     event = parse(text)
@@ -63,6 +79,13 @@ def run(
         return
     if pane is not None and focused_pane(read_history(focus_file)) == pane:
         return  # the user is looking at it already
+    _ping(ping, now, config_file=config_file, key_file=key_file, spawn=spawn)
+
+
+def _ping(
+    ping: Ping, now: float, *, config_file: Path, key_file: Path, spawn: Spawn | None
+) -> None:
+    """A session started waiting: notification, sound, and a summary when that's on."""
     try:
         config = load(config_file)
     except ConfigError:
@@ -70,10 +93,13 @@ def run(
     # imported only when pinging: alerts reads the sound pack
     from cardak.core.alerts import alert, spawn_detached
 
-    alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn or spawn_detached)
+    spawn = spawn or spawn_detached
+    alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn)
+    if config.summary.enabled and key_file.exists():
+        spawn(summarize_argv(ping.session_id, now))  # `now` is the new wait's status_since
 
 
-def _log(env: Mapping[str, str], message: str) -> None:
+def log_problem(env: Mapping[str, str], message: str) -> None:
     log = state_dir(env) / "hook.log"
     try:
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -97,9 +123,10 @@ def main(stdin: TextIO, env: Mapping[str, str] | None = None) -> int:
                 store=store,
                 config_file=config_path(None, env),
                 focus_file=focus_path(env),
+                key_file=anthropic_key_path(env),
             )
         finally:
             store.close()
     except Exception:
-        _log(env, traceback.format_exc())
+        log_problem(env, traceback.format_exc())
     return 0

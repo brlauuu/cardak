@@ -1,5 +1,8 @@
 import io
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -8,7 +11,7 @@ from hookfix import text
 from cardak.core import hook
 from cardak.core.config import Config, Project
 from cardak.core.focus import FOCUS_HEADER
-from cardak.core.hook import main, project_name, run
+from cardak.core.hook import main, project_name, run, summarize_argv
 from cardak.core.store import Store, StoreError
 
 ENV = {"WEZTERM_PANE": "7"}
@@ -19,7 +22,11 @@ QUIET = '[notify]\ndesktop = true\nsound = "off"\n'
 def paths(tmp_path: Path) -> dict[str, Path]:
     config = tmp_path / "projects.toml"
     config.write_text(QUIET)
-    return {"config_file": config, "focus_file": tmp_path / "focus"}
+    return {
+        "config_file": config,
+        "focus_file": tmp_path / "focus",
+        "key_file": tmp_path / "anthropic_key",
+    }
 
 
 def call(store: Store, paths: dict[str, Path], name: str, now: float = 100.0, **kw: object) -> list:
@@ -137,3 +144,68 @@ def test_main_survives_an_unwritable_state_dir(
     env = env_for(tmp_path)
     assert main(io.StringIO(json.dumps({"x": 1})), env) == 0
     assert capsys.readouterr() == ("", "")
+
+
+def test_ping_spawns_the_summarizer(tmp_path: Path, paths: dict[str, Path]) -> None:
+    store = Store(tmp_path / "db")
+    paths["key_file"].write_text("k")
+    spawned = call(store, paths, "stop-finished", now=1792600000.123456)
+    [state] = store.live_sessions()
+    argv = spawned[-1]
+    assert argv[:3] == [sys.executable, "-P", "-c"]
+    assert argv[4:6] == ["summarize", state.session_id]
+    assert float(argv[6]) == state.status_since
+
+
+def test_no_summarizer_without_key(tmp_path: Path, paths: dict[str, Path]) -> None:
+    spawned = call(Store(tmp_path / "db"), paths, "stop-finished")
+    assert [argv[0] for argv in spawned] == ["notify-send"]
+
+
+def test_no_summarizer_when_disabled(tmp_path: Path, paths: dict[str, Path]) -> None:
+    paths["key_file"].write_text("k")
+    paths["config_file"].write_text(QUIET + "[summary]\nmonthly_limit_usd = 0\n")
+    spawned = call(Store(tmp_path / "db"), paths, "stop-finished")
+    assert [argv[0] for argv in spawned] == ["notify-send"]
+
+
+def test_no_summarizer_when_pane_focused(tmp_path: Path, paths: dict[str, Path]) -> None:
+    paths["key_file"].write_text("k")
+    paths["focus_file"].write_text(f"{FOCUS_HEADER}\n7 1000\n")
+    assert call(Store(tmp_path / "db"), paths, "stop-finished") == []
+
+
+def test_summarize_argv_runs_the_cli(tmp_path: Path) -> None:
+    config = tmp_path / "p.toml"
+    config.write_text(QUIET)
+    env = os.environ | {
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "CARDAK_CONFIG": str(config),
+    }
+    result = subprocess.run(
+        summarize_argv("nope", 1.0), env=env, capture_output=True, text=True, check=False
+    )
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+    assert not (tmp_path / "state" / "cardak" / "hook.log").exists()
+
+
+def test_summarize_argv_ignores_the_working_directory(tmp_path: Path) -> None:
+    # review: `python -c` put the Claude session's project dir first on sys.path
+    project = tmp_path / "project"
+    project.mkdir()
+    marker = tmp_path / "ran"
+    (project / "json.py").write_text(f"open({str(marker)!r}, 'w').close()\nfrom json import *\n")
+    config = tmp_path / "p.toml"
+    config.write_text(QUIET)
+    env = os.environ | {
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "CARDAK_CONFIG": str(config),
+    }
+    result = subprocess.run(
+        summarize_argv("nope", 1.0), env=env, cwd=project, capture_output=True, text=True,
+        check=False,
+    )  # fmt: skip
+    assert result.returncode == 0, result.stderr
+    assert not marker.exists()

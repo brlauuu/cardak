@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -159,6 +160,19 @@ def test_hook_does_not_import_textual(tmp_path: Path) -> None:
     assert (tmp_path / "cardak" / "cardak.db").exists()
 
 
+HOOK_FORBIDDEN = (
+    "argparse",
+    "cardak.core.alerts",
+    "cardak.core.themes",
+    "cardak.wezterm.generate",
+    "cardak.wezterm.schemes",
+    "anthropic",
+    "cardak.llm",
+    "cardak.core.summary",
+    "cardak.core.summarize",
+)
+
+
 def test_hook_imports_only_what_it_needs(tmp_path: Path) -> None:
     # review: 160-240 ms under load; the hook loaded the WezTerm modules, argparse and alerts
     script = (
@@ -167,11 +181,55 @@ def test_hook_imports_only_what_it_needs(tmp_path: Path) -> None:
         "sys.argv = ['cardak', 'hook']\n"
         "from cardak.cli import main\n"
         "assert main() == 0\n"
-        "loaded = [m for m in ('argparse', 'cardak.core.alerts', 'cardak.core.themes',\n"
-        "          'cardak.wezterm.generate', 'cardak.wezterm.schemes') if m in sys.modules]\n"
+        f"loaded = [m for m in {HOOK_FORBIDDEN!r} if m in sys.modules]\n"
         "assert not loaded, loaded\n"
     )
     env = os.environ | {"XDG_STATE_HOME": str(tmp_path), "CARDAK_CONFIG": str(tmp_path / "p")}
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_summarize_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.core import summarize
+    from cardak.llm.anthropic import AnthropicSummarizer
+
+    seen: list[tuple[list[str], Callable[[str], object]]] = []
+    monkeypatch.setattr(summarize, "main", lambda args, make: seen.append((list(args), make)) or 0)
+    assert main(["summarize", "s", "1.5"]) == 0
+    [(args, make)] = seen
+    assert args == ["s", "1.5"]
+    made = make("sk-test")
+    assert isinstance(made, AnthropicSummarizer) and made.model == "claude-haiku-5-5"
+
+
+def test_pinging_hook_imports_no_summarizer(tmp_path: Path) -> None:
+    # the ping path loads alerts (it plays the sound); everything else stays out
+    forbidden = tuple(m for m in HOOK_FORBIDDEN if m != "cardak.core.alerts")
+    script = (
+        "import io, sys\n"
+        f"sys.stdin = io.StringIO({text('stop-finished')!r})\n"
+        "sys.argv = ['cardak', 'hook']\n"
+        "import cardak.core.alerts as alerts\n"
+        "spawned = []\n"
+        "alerts.spawn_detached = spawned.append\n"
+        "from cardak.cli import main\n"
+        "assert main() == 0\n"
+        f"loaded = [m for m in {forbidden!r} if m in sys.modules]\n"
+        "assert not loaded, loaded\n"
+        "assert any('summarize' in argv for argv in spawned), spawned\n"
+    )
+    config = tmp_path / "p.toml"
+    config.write_text('[notify]\ndesktop = false\nsound = "off"\n')
+    key = tmp_path / "config" / "cardak" / "anthropic_key"
+    key.parent.mkdir(parents=True)
+    key.write_text("k")
+    env = os.environ | {
+        "XDG_STATE_HOME": str(tmp_path),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "CARDAK_CONFIG": str(config),
+    }
     result = subprocess.run(
         [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False
     )

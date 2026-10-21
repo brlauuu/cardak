@@ -155,10 +155,11 @@ def test_group_carries_theme() -> None:
     assert s.groups[0].theme == "Nord"
 
 
-def agents_snap(*states: SessionState):
+def agents_snap(*states: SessionState, summaries: dict[str, str] | None = None):
     return build_snapshot(
-        PANES, PROCS, ProjectResolver(CONFIG, git=fake_git), sessions, 0, HOME, sessions=states
-    )
+        PANES, PROCS, ProjectResolver(CONFIG, git=fake_git), sessions, 0, HOME,
+        sessions=states, summaries=summaries,
+    )  # fmt: skip
 
 
 def rows_by_pane(s) -> dict[int, PaneRow]:
@@ -218,3 +219,20 @@ def test_no_waiting_group_when_none_wait() -> None:
     s = agents_snap(SessionState("x", pane_id=5, status="working"))
     assert all(g.kind != "waiting" for g in s.groups)
     assert s.n_waiting == 0
+
+
+def test_waiting_agent_gets_its_summary() -> None:
+    state = SessionState("x", pane_id=5, status="waiting", kind="finished", status_since=10.0)
+    s = agents_snap(state, summaries={"x": "Did x; nothing asked"})
+    assert rows_by_pane(s)[5].agent.summary == "Did x; nothing asked"  # type: ignore[union-attr]
+    assert s.groups[0].panes[0].agent.summary == "Did x; nothing asked"  # type: ignore[union-attr]
+
+
+def test_working_agent_gets_no_summary() -> None:
+    s = agents_snap(SessionState("x", pane_id=5, status="working"), summaries={"x": "stale"})
+    assert rows_by_pane(s)[5].agent.summary is None  # type: ignore[union-attr]
+
+
+def test_no_summaries_by_default() -> None:
+    state = SessionState("x", pane_id=5, status="waiting", kind="finished")
+    assert rows_by_pane(agents_snap(state))[5].agent.summary is None  # type: ignore[union-attr]
