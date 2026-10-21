@@ -8,6 +8,7 @@ it imports no Textual or psutil, and any failure goes to hook.log instead.
 from __future__ import annotations
 
 import os
+import sys
 import time
 import traceback
 from collections.abc import Mapping
@@ -16,7 +17,14 @@ from typing import TYPE_CHECKING, TextIO
 
 from cardak.collectors.hooks import parse
 from cardak.core.agents import apply
-from cardak.core.config import Config, ConfigError, config_path, load, state_dir
+from cardak.core.config import (
+    Config,
+    ConfigError,
+    anthropic_key_path,
+    config_path,
+    load,
+    state_dir,
+)
 from cardak.core.focus import focus_path, focused_pane, read_history
 from cardak.core.store import Store, db_path
 
@@ -41,6 +49,12 @@ def _pane(env: Mapping[str, str]) -> int | None:
     return int(pane) if pane.isdigit() else None
 
 
+def summarize_argv(session_id: str, wait_since: float) -> list[str]:
+    """`cardak summarize` under this interpreter: no new module at the package root needed."""
+    script = "import sys; from cardak.cli import main; sys.exit(main())"
+    return [sys.executable, "-c", script, "summarize", session_id, repr(wait_since)]
+
+
 def run(
     text: str,
     env: Mapping[str, str],
@@ -49,6 +63,7 @@ def run(
     store: Store,
     config_file: Path,
     focus_file: Path,
+    key_file: Path,
     spawn: Spawn | None = None,
 ) -> None:
     event = parse(text)
@@ -70,7 +85,10 @@ def run(
     # imported only when pinging: alerts reads the sound pack
     from cardak.core.alerts import alert, spawn_detached
 
-    alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn or spawn_detached)
+    spawn = spawn or spawn_detached
+    alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn)
+    if config.summary.enabled and key_file.exists():
+        spawn(summarize_argv(ping.session_id, now))  # `now` is the new wait's status_since
 
 
 def log_problem(env: Mapping[str, str], message: str) -> None:
@@ -97,6 +115,7 @@ def main(stdin: TextIO, env: Mapping[str, str] | None = None) -> int:
                 store=store,
                 config_file=config_path(None, env),
                 focus_file=focus_path(env),
+                key_file=anthropic_key_path(env),
             )
         finally:
             store.close()

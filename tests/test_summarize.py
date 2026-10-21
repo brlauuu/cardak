@@ -59,6 +59,7 @@ def seed(store: Store, config: Path, *steps: tuple[str, dict]) -> tuple[str, flo
             store=store,
             config_file=config,
             focus_file=config.parent / "focus",
+            key_file=config.parent / "no-key",
             spawn=lambda _argv: None,
         )
     [state] = store.live_sessions()
