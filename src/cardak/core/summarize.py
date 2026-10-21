@@ -32,6 +32,19 @@ from cardak.core.summary import (
 MakeSummarizer = Callable[[str], Summarizer]
 
 
+def _turn_text(state: SessionState) -> str:
+    if state.transcript_path is None or not state.transcript_path.exists():
+        return ""
+    return turn_text(read_transcript(state.transcript_path)[0])
+
+
+def _pending_tool(state: SessionState, event: tuple[str, str] | None) -> tuple[str, str]:
+    parsed = parse(event[1]) if event is not None else None
+    if parsed is not None and parsed.tool_name:
+        return parsed.tool_name, json.dumps(parsed.tool_input)
+    return state.current_tool or "tool", state.reason or ""  # payload cut or missing
+
+
 def _inputs(
     store: Store, state: SessionState, wait_since: float
 ) -> tuple[str, tuple[str, str] | None]:
@@ -40,13 +53,7 @@ def _inputs(
     if event is not None and event[0] == "Stop":
         return state.last_message or "", None  # that Stop just set last_message
     # mid-turn: last_message is still the previous turn's, so read this turn's text instead
-    text = ""
-    if state.transcript_path is not None and state.transcript_path.exists():
-        text = turn_text(read_transcript(state.transcript_path)[0])
-    parsed = parse(event[1]) if event is not None else None
-    if parsed is not None and parsed.tool_name:
-        return text, (parsed.tool_name, json.dumps(parsed.tool_input))
-    return text, (state.current_tool or "tool", state.reason or "")  # payload cut or missing
+    return _turn_text(state), _pending_tool(state, event)
 
 
 def run(

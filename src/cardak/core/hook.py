@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
 from cardak.collectors.hooks import parse
-from cardak.core.agents import apply
+from cardak.core.agents import Ping, apply
 from cardak.core.config import (
     Config,
     ConfigError,
@@ -78,6 +78,13 @@ def run(
         return
     if pane is not None and focused_pane(read_history(focus_file)) == pane:
         return  # the user is looking at it already
+    _ping(ping, now, config_file=config_file, key_file=key_file, spawn=spawn)
+
+
+def _ping(
+    ping: Ping, now: float, *, config_file: Path, key_file: Path, spawn: Spawn | None
+) -> None:
+    """A session started waiting: notification, sound, and a summary when that's on."""
     try:
         config = load(config_file)
     except ConfigError:

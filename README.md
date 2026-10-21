@@ -73,6 +73,42 @@ sounds_dir = "~/sounds/cardak" # optional: your own .wav/.oga/.ogg files join th
 
 cardak keeps its state in `~/.local/state/cardak/`.
 
+## Waiting summaries
+
+With an Anthropic API key, each line in "Waiting on you" says what the session did and what
+it needs from you, written by Claude Haiku, after a tag for the kind of ask:
+
+```
+● api-gw · claude  4m  approve  Fixed the retry bug; wants to run the full test suite
+● webshop · claude  2m  decide  Migrated checkout; keep or delete the old /checkout route?
+● notes · claude  30s  review  Split parser.py into 3 modules; tests pass, nothing asked
+```
+
+The tag comes from cardak itself, not the model. Until a summary arrives (a second or two),
+or when there is none, the line shows the raw reason as before; `i` always shows the raw
+reason next to the summary.
+
+Put your key in a file only you can read:
+
+```sh
+printf '%s\n' 'sk-ant-…' > ~/.config/cardak/anthropic_key
+chmod 600 ~/.config/cardak/anthropic_key
+```
+
+cardak uses this file only; `ANTHROPIC_API_KEY` is ignored. With the key in place, each
+time a session starts waiting (and you aren't already looking at it), cardak sends
+Anthropic: the project name, your last prompt, what Claude said in the current turn, the
+tool call waiting for approval, and the turn's counts and edited file names. Never the
+whole transcript.
+
+One summary costs about $0.0002, so a busy month comes to a dollar or so. A monthly cap
+stops summaries when it's reached:
+
+```toml
+[summary]
+monthly_limit_usd = 5    # 0 turns summaries off
+```
+
 ## Development
 
 See `AGENTS.md` for conventions and `PLAN.md` for the roadmap.

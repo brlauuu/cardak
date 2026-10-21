@@ -53,6 +53,20 @@ def _shown_path(path: str, cwd: Path | None) -> str:
     return str(p.relative_to(cwd)) if cwd and p.is_relative_to(cwd) else path
 
 
+def _needs(text: Text, state: SessionState, summary: str | None) -> None:
+    text.append("NEEDS  ", style="bold")
+    if state.status == "waiting" and state.kind:
+        text.append(f"{KIND_LABELS[state.kind]}\n", style=f"bold {WAITING}")
+        if summary:
+            text.append(f"  Summary: {summary}\n")
+        keep = "start" if state.kind == "permission" else "end"
+        text.append(f"  {_words(state.reason or '', keep)}\n")
+    elif state.status == "working":
+        text.append(f"Working: {state.current_tool or '…'}\n")
+    else:
+        text.append("Nothing\n")
+
+
 def detail_text(
     state: SessionState, project: str, now: float, info: SummaryInfo | None = None
 ) -> Text:
@@ -62,17 +76,7 @@ def detail_text(
     text.append(f"{project} · claude", style="bold")
     text.append(f"  {state.status} {age(now - state.status_since)}\n\n", style=color)
 
-    text.append("NEEDS  ", style="bold")
-    if state.status == "waiting" and state.kind:
-        text.append(f"{KIND_LABELS[state.kind]}\n", style=f"bold {WAITING}")
-        if info is not None and info.text:
-            text.append(f"  Summary: {info.text}\n")
-        keep = "start" if state.kind == "permission" else "end"
-        text.append(f"  {_words(state.reason or '', keep)}\n")
-    elif state.status == "working":
-        text.append(f"Working: {state.current_tool or '…'}\n")
-    else:
-        text.append("Nothing\n")
+    _needs(text, state, info.text if info is not None else None)
 
     if state.last_prompt:
         asked = f"  ({age(now - state.last_prompt_at)} ago)" if state.last_prompt_at else ""

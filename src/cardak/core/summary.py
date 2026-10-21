@@ -141,16 +141,18 @@ def build_input(
     return "\n\n".join(parts)
 
 
+def _unquoted(line: str) -> str:
+    if len(line) >= 2 and line[0] == line[-1] and line[0] in "\"'":
+        return line[1:-1].strip()
+    return line
+
+
 def validate(reply: Reply) -> str | None:
     """The line to show, or None when the reply can't be trusted."""
     if reply.stop_reason != "end_turn" or reply.text is None:
         return None
-    line = reply.text.strip()
-    if len(line) >= 2 and line[0] == line[-1] and line[0] in "\"'":
-        line = line[1:-1].strip()
+    line = _unquoted(reply.text.strip())
     if "\n" in line or "\r" in line:
         return None
     line = " ".join(line.split())
-    if not line or len(line) > MAX_LINE:
-        return None
-    return line
+    return line if 0 < len(line) <= MAX_LINE else None
