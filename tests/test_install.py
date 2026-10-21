@@ -121,7 +121,7 @@ def test_install_does_not_touch_wezterm_lua(tmp_path: Path) -> None:
 
 def test_module_v2_themes_windows_and_previews() -> None:
     text = module_text()
-    assert text.splitlines()[1] == "-- cardak-module: 2"
+    assert text.splitlines()[1] == "-- cardak-module: 3"
     assert "pcall(require, 'cardak_projects')" in text
     assert "'update-status'" in text
     assert "cardak_preview" in text

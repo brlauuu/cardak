@@ -70,10 +70,10 @@ def test_module_version(tmp_path: Path) -> None:
     lua.write_text(MARKER + " by `cardak wezterm install`\nlocal wezterm\n")
     assert module_version(lua) == 1
     install(tmp_path)
-    assert module_version(lua) == MODULE_VERSION == 2
+    assert module_version(lua) == MODULE_VERSION == 3
     lua.write_text("-- mine\n")
     assert module_version(lua) is None
-    assert module_text().splitlines()[1] == "-- cardak-module: 2"
+    assert module_text().splitlines()[1] == "-- cardak-module: 3"
 
 
 def test_write_generated_needs_the_module(tmp_path: Path) -> None:
@@ -90,7 +90,7 @@ def test_write_generated_writes_only_changes(tmp_path: Path) -> None:
     first = write_generated(wez, card, CONFIG, SCHEMES)
     assert first.written == (wez / "cardak_projects.lua", card / "tints")
     assert first.problems == ('unknown scheme "Nrod" for typo',)
-    assert first.module_version == 2
+    assert first.module_version == MODULE_VERSION
     assert write_generated(wez, card, CONFIG, SCHEMES).written == ()
 
 
