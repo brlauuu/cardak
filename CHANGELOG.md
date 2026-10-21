@@ -9,8 +9,10 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.5.0 — 2026-10-21
+
 ### Added
-- Each session in "Waiting on you" can say what it did and what it needs from you, in one line written by Claude Haiku, after a tag: approve, decide or review. Put an Anthropic API key in `~/.config/cardak/anthropic_key` (`chmod 600`) to turn it on; `[summary] monthly_limit_usd` caps the cost (default $5). (#30)
+- Each session in "Waiting on you" can say what it did and what it needs from you, in one line written by Claude Haiku, after a tag: approve, decide or review. Put a workspace-scoped Anthropic API key in `~/.config/cardak/anthropic_key` (readable only by you) to turn it on; the deck says when summaries are failing; `[summary] monthly_limit_usd` caps the cost (default $5). (#30)
 
 ## 0.4.0 — 2026-10-21
 
