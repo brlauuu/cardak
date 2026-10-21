@@ -12,7 +12,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cardak.core.config import Config, ConfigError, config_dir, config_path, load
+from cardak.core.config import (
+    Config,
+    ConfigError,
+    anthropic_key_path,
+    config_dir,
+    config_path,
+    load,
+)
 
 if TYPE_CHECKING:
     import argparse
@@ -296,6 +303,7 @@ def _deck(config_arg: str | None) -> int:
         schemes=store.get,
         store=agents,
         focus_history=lambda: read_history(focus_path()),
+        key_file=anthropic_key_path(),
     )
     DeckApp(
         source,
