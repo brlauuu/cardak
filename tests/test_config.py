@@ -6,6 +6,8 @@ from cardak.core.config import (
     Config,
     ConfigError,
     NotifySettings,
+    SummarySettings,
+    anthropic_key_path,
     Project,
     add_project,
     config_dir,
@@ -301,3 +303,48 @@ def test_notify_bad_types(tmp_path: Path, text: str) -> None:
     f.write_text(text)
     with pytest.raises(ConfigError, match=r"notify"):
         load(f)
+
+
+def _summary_cfg(tmp_path: Path, body: str) -> Config:
+    f = tmp_path / "p.toml"
+    f.write_text(body)
+    return load(f)
+
+
+def test_summary_defaults(tmp_path: Path) -> None:
+    cfg = _summary_cfg(tmp_path, "")
+    assert cfg.summary == SummarySettings(monthly_limit_usd=5.0)
+    assert cfg.summary.enabled
+
+
+def test_summary_limit_zero_disables(tmp_path: Path) -> None:
+    assert not _summary_cfg(tmp_path, "[summary]\nmonthly_limit_usd = 0\n").summary.enabled
+
+
+def test_summary_limit_accepts_int_and_float(tmp_path: Path) -> None:
+    assert (
+        _summary_cfg(tmp_path, "[summary]\nmonthly_limit_usd = 2\n").summary.monthly_limit_usd
+        == 2.0
+    )
+    assert (
+        _summary_cfg(tmp_path, "[summary]\nmonthly_limit_usd = 0.5\n").summary.monthly_limit_usd
+        == 0.5
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "[summary]\nmonthly_limit_usd = -1\n",
+        '[summary]\nmonthly_limit_usd = "5"\n',
+        "[summary]\nmonthly_limit_usd = true\n",
+        "summary = 3\n",
+    ],
+)
+def test_summary_rejects_bad_values(tmp_path: Path, body: str) -> None:
+    with pytest.raises(ConfigError, match=r"\[summary\]"):
+        _summary_cfg(tmp_path, body)
+
+
+def test_anthropic_key_path() -> None:
+    assert anthropic_key_path({"XDG_CONFIG_HOME": "/x"}) == Path("/x/cardak/anthropic_key")

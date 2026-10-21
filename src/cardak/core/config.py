@@ -33,10 +33,20 @@ class NotifySettings:
 
 
 @dataclass(frozen=True)
+class SummarySettings:
+    monthly_limit_usd: float = 5.0  # 0 turns waiting summaries off
+
+    @property
+    def enabled(self) -> bool:
+        return self.monthly_limit_usd > 0
+
+
+@dataclass(frozen=True)
 class Config:
     projects: tuple[Project, ...] = ()
     defaults: dict[str, object] = field(default_factory=dict)
     notify: NotifySettings = NotifySettings()
+    summary: SummarySettings = SummarySettings()
 
 
 class ConfigError(Exception):
@@ -53,6 +63,11 @@ def config_dir(env: Mapping[str, str] | None = None) -> Path:
     if env.get("XDG_CONFIG_HOME"):
         return Path(env["XDG_CONFIG_HOME"]) / "cardak"
     return Path(env.get("HOME") or Path.home()) / ".config" / "cardak"
+
+
+def anthropic_key_path(env: Mapping[str, str] | None = None) -> Path:
+    """The Anthropic API key for waiting summaries; the user creates it, cardak only reads it."""
+    return config_dir(env) / "anthropic_key"
 
 
 def state_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -126,7 +141,12 @@ def load(path: Path) -> Config:
     defaults = data.get("defaults", {})
     if not isinstance(defaults, dict):
         raise ConfigError(path, "[defaults] must be a table")
-    return Config(projects=tuple(projects), defaults=dict(defaults), notify=_notify(path, data))
+    return Config(
+        projects=tuple(projects),
+        defaults=dict(defaults),
+        notify=_notify(path, data),
+        summary=_summary(path, data),
+    )
 
 
 def _notify(path: Path, data: Mapping[str, object]) -> NotifySettings:
@@ -145,6 +165,16 @@ def _notify(path: Path, data: Mapping[str, object]) -> NotifySettings:
     if sounds_dir is not None and not isinstance(sounds_dir, str):
         raise ConfigError(path, "[notify] sounds_dir must be a string")
     return NotifySettings(desktop, sound, Path(sounds_dir).expanduser() if sounds_dir else None)
+
+
+def _summary(path: Path, data: Mapping[str, object]) -> SummarySettings:
+    raw = data.get("summary", {})
+    if not isinstance(raw, dict):
+        raise ConfigError(path, "[summary] must be a table")
+    limit = raw.get("monthly_limit_usd", 5.0)
+    if isinstance(limit, bool) or not isinstance(limit, int | float) or limit < 0:
+        raise ConfigError(path, "[summary] monthly_limit_usd must be a number ≥ 0")
+    return SummarySettings(float(limit))
 
 
 def _with_tilde(path: Path) -> str:
