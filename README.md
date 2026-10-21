@@ -91,9 +91,12 @@ reason next to the summary.
 Put your key in a file only you can read:
 
 ```sh
-printf '%s\n' 'sk-ant-…' > ~/.config/cardak/anthropic_key
-chmod 600 ~/.config/cardak/anthropic_key
+mkdir -p ~/.config/cardak
+(umask 077; printf '%s\n' 'sk-ant-…' > ~/.config/cardak/anthropic_key)
 ```
+
+Use a key scoped to a workspace (Anthropic Console → Workspaces); a key without one is
+refused by the API. If summaries stop appearing, the deck says why in its warning line.
 
 cardak uses this file only; `ANTHROPIC_API_KEY` is ignored. With the key in place, each
 time a session starts waiting (and you aren't already looking at it), cardak sends

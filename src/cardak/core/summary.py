@@ -92,7 +92,9 @@ def key_warning(path: Path) -> str | None:
 
 
 def cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    price_in, price_out = PRICES[model]
+    # the API may answer with an id we have no price for (a dated snapshot): charge it as the
+    # model we asked for rather than fail after the call was paid for
+    price_in, price_out = PRICES.get(model, PRICES[MODEL])
     return (input_tokens * price_in + output_tokens * price_out) / 1_000_000
 
 

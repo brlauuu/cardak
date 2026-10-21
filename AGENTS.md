@@ -97,8 +97,9 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   | `~/.config/wezterm/cardak_projects.lua` | deck on every config change; `cardak themes apply` | project path → scheme (only when cardak.lua is installed there) |
   | `~/.config/cardak/tints` | same | `path<TAB>#rrggbb` for the zsh hook |
   | `~/.config/cardak/tint.zsh` | `cardak themes zsh` | the opt-in per-pane tint hook |
+  | `~/.config/cardak/anthropic_key` | the user (cardak only reads it, in `cardak summarize`; refused with group/other bits) | the Anthropic API key for waiting summaries |
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
-  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`); `cardak summarize` (`summaries`) | agent sessions and raw hook events (7 days); waiting summaries with their cost (62 days) |
+  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`); `cardak summarize` (`summaries`) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days) |
   | `~/.local/state/cardak/focus` | `cardak.lua` (module 3) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>` |
   | `~/.local/state/cardak/hook.log` | `cardak hook`, `cardak summarize` | tracebacks; restarted past 1 MB |
   | `~/.claude/settings.json` | `cardak hooks install` / `uninstall` only, after asking (or `--yes`) | cardak's entries only; a `.cardak-backup-<time>` copy first |

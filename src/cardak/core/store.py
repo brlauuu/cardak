@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS summaries (
     output_tokens INTEGER NOT NULL,
     cost_usd REAL NOT NULL,
     created_at REAL NOT NULL,
+    error TEXT,
     PRIMARY KEY (session_id, wait_since)
 );
 CREATE INDEX IF NOT EXISTS summaries_created ON summaries (created_at);
@@ -63,6 +64,7 @@ class SummaryRow:
     output_tokens: int
     cost_usd: float
     created_at: float
+    error: str | None = None  # why no summary could be made (API error, key problem)
 
 
 class StoreError(Exception):
@@ -204,7 +206,7 @@ class Store:
     def add_summary(self, row: SummaryRow) -> None:
         try:
             self._con.execute(
-                "INSERT OR IGNORE INTO summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?)", astuple(row)
+                "INSERT OR IGNORE INTO summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", astuple(row)
             )
         except sqlite3.Error as e:
             raise StoreError(str(e)) from e
@@ -233,6 +235,18 @@ class Store:
         except sqlite3.Error as e:
             raise StoreError(str(e)) from e
         return found
+
+    def latest_error_since(self, ts: float) -> str | None:
+        """The newest summary attempt's error, if it failed; None if it worked or none ran."""
+        try:
+            row = self._con.execute(
+                "SELECT error FROM summaries WHERE created_at >= ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (ts,),
+            ).fetchone()
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+        return row[0] if row else None
 
     def spend_since(self, ts: float) -> float:
         try:

@@ -152,9 +152,9 @@ def test_ping_spawns_the_summarizer(tmp_path: Path, paths: dict[str, Path]) -> N
     spawned = call(store, paths, "stop-finished", now=1792600000.123456)
     [state] = store.live_sessions()
     argv = spawned[-1]
-    assert argv[:2] == [sys.executable, "-c"]
-    assert argv[3:5] == ["summarize", state.session_id]
-    assert float(argv[5]) == state.status_since
+    assert argv[:3] == [sys.executable, "-P", "-c"]
+    assert argv[4:6] == ["summarize", state.session_id]
+    assert float(argv[6]) == state.status_since
 
 
 def test_no_summarizer_without_key(tmp_path: Path, paths: dict[str, Path]) -> None:
@@ -188,3 +188,24 @@ def test_summarize_argv_runs_the_cli(tmp_path: Path) -> None:
     )
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
     assert not (tmp_path / "state" / "cardak" / "hook.log").exists()
+
+
+def test_summarize_argv_ignores_the_working_directory(tmp_path: Path) -> None:
+    # review: `python -c` put the Claude session's project dir first on sys.path
+    project = tmp_path / "project"
+    project.mkdir()
+    marker = tmp_path / "ran"
+    (project / "json.py").write_text(f"open({str(marker)!r}, 'w').close()\nfrom json import *\n")
+    config = tmp_path / "p.toml"
+    config.write_text(QUIET)
+    env = os.environ | {
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "CARDAK_CONFIG": str(config),
+    }
+    result = subprocess.run(
+        summarize_argv("nope", 1.0), env=env, cwd=project, capture_output=True, text=True,
+        check=False,
+    )  # fmt: skip
+    assert result.returncode == 0, result.stderr
+    assert not marker.exists()

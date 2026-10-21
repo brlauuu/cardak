@@ -191,15 +191,47 @@ def test_skips_when_disabled(setup: tuple[Store, Path, Path]) -> None:
     assert stub.calls == []
 
 
-def test_skips_without_key_or_with_open_key(setup: tuple[Store, Path, Path]) -> None:
+def test_open_key_is_recorded_as_a_failure(setup: tuple[Store, Path, Path]) -> None:
     store, config, key = setup
     sid, since = seed(store, config, ("stop-finished", {}))
     stub = Stub()
     key.chmod(0o644)
     do(store, key, stub, sid, since)
+    assert stub.calls == []
+    assert store.latest_error_since(0.0) == "anthropic_key is readable by other users"
+
+
+def test_missing_key_is_recorded_as_a_failure(setup: tuple[Store, Path, Path]) -> None:
+    store, config, key = setup
+    sid, since = seed(store, config, ("stop-finished", {}))
+    stub = Stub()
     key.unlink()
     do(store, key, stub, sid, since)
     assert stub.calls == []
+    assert store.latest_error_since(0.0) == "anthropic_key is missing or empty"
+
+
+def test_api_error_is_recorded_and_not_retried(setup: tuple[Store, Path, Path]) -> None:
+    store, config, key = setup
+    sid, since = seed(store, config, ("stop-finished", {}))
+
+    class Boom:
+        calls = 0
+
+        def summarize(self, system: str, user: str) -> R:
+            Boom.calls += 1
+            raise RuntimeError("x" * 500)
+
+    def attempt() -> None:
+        run(sid, since, since + 1, store=store, config=Config(), key_file=key,
+            make_summarizer=lambda _k: Boom())  # fmt: skip
+
+    with pytest.raises(RuntimeError):  # main() logs it
+        attempt()
+    error = store.latest_error_since(0.0)
+    assert error is not None and error.startswith("RuntimeError: xxx") and len(error) <= 200
+    attempt()  # the failed wait has its row: no second call
+    assert Boom.calls == 1
 
 
 def test_skips_over_the_cap(setup: tuple[Store, Path, Path]) -> None:
@@ -249,7 +281,9 @@ def test_main_logs_api_errors_silently(tmp_path: Path, capsys: pytest.CaptureFix
     assert capsys.readouterr() == ("", "")
     log = (tmp_path / "state" / "cardak" / "hook.log").read_text()
     assert "summarize:" in log and "boom" in log
-    assert not store.has_summary(sid, since)
+    assert store.latest_error_since(0.0) == "RuntimeError: boom"
+    assert store.summaries_for([(sid, since)]) == {}
+    assert store.spend_since(0.0) == 0.0
 
 
 def test_main_writes_through_the_real_paths(tmp_path: Path) -> None:
@@ -269,3 +303,12 @@ def test_main_with_a_broken_config_uses_defaults(tmp_path: Path) -> None:
     env = env_for(tmp_path)
     (tmp_path / "projects.toml").write_text("[[broken")
     assert main(["nope", "1.0"], Stub().make, env) == 0
+
+
+def test_unknown_returned_model_still_records_the_cost(setup: tuple[Store, Path, Path]) -> None:
+    # review: an unpriced model id raised after the call was paid for, so the cap never counted it
+    store, config, key = setup
+    sid, since = seed(store, config, ("stop-finished", {}))
+    do(store, key, Stub(R("Did x; nothing asked", model="claude-haiku-5-5-20261001")), sid, since)
+    assert store.summaries_for([(sid, since)]) == {sid: "Did x; nothing asked"}
+    assert store.spend_since(0.0) == pytest.approx(0.000165)

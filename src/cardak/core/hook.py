@@ -52,7 +52,8 @@ def _pane(env: Mapping[str, str]) -> int | None:
 def summarize_argv(session_id: str, wait_since: float) -> list[str]:
     """`cardak summarize` under this interpreter: no new module at the package root needed."""
     script = "import sys; from cardak.cli import main; sys.exit(main())"
-    return [sys.executable, "-c", script, "summarize", session_id, repr(wait_since)]
+    # -P: never put the cwd (the Claude session's project) on sys.path
+    return [sys.executable, "-P", "-c", script, "summarize", session_id, repr(wait_since)]
 
 
 def run(

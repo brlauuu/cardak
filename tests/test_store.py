@@ -212,3 +212,17 @@ def test_v1_database_gains_summaries(tmp_path: Path) -> None:
     store.add_summary(summary_row())
     assert store.has_summary("s", 10.0)
     assert SCHEMA_VERSION == 2
+
+
+def test_latest_error_since(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    assert store.latest_error_since(0.0) is None
+    store.add_summary(summary_row(sid="a", at=50.0))
+    failed = SummaryRow(
+        "b", 10.0, None, "claude-haiku-5-5", 0, 0, 0.0, 150.0, "AuthenticationError: bad key"
+    )
+    store.add_summary(failed)
+    assert store.latest_error_since(100.0) == "AuthenticationError: bad key"
+    assert store.latest_error_since(200.0) is None  # nothing this period
+    store.add_summary(summary_row(sid="c", at=160.0))
+    assert store.latest_error_since(100.0) is None  # a newer summary succeeded

@@ -220,6 +220,7 @@ class FakeStore:
         broken: bool = False,
         summaries: dict[tuple[str, float], str] | None = None,
         spend: float = 0.0,
+        error: str | None = None,
     ) -> None:
         self.states = {s.session_id: s for s in states}
         self.seen: list[tuple[str, float]] = []
@@ -227,6 +228,10 @@ class FakeStore:
         self.summaries = summaries or {}
         self.spend = spend
         self.spend_asked: list[float] = []
+        self.error = error
+
+    def latest_error_since(self, ts: float) -> str | None:
+        return self.error
 
     def summaries_for(self, waits: Iterable[tuple[str, float]]) -> dict[str, str]:
         return {sid: self.summaries[(sid, t)] for sid, t in waits if (sid, t) in self.summaries}
@@ -388,3 +393,14 @@ def test_summary_store_errors(tmp_path: Path) -> None:
     assert snap.groups[0].panes[0].agent.summary is None  # type: ignore[union-attr]
     assert any("agent status unavailable" in w for w in snap.config_warnings)
     assert source.summary_info(WAITING) is None
+
+
+def test_source_warns_when_summaries_fail(tmp_path: Path) -> None:
+    store = FakeStore(WAITING, error="AuthenticationError: invalid x-api-key")
+    source = agent_source(tmp_path, store, key_file=key(tmp_path))
+    assert (
+        "waiting summaries failing: AuthenticationError: invalid x-api-key; "
+        "see ~/.local/state/cardak/hook.log"
+    ) in source.poll().config_warnings
+    store.error = None
+    assert not any("failing" in w for w in source.poll().config_warnings)
