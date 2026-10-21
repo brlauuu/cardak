@@ -68,7 +68,7 @@ M0 findings (`spikes/04_themes`, `spikes/05_osc_tint.zsh`): A works and re-theme
              └───────────────────────────┘
 ```
 
-Start simple: in M1 the collectors can run *inside* the Textual app. Split into a daemon only when the hook receiver needs to be always-on (M4).
+Start simple: in M1 the collectors can run *inside* the Textual app. M4 needed no daemon after all: each hook runs `cardak hook`, a short process that writes SQLite and fires the notification itself, and the deck reads the database. The daemon arrives with M5, when resource sampling must run with the deck closed.
 
 ### Joining the data
 
@@ -114,20 +114,20 @@ accent = "#fabd2f"
 
 ## 8. Claude Code integration
 
-Hooks to register in `~/.claude/settings.json` (each runs `cardak hook <event>` which forwards stdin JSON to the daemon):
+Hooks registered in `~/.claude/settings.json` by `cardak hooks install`. Each runs `cardak hook`, which reads the event from stdin and records it (M4 design: `docs/superpowers/specs/2026-10-21-m4-agent-awareness-design.md`):
 
 | Hook | Use |
 |---|---|
-| `SessionStart` | create/refresh `agent_sessions` row |
-| `UserPromptSubmit` | status → working |
-| `PreToolUse` / `PostToolUse` | current tool, activity timestamp |
-| `Notification` | status → **waiting**; store the message as `waiting_reason` |
-| `Stop` | status → idle; capture last assistant message snippet |
-| `SessionEnd` | close session |
+| `SessionStart` | create/refresh the session; status → idle |
+| `UserPromptSubmit` | status → working; store the prompt, reset the turn's counts |
+| `PreToolUse` / `PostToolUse(Failure)` | current tool; count edits, reads, commands; `AskUserQuestion` → **waiting** (question) |
+| `PermissionRequest`, `Notification` (`permission_prompt`) | status → **waiting** (approve a tool) |
+| `Stop` | status → **waiting** (your answer if it ends with "?", else turn finished); store the last message |
+| `SessionEnd` | close the session |
 
-"What it's waiting on" = `waiting_reason` from the Notification hook + the last assistant message. Optionally summarise it to one line with a cheap model call later; v1 shows it raw.
+A waiting session becomes idle once the user has seen it (jumped to its pane, or focused it for a second), or working for a permission prompt, which is presumed answered. One desktop notification and one sound fire on each transition into waiting. The reason shows raw; an LLM summary is #30.
 
-Detail view reads the transcript JSONL lazily: messages, tool calls, and any recorded thinking blocks (collapsed by default).
+Detail view (`i`): what kind of input is needed, the ask, the user's last prompt, this turn's counts and edited files. `t` opens the transcript JSONL: messages, tool calls and thinking blocks (collapsed).
 
 ## 9. Checkpoint & recap
 
@@ -182,15 +182,16 @@ Design exploration (browser and TUI variants) can be done separately with Claude
 - [x] Theme picker in the TUI (lists built-in WezTerm schemes, live preview on the project's window).
 
 **M4: Agent awareness.**
-- [ ] Hook installer (`cardak hooks install`, idempotent, backs up settings.json).
-- [ ] Daemon with HookReceiver + SQLite.
-- [ ] Status dots, waiting reason, "waiting" filter, desktop notification on → waiting.
-- [ ] Detail pane: transcript viewer with collapsible tool calls / thinking.
+- [x] Hook installer (`cardak hooks install`, idempotent, backs up settings.json).
+- [x] Hooks write SQLite directly (`cardak hook`); no daemon needed yet (moved to M5).
+- [x] Status dots, waiting reason, "waiting" filter, desktop notification and sound on → waiting.
+- [x] Detail pane: transcript viewer with collapsible tool calls / thinking.
 
 **M5: Resources.**
 - [ ] Per-pane process-tree sampling, sparkline.
 - [ ] Spike alerts with attribution ("pane 12 · api-gw · `cargo build` 290% CPU, 5.8 GB").
-- [ ] Event log view; survives the terminal crashing because the daemon runs outside WezTerm (systemd user service).
+- [ ] Daemon (moved from M4): runs outside WezTerm as a systemd user service.
+- [ ] Event log view; survives the terminal crashing because the daemon runs outside WezTerm.
 
 **M6: Checkpoint & recap.**
 - [ ] Two skills (usable standalone).
