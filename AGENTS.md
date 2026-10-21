@@ -110,6 +110,30 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 - A `claude` process's child tree includes its MCP servers (`npm exec @playwright/...`).
   Don't attribute their CPU/RAM to the agent's work.
 
+## Claude Code hooks (measured in M4, Claude Code 2.1.306)
+- Fixtures: `tests/fixtures/hooks/` (recorded with `spikes/04_record_hooks.py` and
+  `claude --setting-sources project --settings <scratch>`, which leaves the user's settings
+  and hooks out). Record a new one before handling a payload that surprises you.
+- A hook runs as `sh -c` under the `claude` process and inherits its environment, so
+  **`WEZTERM_PANE` reaches the hook**; it is the session → pane join.
+- Around an approval: `PreToolUse` → `PermissionRequest` → `Notification`
+  (`notification_type: permission_prompt`, "Claude needs your permission") → the user
+  answers → `PostToolUse`. Nothing fires on the answer itself.
+- `AskUserQuestion` goes `PreToolUse` → `PermissionRequest` (same tool) → `PostToolUse`,
+  with no `permission_prompt` notification.
+- `Stop` carries `last_assistant_message`. A `SubagentStop` (an internal agent) often
+  follows it; ignore it. About 60 s after a `Stop`, `Notification` `idle_prompt` ("Claude is
+  waiting for your input") fires.
+- `/clear` sends `SessionEnd` (`reason: clear`) and a `SessionStart` (`source: clear`) with a
+  **new `session_id`** from the same pane.
+- `SessionStart` and `SessionEnd` have no `permission_mode`. In `auto` mode, plain `ls` and
+  file writes run with no `PermissionRequest`.
+- Sessions driven from a pty did not get `~/.claude/sessions/<pid>.json` or a transcript
+  file, so don't rely on either existing. `tests/fixtures/transcripts/basic.jsonl` keeps the
+  structure of a real transcript, with its content replaced by neutral text. Lines include
+  many non-message types (`attachment`, `api-request*`, `mode`, `ai-title`, `last-prompt`,
+  `file-history-*`, `queue-operation`, `system`); user lines with `isMeta` are not prompts.
+
 ## Processes (measured in M1)
 - **Never use psutil's `Process.terminal()`** in a long-running process: psutil memoizes
   its device → tty map on first use, so panes opened after the deck started have no tty.

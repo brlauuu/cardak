@@ -1,0 +1,37 @@
+{
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "/home/user/.claude/projects/-home-user-repos-demo/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "/home/user/repos/demo",
+    "scratchpad_dir": "/tmp/scratch",
+    "prompt_id": "00000000-0000-4000-8000-000000000005",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PermissionRequest",
+    "tool_name": "AskUserQuestion",
+    "tool_input": {
+      "questions": [
+        {
+          "question": "Do you prefer tea or coffee?",
+          "header": "Drink",
+          "options": [
+            {
+              "label": "Tea",
+              "description": "I prefer tea."
+            },
+            {
+              "label": "Coffee",
+              "description": "I prefer coffee."
+            }
+          ],
+          "multiSelect": false
+        }
+      ]
+    }
+  },
+  "env": {
+    "WEZTERM_PANE": "present"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000007",
+    "transcript_path": "/home/user/.claude/projects/-home-user-repos-demo/00000000-0000-4000-8000-000000000007.jsonl",
+    "cwd": "/home/user/repos/demo",
+    "scratchpad_dir": "/tmp/scratch",
+    "prompt_id": "00000000-0000-4000-8000-000000000008",
+    "permission_mode": "default",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/home/user/repos/demo/notes.md"
+    },
+    "tool_response": {
+      "type": "text",
+      "file": {
+        "filePath": "/home/user/repos/demo/notes.md",
+        "content": "# notes\n",
+        "numLines": 2,
+        "startLine": 1,
+        "totalLines": 2
+      }
+    },
+    "tool_use_id": "toolu_018Gvs9ejMNCzVhaYfan31Xb",
+    "duration_ms": 51
+  },
+  "env": {
+    "WEZTERM_PANE": "present"
+  }
+}
