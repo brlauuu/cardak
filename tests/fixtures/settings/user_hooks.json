@@ -1,0 +1,19 @@
+{
+  "model": "opus",
+  "permissions": {
+    "allow": ["Bash(uv run pytest:*)"]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [{"type": "command", "command": "~/bin/notify-me stop"}]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{"type": "command", "command": "~/bin/guard", "timeout": 10}]
+      }
+    ]
+  }
+}

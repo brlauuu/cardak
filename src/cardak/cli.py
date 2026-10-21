@@ -52,6 +52,19 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("tui", help="open the deck (the default)")
     sub.add_parser("hook", help="record a Claude Code hook event (run by Claude Code)")
+    hooks = sub.add_parser("hooks", help="Claude Code hooks for agent status")
+    hooks_sub = hooks.add_subparsers(dest="hooks_command", required=True)
+    for name, text in (
+        ("install", "add cardak's hooks to Claude Code's settings.json"),
+        ("uninstall", "remove cardak's hooks from Claude Code's settings.json"),
+        ("status", "show whether cardak's hooks are installed"),
+    ):
+        cmd = hooks_sub.add_parser(name, help=text)
+        cmd.add_argument(
+            "--settings", type=Path, help="settings file (default: ~/.claude/settings.json)"
+        )
+        if name != "status":
+            cmd.add_argument("--yes", action="store_true", help="don't ask before writing")
     wez = sub.add_parser("wezterm", help="WezTerm integration")
     wez_sub = wez.add_subparsers(dest="wezterm_command", required=True)
     inst = wez_sub.add_parser("install", help="install cardak.lua so jumps raise windows")
@@ -67,6 +80,57 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="replace a tint.zsh not written by cardak"
     )
     return parser
+
+
+def _hooks(command: str, settings_arg: Path | None, yes: bool) -> int:
+    from datetime import datetime
+
+    from cardak.claude import install as claude
+
+    path = settings_arg or claude.default_settings_path()
+    exe = claude.find_executable(sys.argv[0])
+    if exe is None:
+        print(
+            "cardak: can't find the cardak executable to register; is it on PATH?", file=sys.stderr
+        )
+        return 1
+    hook = claude.hook_command(exe)
+    try:
+        before = claude.load_settings(path)
+        if command == "status":
+            state = claude.status(before, hook)
+            print({"installed": "installed", "partial": "partly installed (run `cardak hooks "
+                   "install`)", "missing": "not installed"}[state] + f": {path}")  # fmt: skip
+            return 0
+        after = (
+            claude.with_hooks(before, hook)
+            if command == "install"
+            else claude.without_hooks(before)
+        )
+    except claude.SettingsError as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    if after == before:
+        print(f"cardak hooks already {'installed' if command == 'install' else 'absent'}: {path}")
+        return 0
+    print(f"{path}:")
+    print("\n".join(f"  {line}" for line in claude.changes(before, after)))
+    now = datetime.now()
+    if path.exists():
+        print(f"A backup goes to {claude.backup_path(path, now)}")
+    if not yes and input(f"Write {path}? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("Nothing written.")
+        return 0
+    try:
+        claude.save_settings(path, after, now)
+    except OSError as e:
+        print(f"cardak: cannot write {path}: {e}", file=sys.stderr)
+        return 1
+    if command == "install":
+        print("Done. New Claude Code sessions report their status to the deck.")
+    else:
+        print("Done.")
+    return 0
 
 
 def _wezterm_install(dest: Path | None, force: bool) -> int:
@@ -154,6 +218,8 @@ def main(argv: list[str] | None = None) -> int:
         from cardak.core import hook
 
         return hook.main(sys.stdin)
+    if args.command == "hooks":
+        return _hooks(args.hooks_command, args.settings, getattr(args, "yes", False))
     if args.command == "wezterm":
         return _wezterm_install(args.dir, args.force)
     if args.command == "themes":
