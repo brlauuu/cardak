@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -176,3 +177,16 @@ def test_hook_imports_only_what_it_needs(tmp_path: Path) -> None:
         [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_summarize_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.core import summarize
+    from cardak.llm.anthropic import AnthropicSummarizer
+
+    seen: list[tuple[list[str], Callable[[str], object]]] = []
+    monkeypatch.setattr(summarize, "main", lambda args, make: seen.append((list(args), make)) or 0)
+    assert main(["summarize", "s", "1.5"]) == 0
+    [(args, make)] = seen
+    assert args == ["s", "1.5"]
+    made = make("sk-test")
+    assert isinstance(made, AnthropicSummarizer) and made.model == "claude-haiku-5-5"

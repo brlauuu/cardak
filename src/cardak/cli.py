@@ -44,6 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("tui", help="open the deck (the default)")
     sub.add_parser("hook", help="record a Claude Code hook event (run by Claude Code)")
+    summ = sub.add_parser("summarize", help="summarize a waiting session (run by cardak hook)")
+    summ.add_argument("session_id")
+    summ.add_argument("wait_since")
     hooks = sub.add_parser("hooks", help="Claude Code hooks for agent status")
     hooks_sub = hooks.add_subparsers(dest="hooks_command", required=True)
     for name, text in (
@@ -248,6 +251,8 @@ def main(argv: list[str] | None = None) -> int:
 
         return hook.main(sys.stdin)
     args = build_parser().parse_args(argv)
+    if args.command == "summarize":
+        return _summarize(args.session_id, args.wait_since)
     if args.command == "hooks":
         return _hooks(args.hooks_command, args.settings, getattr(args, "yes", False))
     if args.command == "wezterm":
@@ -257,6 +262,14 @@ def main(argv: list[str] | None = None) -> int:
             return _themes_apply(args.config)
         return _themes_zsh(args.config, args.force)
     return _deck(args.config)
+
+
+def _summarize(session_id: str, wait_since: str) -> int:
+    from cardak.core import summarize
+    from cardak.core.summary import MODEL
+    from cardak.llm.anthropic import AnthropicSummarizer
+
+    return summarize.main([session_id, wait_since], lambda key: AnthropicSummarizer(key, MODEL))
 
 
 def _deck(config_arg: str | None) -> int:

@@ -73,7 +73,7 @@ def run(
     alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn or spawn_detached)
 
 
-def _log(env: Mapping[str, str], message: str) -> None:
+def log_problem(env: Mapping[str, str], message: str) -> None:
     log = state_dir(env) / "hook.log"
     try:
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -101,5 +101,5 @@ def main(stdin: TextIO, env: Mapping[str, str] | None = None) -> int:
         finally:
             store.close()
     except Exception:
-        _log(env, traceback.format_exc())
+        log_problem(env, traceback.format_exc())
     return 0
