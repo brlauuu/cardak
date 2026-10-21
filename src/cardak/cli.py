@@ -101,9 +101,14 @@ def _hooks_hint() -> str | None:
     return HOOKS_HINT
 
 
-def _hooks(command: str, settings_arg: Path | None, yes: bool) -> int:
-    from datetime import datetime
+HOOK_STATUS_TEXT = {
+    "installed": "installed",
+    "partial": "partly installed (run `cardak hooks install`)",
+    "missing": "not installed",
+}
 
+
+def _hooks(command: str, settings_arg: Path | None, yes: bool) -> int:
     from cardak.claude import install as claude
 
     path = settings_arg or claude.default_settings_path()
@@ -117,21 +122,25 @@ def _hooks(command: str, settings_arg: Path | None, yes: bool) -> int:
     try:
         before = claude.load_settings(path)
         if command == "status":
-            state = claude.status(before, hook)
-            print({"installed": "installed", "partial": "partly installed (run `cardak hooks "
-                   "install`)", "missing": "not installed"}[state] + f": {path}")  # fmt: skip
+            print(f"{HOOK_STATUS_TEXT[claude.status(before, hook)]}: {path}")
             return 0
-        after = (
-            claude.with_hooks(before, hook)
-            if command == "install"
-            else claude.without_hooks(before)
-        )
+        install = command == "install"
+        after = claude.with_hooks(before, hook) if install else claude.without_hooks(before)
     except claude.SettingsError as e:
         print(f"cardak: {e}", file=sys.stderr)
         return 1
     if after == before:
-        print(f"cardak hooks already {'installed' if command == 'install' else 'absent'}: {path}")
+        print(f"cardak hooks already {'installed' if install else 'absent'}: {path}")
         return 0
+    return _write_settings(path, before, after, yes, install)
+
+
+def _write_settings(path: Path, before: dict, after: dict, yes: bool, install: bool) -> int:
+    """Show what changes, ask (unless --yes), back up and write settings.json."""
+    from datetime import datetime
+
+    from cardak.claude import install as claude
+
     print(f"{path}:")
     print("\n".join(f"  {line}" for line in claude.changes(before, after)))
     now = datetime.now()
@@ -145,10 +154,7 @@ def _hooks(command: str, settings_arg: Path | None, yes: bool) -> int:
     except OSError as e:
         print(f"cardak: cannot write {path}: {e}", file=sys.stderr)
         return 1
-    if command == "install":
-        print("Done. New Claude Code sessions report their status to the deck.")
-    else:
-        print("Done.")
+    print("Done. New Claude Code sessions report their status to the deck." if install else "Done.")
     return 0
 
 

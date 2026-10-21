@@ -1,7 +1,7 @@
 """Turn collector output into the grouped view the deck renders. Pure: no I/O."""
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -127,7 +127,12 @@ def _session_for(pane_id: int, claude_pid: int, ctx: _Context) -> SessionState |
     return ctx.by_session.get(meta.session_id) if meta and ctx.by_session else None
 
 
-def _agent(state: SessionState) -> AgentView:
+def _agent(pp: PaneProcs | None, pane_id: int, project: str, ctx: _Context) -> AgentView | None:
+    if pp is None or pp.claude_pid is None:
+        return None
+    state = _session_for(pane_id, pp.claude_pid, ctx)
+    if state is None:
+        return None
     return AgentView(
         session_id=state.session_id,
         status=state.status,
@@ -135,35 +140,29 @@ def _agent(state: SessionState) -> AgentView:
         since=state.status_since,
         reason=state.reason,
         current_tool=state.current_tool,
-        project="",  # set by the group, which knows its name
+        project=project,
     )
 
 
-def _row(pane: Pane, root: Path | None, ctx: _Context) -> PaneRow:
+def _row(pane: Pane, resolved: Resolved, ctx: _Context) -> PaneRow:
     pp = ctx.procs.get(pane.tty) if pane.tty else None
     label = _label(pp, ctx.claude_lookup)
-    state = (
-        _session_for(pane.pane_id, pp.claude_pid, ctx) if pp and pp.claude_pid is not None else None
-    )
     return PaneRow(
         pane_id=pane.pane_id,
         label=label,
         detail=_detail(pane.title, label),
         cwd=pane.cwd,
-        cwd_display=_cwd_display(pane.cwd, root, ctx.home),
+        cwd_display=_cwd_display(pane.cwd, resolved.key, ctx.home),
         cpu_pct=pp.cpu_pct if pp else None,
         rss=pp.rss if pp else 0,
         is_self=pane.pane_id == ctx.self_pane_id,
         is_claude=pp is not None and pp.claude_pid is not None,
-        agent=_agent(state) if state else None,
+        agent=_agent(pp, pane.pane_id, resolved.name, ctx),
     )
 
 
 def _group(resolved: Resolved, members: list[Pane], ctx: _Context) -> Group:
-    rows = tuple(_row(pane, resolved.key, ctx) for pane in members)
-    rows = tuple(
-        replace(r, agent=replace(r.agent, project=resolved.name)) if r.agent else r for r in rows
-    )
+    rows = tuple(_row(pane, resolved, ctx) for pane in members)
     return Group(
         kind=resolved.kind,
         key=resolved.key,

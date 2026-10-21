@@ -116,6 +116,18 @@ class AddProjectScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+def _leaves(group: Group, now: float) -> list[tuple[Text, Node]]:
+    """A group's lines: one per pane, plus a reason line under each waiting pane in a project."""
+    if group.kind == "waiting":
+        return [(waiting_label(row, now), Node(group, row, "pane")) for row in group.panes]
+    lines: list[tuple[Text, Node]] = []
+    for row in group.panes:
+        lines.append((pane_label(row, now), Node(group, row, "pane")))
+        if row.agent and row.agent.status == "waiting":
+            lines.append((reason_label(row), Node(group, row, "reason")))
+    return lines
+
+
 class DeckApp(App[None]):
     TITLE = "cardak"
     CSS = """
@@ -245,33 +257,18 @@ class DeckApp(App[None]):
         cursor = tree.cursor_node
         selected = node_id(cursor.data) if cursor else None
         tree.clear()
-        if snap.error:
-            tree.root.add_leaf(unreachable_label(snap.error))
-            return
-        if not snap.groups and empty_query:
-            tree.root.add_leaf(no_match_label(empty_query))
-            return
-        if not snap.groups and self.waiting_only:
-            tree.root.add_leaf(nothing_waiting_label())
+        if (message := self._empty_label(snap, empty_query)) is not None:
+            tree.root.add_leaf(message)
             return
         now = time.time()
         nodes: dict[str, TreeNode[NodeData]] = {}
-
-        def leaf(parent: TreeNode[NodeData], label: Text, data: Node) -> None:
-            nodes[node_id(data) or ""] = parent.add_leaf(label, data=data)
-
         for group in snap.groups:
             data = Node(group)
             gid = node_id(data) or ""
             node = tree.root.add(group_label(group), data=data, expand=gid not in self._collapsed)
             nodes[gid] = node
-            for row in group.panes:
-                if group.kind == "waiting":
-                    leaf(node, waiting_label(row, now), Node(group, row, "pane"))
-                    continue
-                leaf(node, pane_label(row, now), Node(group, row, "pane"))
-                if row.agent and row.agent.status == "waiting":
-                    leaf(node, reason_label(row), Node(group, row, "reason"))
+            for label, leaf_data in _leaves(group, now):
+                nodes[node_id(leaf_data) or ""] = node.add_leaf(label, data=leaf_data)
         target = _cursor_target(nodes, selected, focus_pane)
         if target is not None:
             # New nodes get their line numbers on the next refresh; moving now lands on line 0.
@@ -279,6 +276,16 @@ class DeckApp(App[None]):
         else:
             # clear() leaves the cursor on no line, so the first key would only "find" row 0.
             self.call_after_refresh(self._cursor_to_first_row)
+
+    def _empty_label(self, snap: DeckSnapshot, empty_query: str | None) -> Text | None:
+        """What the tree shows instead of groups, if anything."""
+        if snap.error:
+            return unreachable_label(snap.error)
+        if not snap.groups and empty_query:
+            return no_match_label(empty_query)
+        if not snap.groups and self.waiting_only:
+            return nothing_waiting_label()
+        return None
 
     def action_detail(self) -> None:
         node = self.deck_tree.cursor_node

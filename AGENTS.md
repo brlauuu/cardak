@@ -202,6 +202,14 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   `ThemePickerScreen._refill` (3–4 × 6–8). `exported-surface` (29 of 29) is advisory: Python
   has no export lists, and internal helpers are already `_`-prefixed. Each one coordinates the steps of a
   single operation; splitting it would only move the fan-out somewhere else.
+- **M4** split its outliers once: `agents._transition` (21) became one handler per event
+  (`HANDLERS`), `cli._hooks` (14) lost `_write_settings`, `DeckApp._rebuild` (14) lost
+  `_leaves` and `_empty_label`, and agent views moved into `snapshot._row`. Accepted after
+  that round:
+  - complexity 10–11 in `read_transcript`, `agents.apply`, `tool_summary`, `detail_text`;
+  - `agents._set_status` (fan-in 8: every event handler uses it);
+  - coordinators `LiveSource._poll` (3 × 6), `Store.update` (4 × 4) and
+    `DeckApp._empty_label` (3 × 5).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

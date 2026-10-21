@@ -4,7 +4,7 @@ working: Claude is doing something. waiting: it needs the user, who hasn't looke
 idle: nothing new for the user. The transitions are the spec's table (M4 design).
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
@@ -137,61 +137,89 @@ def _counted(state: SessionState, tool: str, tool_input: Mapping[str, object]) -
     return replace(state, turn_other=state.turn_other + 1)
 
 
-def _transition(s: SessionState, e: HookEvent, now: float) -> SessionState:
+Handler = Callable[[SessionState, HookEvent, float], SessionState]
+
+
+def _on_session_start(s: SessionState, e: HookEvent, now: float) -> SessionState:
+    return _set_status(s, "idle", None, None, now)
+
+
+def _on_prompt(s: SessionState, e: HookEvent, now: float) -> SessionState:
+    s = replace(
+        s, last_prompt=e.prompt, last_prompt_at=now, current_tool=None,
+        turn_edits=0, turn_reads=0, turn_commands=0, turn_other=0, turn_files=(),
+        permission_requested=False,
+    )  # fmt: skip
+    return _set_status(s, "working", None, None, now)
+
+
+def _on_pre_tool(s: SessionState, e: HookEvent, now: float) -> SessionState:
     tool = e.tool_name or ""
-    match e.name:
-        case "SessionStart":
-            return _set_status(s, "idle", None, None, now)
-        case "UserPromptSubmit":
-            s = replace(
-                s, last_prompt=e.prompt, last_prompt_at=now, current_tool=None,
-                turn_edits=0, turn_reads=0, turn_commands=0, turn_other=0, turn_files=(),
-                permission_requested=False,
-            )  # fmt: skip
-            return _set_status(s, "working", None, None, now)
-        case "PreToolUse":
-            s = replace(s, permission_requested=False)
-            if tool == ASK_TOOL:
-                return _set_status(s, "waiting", "question", tool_summary(tool, e.tool_input), now)
-            s = replace(s, current_tool=tool_summary(tool, e.tool_input))
-            return _set_status(s, "working", None, None, now)
-        case "PostToolUse" | "PostToolUseFailure":
-            s = _counted(
-                replace(s, current_tool=tool_summary(tool, e.tool_input)), tool, e.tool_input
-            )
-            return _set_status(s, "working", None, None, now)
-        case "PermissionRequest":
-            s = replace(s, permission_requested=True)
-            if tool == ASK_TOOL:
-                if (s.status, s.kind) == ("waiting", "question"):
-                    return s
-                return _set_status(s, "waiting", "question", tool_summary(tool, e.tool_input), now)
-            return _set_status(s, "waiting", "permission", tool_summary(tool, e.tool_input), now)
-        case "Notification":
-            if e.notification_type == "permission_prompt":
-                if s.permission_requested:
-                    return s
-                reason = s.current_tool or e.message or KIND_LABELS["permission"]
-                return _set_status(s, "waiting", "permission", reason, now)
-            if e.notification_type in QUESTION_NOTIFICATIONS:
-                return _set_status(s, "waiting", "question", e.message, now)
-            return s
-        case "Stop":
-            message = e.last_assistant_message or ""
-            kind: WaitKind = "question" if ends_with_question(message) else "finished"
-            s = replace(s, last_message=e.last_assistant_message, current_tool=None)
-            return _set_status(s, "waiting", kind, e.last_assistant_message, now)
-        case "SessionEnd":
-            return replace(s, ended_at=now)
-        case _:  # SubagentStop and anything newer
-            return s
+    s = replace(s, permission_requested=False)
+    if tool == ASK_TOOL:
+        return _set_status(s, "waiting", "question", tool_summary(tool, e.tool_input), now)
+    s = replace(s, current_tool=tool_summary(tool, e.tool_input))
+    return _set_status(s, "working", None, None, now)
+
+
+def _on_post_tool(s: SessionState, e: HookEvent, now: float) -> SessionState:
+    tool = e.tool_name or ""
+    s = _counted(replace(s, current_tool=tool_summary(tool, e.tool_input)), tool, e.tool_input)
+    return _set_status(s, "working", None, None, now)
+
+
+def _on_permission(s: SessionState, e: HookEvent, now: float) -> SessionState:
+    tool = e.tool_name or ""
+    s = replace(s, permission_requested=True)
+    if tool != ASK_TOOL:
+        return _set_status(s, "waiting", "permission", tool_summary(tool, e.tool_input), now)
+    if (s.status, s.kind) == ("waiting", "question"):
+        return s  # AskUserQuestion asks permission too; it is already waiting
+    return _set_status(s, "waiting", "question", tool_summary(tool, e.tool_input), now)
+
+
+def _on_notification(s: SessionState, e: HookEvent, now: float) -> SessionState:
+    if e.notification_type == "permission_prompt":
+        if s.permission_requested:
+            return s  # the PermissionRequest for this prompt already counted
+        reason = s.current_tool or e.message or KIND_LABELS["permission"]
+        return _set_status(s, "waiting", "permission", reason, now)
+    if e.notification_type in QUESTION_NOTIFICATIONS:
+        return _set_status(s, "waiting", "question", e.message, now)
+    return s  # idle_prompt and the rest change nothing
+
+
+def _on_stop(s: SessionState, e: HookEvent, now: float) -> SessionState:
+    message = e.last_assistant_message or ""
+    kind: WaitKind = "question" if ends_with_question(message) else "finished"
+    s = replace(s, last_message=e.last_assistant_message, current_tool=None)
+    return _set_status(s, "waiting", kind, e.last_assistant_message, now)
+
+
+def _on_session_end(s: SessionState, e: HookEvent, now: float) -> SessionState:
+    return replace(s, ended_at=now)
+
+
+# Anything else (SubagentStop, events newer than this table) leaves the state as it is.
+HANDLERS: dict[str, Handler] = {
+    "SessionStart": _on_session_start,
+    "UserPromptSubmit": _on_prompt,
+    "PreToolUse": _on_pre_tool,
+    "PostToolUse": _on_post_tool,
+    "PostToolUseFailure": _on_post_tool,
+    "PermissionRequest": _on_permission,
+    "Notification": _on_notification,
+    "Stop": _on_stop,
+    "SessionEnd": _on_session_end,
+}
 
 
 def apply(
     state: SessionState | None, event: HookEvent, pane_id: int | None, now: float
 ) -> tuple[SessionState, Ping | None]:
     old = state or SessionState(event.session_id, started_at=now)
-    new = _transition(old, event, now)
+    handler = HANDLERS.get(event.name)
+    new = handler(old, event, now) if handler else old
     new = replace(
         new,
         updated_at=now,
