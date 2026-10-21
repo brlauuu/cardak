@@ -12,7 +12,7 @@ from cardak.core.resolver import Kind
 from cardak.core.snapshot import WAITING_NAME, AgentView, DeckSnapshot, Group, PaneRow
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.app import AddProjectScreen, DeckApp, Node, node_id
-from cardak.ui.detail import DetailScreen
+from cardak.ui.detail import DetailScreen, TranscriptScreen
 from cardak.ui.theme_picker import ThemePickerScreen
 
 
@@ -660,3 +660,23 @@ async def test_i_without_a_record_says_so() -> None:
         await pilot.press("i")
         await pilot.pause()
         assert any("No status" in str(n.message) for n in app._notifications)  # noqa: SLF001
+
+
+async def test_deck_keys_do_nothing_on_other_screens() -> None:
+    # live check: `t` in the transcript view opened the theme picker behind it
+    snap = waiting_snap(agent_row(7, "waiting", "finished"))
+    source = StubSource(snap)
+    source.sessions["s7"] = SessionState(
+        "s7", pane_id=7, status="waiting", kind="finished", transcript_path=Path("/nonexistent")
+    )
+    app = DeckApp(source, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])
+        await pilot.press("i", "t")
+        await pilot.pause()
+        assert isinstance(app.screen, TranscriptScreen)
+        await pilot.press("t", "w", "a", "i")
+        await pilot.pause()
+        assert isinstance(app.screen, TranscriptScreen)
+        assert not app.waiting_only

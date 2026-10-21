@@ -217,7 +217,7 @@ HANDLERS: dict[str, Handler] = {
 def apply(
     state: SessionState | None, event: HookEvent, pane_id: int | None, now: float
 ) -> tuple[SessionState, Ping | None]:
-    old = state or SessionState(event.session_id, started_at=now)
+    old = state or SessionState(event.session_id, status_since=now, started_at=now)
     handler = HANDLERS.get(event.name)
     new = handler(old, event, now) if handler else old
     new = replace(

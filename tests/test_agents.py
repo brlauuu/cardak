@@ -338,3 +338,9 @@ def test_ends_with_question() -> None:
     assert ends_with_question("Merge them?")
     assert ends_with_question('Open a PR?"\n')
     assert not ends_with_question("Done.")
+
+
+def test_fresh_session_counts_its_age_from_its_first_event() -> None:
+    # live check: a new session showed "idle 20747d", counted from the epoch
+    state, _ = apply(None, ev("SessionStart", source="startup"), 7, 500.0)
+    assert state.status_since == 500.0

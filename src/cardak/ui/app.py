@@ -150,6 +150,17 @@ class DeckApp(App[None]):
         Binding("q", "quit", "Quit"),
     ]
 
+    # Keys that act on the tree: off (and out of the footer) while another screen is on top.
+    DECK_ACTIONS = frozenset(
+        {"add_project", "theme", "waiting_only", "detail", "find", "refresh", "cursor_down",
+         "cursor_up", "clear_find"}
+    )  # fmt: skip
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action in self.DECK_ACTIONS and len(self.screen_stack) > 1:
+            return False
+        return True
+
     def __init__(
         self,
         source: DeckSource,
