@@ -7,6 +7,7 @@ from textual.widgets import Collapsible
 from textual.widgets._collapsible import CollapsibleTitle
 
 from cardak.core.agents import SessionState
+from cardak.core.summary import SummaryInfo
 from cardak.ui.detail import DetailScreen, TranscriptScreen, detail_text
 
 BASIC = Path(__file__).parent / "fixtures" / "transcripts" / "basic.jsonl"
@@ -107,3 +108,20 @@ async def test_transcript_with_brackets_in_a_tool_call(tmp_path: Path) -> None:
         assert isinstance(app.screen, TranscriptScreen)
         shown = [str(c.query_one(CollapsibleTitle).render()) for c in app.screen.query(Collapsible)]
         assert len(shown) == 1 and shown[0].endswith('Bash: grep "[/]" f [id]')
+
+
+def test_detail_shows_summary_and_spend() -> None:
+    text = detail_text(PERMISSION, "demo", NOW, SummaryInfo("Did x; needs y", 0.42, 5.0)).plain
+    lines = text.splitlines()
+    summary = lines.index("  Summary: Did x; needs y")
+    assert "uv run pytest" in lines[summary + 1]  # the raw reason right after it
+    assert lines[-1] == "Summaries this month: $0.42 of $5.00"
+
+
+def test_detail_spend_without_a_summary() -> None:
+    text = detail_text(PERMISSION, "demo", NOW, SummaryInfo(None, 0.0, 5.0)).plain
+    assert "Summary:" not in text and text.endswith("Summaries this month: $0.00 of $5.00")
+
+
+def test_detail_without_info_is_unchanged() -> None:
+    assert "Summar" not in plain(PERMISSION)

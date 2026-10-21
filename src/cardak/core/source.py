@@ -249,6 +249,7 @@ class LiveSource:
             config_error=self._config_error,
             config_warnings=self._warnings_now(),
             summary_capped=capped,
+            summary_limit=self._config.summary.monthly_limit_usd,
         )
 
     def add_project(self, name: str, path: Path) -> None:

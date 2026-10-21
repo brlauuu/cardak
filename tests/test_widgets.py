@@ -1,6 +1,8 @@
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from cardak.core.resolver import Kind
 from cardak.core.snapshot import AgentView, Group, PaneRow
 from cardak.ui.widgets import (
@@ -80,8 +82,9 @@ def claude_row(agent: AgentView | None, pane_id: int = 7) -> PaneRow:
 
 
 def view(status: str, kind: str | None = None, reason: str | None = None,
-         tool: str | None = None) -> AgentView:  # fmt: skip
-    return AgentView("s", status, kind, 1000.0, reason, tool, "notes")  # type: ignore[arg-type]
+         tool: str | None = None, summary: str | None = None) -> AgentView:  # fmt: skip
+    return AgentView("s", status, kind, 1000.0, reason, tool, "notes",  # type: ignore[arg-type]
+                     summary)  # fmt: skip
 
 
 NOW = 1000.0 + 12 * 60
@@ -127,3 +130,26 @@ def test_waiting_label() -> None:
 def test_waiting_group_label() -> None:
     g = replace(group(kind="other"), kind="waiting", name="Waiting on you", path=None)
     assert group_label(g).plain == "Waiting on you"
+
+
+def test_waiting_label_with_summary() -> None:
+    row = claude_row(
+        view("waiting", "permission", "Bash: cargo test", summary="Fixed it; wants tests")
+    )
+    text = waiting_label(row, NOW)
+    assert text.plain == "● notes · claude  12m  approve  Fixed it; wants tests"
+    assert "cargo test" not in text.plain
+
+
+@pytest.mark.parametrize(
+    ("kind", "tag"), [("permission", "approve"), ("question", "decide"), ("finished", "review")]
+)
+def test_reason_line_uses_the_tag(kind: str, tag: str) -> None:
+    assert reason_label(claude_row(view("waiting", kind, "raw", summary="S"))).plain == (
+        f"    ↳ {tag}  S"
+    )
+
+
+def test_summary_line_is_cut_like_a_reason() -> None:
+    row = claude_row(view("waiting", "finished", "raw", summary="w" * 200))
+    assert len(reason_label(row).plain) <= 4 + 2 + 120

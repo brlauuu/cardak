@@ -65,6 +65,7 @@ class DeckSnapshot:
     config_warnings: tuple[str, ...] = ()
     n_waiting: int = 0
     summary_capped: bool = False  # this month's summaries reached [summary] monthly_limit_usd
+    summary_limit: float = 0.0
 
     @property
     def n_projects(self) -> int:
