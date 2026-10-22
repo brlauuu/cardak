@@ -1,0 +1,89 @@
+[
+  {
+    "Id": "02187beeabf1bbd653f6855185d4448d99d32048ac3895e60a2affc3f00b2df4",
+    "Names": [
+      "/scratch"
+    ],
+    "Image": "busybox",
+    "ImageID": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "Command": "sleep 60",
+    "Created": 1792694461,
+    "Ports": [],
+    "Labels": {},
+    "State": "running",
+    "Status": "Up 1 second",
+    "HostConfig": {
+      "NetworkMode": "bridge"
+    },
+    "Health": {
+      "Status": "none",
+      "FailingStreak": 0
+    },
+    "NetworkSettings": {
+      "Networks": {}
+    },
+    "Mounts": []
+  },
+  {
+    "Id": "7cfa84a34ebf41c1cd77ed246e6947071a8638c0e4b72e3e203b1f303fb5b232",
+    "Names": [
+      "/api-gw-cache"
+    ],
+    "Image": "busybox",
+    "ImageID": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "Command": "sleep 60",
+    "Created": 1792694461,
+    "Ports": [],
+    "Labels": {},
+    "State": "running",
+    "Status": "Up 1 second",
+    "HostConfig": {
+      "NetworkMode": "bridge"
+    },
+    "Health": {
+      "Status": "none",
+      "FailingStreak": 0
+    },
+    "NetworkSettings": {
+      "Networks": {}
+    },
+    "Mounts": [
+      {
+        "Type": "bind",
+        "Source": "/home/user/repos/api-gw/data",
+        "Destination": "/work",
+        "Mode": "",
+        "RW": true,
+        "Propagation": "rprivate"
+      }
+    ]
+  },
+  {
+    "Id": "04402d25c9297d9c3dde900f38eeaf33f10f4526da7b24b789a80ff6eac3f9f6",
+    "Names": [
+      "/webshop-db-1"
+    ],
+    "Image": "busybox",
+    "ImageID": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "Command": "sleep 60",
+    "Created": 1792694460,
+    "Ports": [],
+    "Labels": {
+      "com.docker.compose.project": "webshop",
+      "com.docker.compose.project.working_dir": "/home/user/repos/webshop"
+    },
+    "State": "running",
+    "Status": "Up 1 second",
+    "HostConfig": {
+      "NetworkMode": "bridge"
+    },
+    "Health": {
+      "Status": "none",
+      "FailingStreak": 0
+    },
+    "NetworkSettings": {
+      "Networks": {}
+    },
+    "Mounts": []
+  }
+]
