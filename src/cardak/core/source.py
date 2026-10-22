@@ -9,13 +9,18 @@ from pathlib import Path
 from typing import Protocol
 
 from cardak.collectors import claude, wezterm
+from cardak.collectors.docker import DockerSampler, DockerWork
+from cardak.collectors.machine import MachineSample, MachineSampler
 from cardak.collectors.processes import PaneProcs, ProcessSampler
 from cardak.core import config as config_mod
+from cardak.core.accounting import account
 from cardak.core.agents import FocusChange, SessionState, seen_by_focus
 from cardak.core.alerts import bundled_sounds, check
 from cardak.core.config import Config, ConfigError
+from cardak.core.recent import Recent, decorate
 from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
-from cardak.core.snapshot import ClaudeLookup, DeckSnapshot, build_snapshot
+from cardak.core.resources import derive
+from cardak.core.snapshot import ClaudeLookup, DeckSnapshot, Group, build_snapshot, group_for
 from cardak.core.store import StoreError
 from cardak.core.summary import SummaryInfo, key_warning, month_start
 from cardak.core.themes import Scheme, project_accent
@@ -57,6 +62,8 @@ class LiveSource:
         focus_history: Callable[[], Sequence[FocusChange]] = lambda: [],
         clock: Callable[[], float] = time.time,
         key_file: Path | None = None,
+        machine: Callable[[], MachineSample | None] | None = None,
+        docker: Callable[[], Sequence[DockerWork]] | None = None,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -74,6 +81,9 @@ class LiveSource:
         self._focus_history = focus_history
         self._clock = clock
         self._key_file = key_file  # None: no waiting summaries in this deck
+        self._machine = machine or MachineSampler().sample
+        self._docker = docker or DockerSampler().sample
+        self._recent = Recent()
         self._summary_warning: str | None = None
         self._notify_warnings: tuple[str, ...] = ()
         self._store_warning: str | None = None
@@ -233,13 +243,48 @@ class LiveSource:
         summary = (self._summary_warning,) if self._summary_warning else ()
         return (*self._warnings, *self._notify_warnings, *extra, *((key,) if key else ()), *summary)
 
+    def _sample_machine(self) -> MachineSample | None:
+        try:
+            return self._machine()
+        except Exception:  # a sampler bug costs the header, never the deck
+            return None
+
+    def _sample_docker(self) -> Sequence[DockerWork]:
+        try:
+            return self._docker()
+        except Exception:
+            return []
+
+    def _make_group(self, root: Path) -> Group:
+        return group_for(self._resolver.resolve(root), self._home, self._accent_for)
+
+    def _resources(self, snap: DeckSnapshot) -> DeckSnapshot:
+        """Docker attributed, Other as the remainder, sparklines and threshold marks."""
+        machine = self._sample_machine()
+        if snap.error is None:
+            roots = [p.path for p in self._config.projects]
+            roots += [g.key for g in snap.groups if g.kind == "git" and g.key]
+            snap = account(snap, self._sample_docker(), machine, roots, self._make_group)
+        else:
+            snap = replace(snap, machine=machine)
+        self._recent.record(snap)
+        if machine is None:
+            return snap
+        return decorate(
+            snap, self._recent, derive(self._config.resources, machine.mem_total, machine.n_cpus)
+        )
+
     def _poll(self) -> DeckSnapshot:
         self._reload_if_changed()
         try:
             panes = self._list_panes(self._env)
         except wezterm.WeztermUnavailable as e:
-            return DeckSnapshot(
-                error=str(e), config_error=self._config_error, config_warnings=self._warnings_now()
+            return self._resources(
+                DeckSnapshot(
+                    error=str(e),
+                    config_error=self._config_error,
+                    config_warnings=self._warnings_now(),
+                )
             )
         procs = self._sample([p.tty for p in panes if p.tty])
         sessions = self._sessions()
@@ -256,7 +301,7 @@ class LiveSource:
             summaries=summaries,
         )
         return replace(
-            snap,
+            self._resources(snap),
             config_error=self._config_error,
             config_warnings=self._warnings_now(),
             summary_capped=capped,
