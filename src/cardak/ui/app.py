@@ -21,15 +21,19 @@ from cardak.core.agents import SessionState
 from cardak.core.config import ConfigError
 from cardak.core.filter import filter_snapshot, waiting_only
 from cardak.core.navigate import JumpResult
-from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
+from cardak.core.snapshot import DeckSnapshot, DockerLine, Group, PaneRow
 from cardak.core.summary import SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.detail import DetailScreen
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
+    docker_label,
     group_label,
+    machine_label,
+    mcp_label,
     no_match_label,
     nothing_waiting_label,
+    outside_label,
     pane_label,
     reason_label,
     unreachable_label,
@@ -39,11 +43,12 @@ from cardak.ui.widgets import (
 
 @dataclass(frozen=True)
 class Node:
-    """What a tree line shows: a group, a pane in it, or a waiting pane's reason line."""
+    """What a tree line shows: a group, a pane in it, or a line under one of them."""
 
     group: Group
     row: PaneRow | None = None
-    role: Literal["group", "pane", "reason"] = "group"
+    role: Literal["group", "pane", "reason", "mcp", "docker", "outside"] = "group"
+    line: DockerLine | None = None
 
 
 NodeData = Node
@@ -75,10 +80,17 @@ class Jumper(Protocol):
 def node_id(data: NodeData | None) -> str | None:
     if data is None:
         return None
+    group = f"{data.group.kind}:{data.group.key}"
+    if data.role == "docker" and data.line is not None:
+        return f"d:{group}:{data.line.label}"
+    if data.role == "outside":
+        return f"o:{group}"
     if data.row is None:
-        return f"g:{data.group.kind}:{data.group.key}"
+        return f"g:{group}"
     if data.role == "reason":
         return f"r:{data.row.pane_id}"
+    if data.role == "mcp":
+        return f"m:{data.row.pane_id}"
     # the same pane can be listed twice: under "Waiting on you" and in its project
     return f"{'w' if data.group.kind == 'waiting' else 'p'}:{data.row.pane_id}"
 
@@ -126,8 +138,18 @@ def _leaves(group: Group, now: float) -> list[tuple[Text, Node]]:
     lines: list[tuple[Text, Node]] = []
     for row in group.panes:
         lines.append((pane_label(row, now), Node(group, row, "pane")))
+        if row.mcp_rss > 0:
+            lines.append((mcp_label(row), Node(group, row, "mcp")))
         if row.agent and row.agent.status == "waiting":
             lines.append((reason_label(row), Node(group, row, "reason")))
+    return lines + _resource_lines(group)
+
+
+def _resource_lines(group: Group) -> list[tuple[Text, Node]]:
+    """Docker work and, under Other, what runs outside WezTerm."""
+    lines = [(docker_label(d), Node(group, role="docker", line=d)) for d in group.docker]
+    if group.outside_rss is not None:
+        lines.append((outside_label(group), Node(group, role="outside")))
     return lines
 
 
@@ -139,6 +161,7 @@ class DeckApp(App[None]):
     #find { display: none; }
     #banner.warning { background: $warning; }
     #banner { display: none; background: $error; color: $text; padding: 0 1; }
+    #machine { display: none; padding: 0 1; }
     """
     BINDINGS = [
         Binding("a", "add_project", "Add as project"),
@@ -193,6 +216,7 @@ class DeckApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
+        yield Static("", id="machine")
         yield Static("", id="banner")
         yield Input(placeholder="find: project, process, title or path", id="find")
         yield Tree[NodeData]("projects", id="tree")
@@ -233,6 +257,10 @@ class DeckApp(App[None]):
         if snap == self.raw:
             return
         self.raw = snap
+        machine = self.query_one("#machine", Static)
+        if snap.machine_view is not None:
+            machine.update(machine_label(snap.machine_view))
+        machine.display = snap.machine_view is not None
         banner = self.query_one("#banner", Static)
         if snap.config_error:
             banner.update(escape(f"projects.toml: {snap.config_error}"))

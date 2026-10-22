@@ -3,18 +3,24 @@ from pathlib import Path
 
 import pytest
 
+from cardak.collectors.machine import MachineSample
 from cardak.core.resolver import Kind
-from cardak.core.snapshot import AgentView, Group, PaneRow
+from cardak.core.snapshot import AgentView, DockerLine, Group, MachineView, PaneRow
 from cardak.ui.widgets import (
     age,
     agent_dot,
+    docker_label,
     fmt_cpu,
     fmt_rss,
     group_label,
+    machine_label,
+    mcp_label,
     no_match_label,
+    outside_label,
     pane_label,
     reason_label,
     unreachable_label,
+    usage,
     waiting_label,
 )
 
@@ -41,7 +47,7 @@ def test_formatting() -> None:
 
 
 def test_group_labels() -> None:
-    assert group_label(group()).plain == "webshop  ~/r/w  CPU 12%  RAM 1.2G"
+    assert group_label(group()).plain == "webshop  ~/r/w  RAM 1.2G  CPU 12%"
     assert "not in config" in group_label(group(kind="git")).plain
     assert group_label(group(kind="other", accent=None)).plain.startswith("webshop")
 
@@ -63,7 +69,9 @@ def test_pane_label() -> None:
         rss=0,
         is_self=True,
     )
-    assert pane_label(row).plain == "vim  notes.md  .  CPU –  RAM 0M  (this deck)"
+    assert pane_label(row).plain == "vim  notes.md  .  RAM 0M  CPU –  (this deck)"
+    assert pane_label(replace(row, over=True, ram_spark="▁█")).plain.startswith("▲ vim")
+    assert "RAM 0M ▁█  CPU" in pane_label(replace(row, ram_spark="▁█")).plain
 
 
 def test_unreachable_label() -> None:
@@ -153,3 +161,51 @@ def test_reason_line_uses_the_tag(kind: str, tag: str) -> None:
 def test_summary_line_is_cut_like_a_reason() -> None:
     row = claude_row(view("waiting", "finished", "raw", summary="w" * 200))
     assert len(reason_label(row).plain) <= 4 + 2 + 120
+
+
+GIB = 2**30
+
+
+def test_usage_with_spark_and_over() -> None:
+    t = usage(int(13.9 * GIB), 180.0, "▁▂▄▆█", over=True)
+    assert t.plain == "RAM 13.9G ▁▂▄▆█  CPU 180%"
+    assert any("red" in str(s.style) for s in t.spans)
+    assert usage(GIB, None).plain == "RAM 1.0G  CPU –"
+    assert not any("red" in str(s.style) for s in usage(GIB, None).spans)
+
+
+def test_group_label_over_is_red() -> None:
+    text = group_label(replace(group(), over=True, ram_spark="▅"))
+    assert text.plain == "webshop  ~/r/w  RAM 1.2G ▅  CPU 12%"
+    assert any("red" in str(s.style) for s in text.spans)
+
+
+def test_extra_lines() -> None:
+    r = PaneRow(
+        pane_id=1, label="claude", detail=None, cwd=None, cwd_display=".", cpu_pct=1.0,
+        rss=GIB, is_self=False, mcp_rss=412 * 2**20, mcp_cpu_pct=1.0,
+    )  # fmt: skip
+    assert mcp_label(r).plain == "    └ MCP servers  RAM 412M  CPU 1%"
+    assert (
+        docker_label(DockerLine("docker: webshop-db-1", 2 * GIB, 30.0)).plain
+        == "    docker: webshop-db-1  RAM 2.0G  CPU 30%"
+    )
+    other = replace(group(kind="other"), outside_rss=13 * GIB, outside_cpu_pct=200.0)
+    assert outside_label(other).plain == "    outside WezTerm  RAM 13.0G  CPU 200%"
+
+
+def machine_view(
+    available: float, level: str | None, cpu: float | None = 38.0, swap_free: int = GIB
+):
+    m = MachineSample(32 * GIB, int(available * GIB), GIB, swap_free, cpu, 16)
+    return MachineView(m, level, "▄▅", "▂▃")  # type: ignore[arg-type]
+
+
+def test_machine_label_levels() -> None:
+    assert machine_label(machine_view(10, None)).plain == "CPU 38% ▂▃   RAM 22.0 / 32.0G ▄▅"
+    warn = machine_label(machine_view(4.4, "warning"))
+    assert warn.plain == "CPU 38% ▂▃   RAM 27.6 / 32.0G ▄▅  ⚠ 14% free"
+    crit = machine_label(machine_view(1.9, "critical", cpu=None))
+    assert crit.plain.startswith("CPU – ▂▃") and crit.plain.endswith("⚠ 6% free")
+    assert any("red" in str(s.style) for s in crit.spans)
+    assert machine_label(machine_view(10, "critical", swap_free=0)).plain.endswith("swap full")

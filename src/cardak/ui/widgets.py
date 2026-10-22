@@ -6,12 +6,13 @@ from rich.color import Color, ColorParseError
 from rich.text import Text
 
 from cardak.core.agents import KIND_LABELS
-from cardak.core.snapshot import AgentView, Group, PaneRow
+from cardak.core.snapshot import AgentView, DockerLine, Group, MachineView, PaneRow
 from cardak.core.summary import TAGS
 
 WAITING = "dark_orange"
 WORKING = "green"
 IDLE = "grey50"
+OVER = "bold red"
 MAX_REASON = 120
 
 
@@ -22,6 +23,43 @@ def fmt_cpu(cpu: float | None) -> str:
 def fmt_rss(rss: int) -> str:
     gib = rss / 2**30
     return f"{gib:.1f}G" if gib >= 1 else f"{rss / 2**20:.0f}M"
+
+
+def usage(rss: int, cpu_pct: float | None, spark: str = "", over: bool = False) -> Text:
+    """ "RAM 13.9G ▁▂▄▆█  CPU 180%"; red when over a threshold."""
+    style = OVER if over else ""
+    text = Text(f"RAM {fmt_rss(rss)}", style=style)
+    if spark:
+        text.append(f" {spark}", style="cyan")
+    return text.append(f"  CPU {fmt_cpu(cpu_pct)}", style=style)
+
+
+def mcp_label(r: PaneRow) -> Text:
+    return Text("    └ MCP servers  ", style="dim").append_text(usage(r.mcp_rss, r.mcp_cpu_pct))
+
+
+def docker_label(line: DockerLine) -> Text:
+    return Text(f"    {line.label}  ").append_text(usage(line.rss, line.cpu_pct))
+
+
+def outside_label(g: Group) -> Text:
+    text = Text("    outside WezTerm  ", style="dim")
+    return text.append_text(usage(g.outside_rss or 0, g.outside_cpu_pct))
+
+
+def machine_label(v: MachineView) -> Text:
+    m = v.sample
+    gib = 2**30
+    text = Text(f"CPU {fmt_cpu(m.cpu_pct)} ")
+    text.append(v.cpu_spark, style="cyan")
+    text.append(f"   RAM {m.mem_used / gib:.1f} / {m.mem_total / gib:.1f}G ")
+    text.append(v.ram_spark, style="cyan")
+    if v.level is not None:
+        free = round(m.mem_available / m.mem_total * 100)
+        text.append(f"  ⚠ {free}% free", style=OVER if v.level == "critical" else "yellow")
+    if m.swap_total > 0 and m.swap_free == 0:
+        text.append("  swap full", style=OVER)
+    return text
 
 
 def _valid_color(color: str | None) -> str | None:
@@ -90,18 +128,19 @@ def group_label(g: Group) -> Text:
         text.append(g.name, style="bold")
     if g.path:
         text.append(f"  {g.path}", style="dim")
-    text.append(f"  CPU {fmt_cpu(g.cpu_pct)}  RAM {fmt_rss(g.rss)}")
-    return text
+    text.append("  ")
+    return text.append_text(usage(g.rss, g.cpu_pct, g.ram_spark, g.over))
 
 
 def pane_label(r: PaneRow, now: float | None = None) -> Text:
     now = time.time() if now is None else now
-    text = agent_dot(r)
+    text = Text("▲ ", style=OVER) if r.over else Text()
+    text.append_text(agent_dot(r))
     text.append(r.label, style="bold")
     if r.detail:
         text.append(f"  {r.detail}")
-    text.append(f"  {r.cwd_display}", style="dim")
-    text.append(f"  CPU {fmt_cpu(r.cpu_pct)}  RAM {fmt_rss(r.rss)}")
+    text.append(f"  {r.cwd_display}  ", style="dim")
+    text.append_text(usage(r.rss, r.cpu_pct, r.ram_spark, r.over))
     if r.is_self:
         text.append("  (this deck)", style="italic")
     if agent := r.agent:
