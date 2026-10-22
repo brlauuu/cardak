@@ -44,22 +44,36 @@ class DockerWork:
     mounts: tuple[Path, ...] = ()
 
 
+def _name(entry: dict[str, object], cid: str) -> str:
+    names = entry.get("Names")
+    first = names[0] if isinstance(names, list) and names else None
+    return first.lstrip("/") if isinstance(first, str) else cid[:12]
+
+
+def _compose_dir(entry: dict[str, object]) -> Path | None:
+    labels = entry.get("Labels")
+    value = labels.get(COMPOSE_DIR) if isinstance(labels, dict) else None
+    return Path(value) if isinstance(value, str) else None
+
+
+def _bind_mounts(entry: dict[str, object]) -> tuple[Path, ...]:
+    mounts = entry.get("Mounts")
+    if not isinstance(mounts, list):
+        return ()
+    return tuple(
+        Path(m["Source"])
+        for m in mounts
+        if isinstance(m, dict) and m.get("Type") == "bind" and isinstance(m.get("Source"), str)
+    )
+
+
 def _container(entry: object) -> Container | None:
     if not isinstance(entry, dict):
         return None
     cid = entry.get("Id")
     if not isinstance(cid, str) or not cid:
         return None
-    names = entry.get("Names") or []
-    name = names[0].lstrip("/") if names and isinstance(names[0], str) else cid[:12]
-    labels = entry.get("Labels") or {}
-    compose = labels.get(COMPOSE_DIR) if isinstance(labels, dict) else None
-    mounts = tuple(
-        Path(m["Source"])
-        for m in entry.get("Mounts") or []
-        if isinstance(m, dict) and m.get("Type") == "bind" and isinstance(m.get("Source"), str)
-    )
-    return Container(cid, name, Path(compose) if isinstance(compose, str) else None, mounts)
+    return Container(cid, _name(entry, cid), _compose_dir(entry), _bind_mounts(entry))
 
 
 def parse_containers(data: object) -> list[Container]:

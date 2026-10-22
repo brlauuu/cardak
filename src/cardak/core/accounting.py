@@ -49,6 +49,18 @@ def _with_other(groups: list[Group]) -> list[Group]:
     return [*groups, group_for(OTHER, Path("/"))]  # Other has no key, so home goes unused
 
 
+def _by_root(
+    work: Sequence[DockerWork], roots: Sequence[Path]
+) -> tuple[dict[Path, list[DockerLine]], list[DockerLine]]:
+    by_root: dict[Path, list[DockerLine]] = {}
+    unmatched: list[DockerLine] = []
+    for w in (w for w in work if w.kind == "container"):
+        line = DockerLine(f"docker: {w.name}", w.rss, w.cpu_pct)
+        root = match_project(w, roots)
+        (by_root.setdefault(root, []) if root else unmatched).append(line)
+    return by_root, unmatched
+
+
 def _attach_containers(
     groups: list[Group],
     work: Sequence[DockerWork],
@@ -56,14 +68,7 @@ def _attach_containers(
     make_group: Callable[[Path], Group],
 ) -> tuple[list[Group], list[DockerLine]]:
     """Groups with their containers added, and the lines no project claimed."""
-    by_root: dict[Path, list[DockerLine]] = {}
-    unmatched: list[DockerLine] = []
-    for w in work:
-        if w.kind != "container":
-            continue
-        line = DockerLine(f"docker: {w.name}", w.rss, w.cpu_pct)
-        root = match_project(w, roots)
-        (by_root.setdefault(root, []) if root else unmatched).append(line)
+    by_root, unmatched = _by_root(work, roots)
     present = {g.key for g in groups if g.kind in PROJECT_KINDS}
     new = [make_group(root) for root in by_root if root not in present]
     split = next((i for i, g in enumerate(groups) if g.kind == "other"), len(groups))
@@ -86,8 +91,12 @@ def _attach_builds(
     if len(building) == 1:
         line = _summed("docker build", builds)
         return [_add(g, [line]) if g is building[0] else g for g in groups], []
+    return groups, [_summed(_builds_label(groups), builds)]
+
+
+def _builds_label(groups: Sequence[Group]) -> str:
     n = sum(1 for g in groups if g.kind != "waiting" for r in g.panes if r.docker_build)
-    return groups, [_summed(f"docker builds, {n} panes" if n > 1 else "docker build", builds)]
+    return f"docker builds, {n} panes" if n > 1 else "docker build"
 
 
 def _remainder(groups: list[Group], machine: MachineSample) -> list[Group]:

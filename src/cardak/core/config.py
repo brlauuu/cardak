@@ -197,18 +197,20 @@ def _resources(path: Path, data: Mapping[str, object]) -> ResourceSettings:
     raw = data.get("resources", {})
     if not isinstance(raw, dict):
         raise ConfigError(path, "[resources] must be a table")
-    values: dict[str, float] = {}
-    for name in ResourceSettings.__dataclass_fields__:
-        value = raw.get(name)
-        if value is None:
-            continue
-        percent = name == "machine_cpu_pct"
-        ok = not isinstance(value, bool) and isinstance(value, int | float) and value > 0
-        if not ok or (percent and value > 100):
-            limit = " and ≤ 100" if percent else ""
-            raise ConfigError(path, f"[resources] {name} must be a number > 0{limit}")
-        values[name] = float(value)
-    return ResourceSettings(**values)
+    names = ResourceSettings.__dataclass_fields__
+    return ResourceSettings(
+        **{name: _resource(path, name, raw[name]) for name in names if raw.get(name) is not None}
+    )
+
+
+def _resource(path: Path, name: str, value: object) -> float:
+    percent = name == "machine_cpu_pct"
+    limit = " and ≤ 100" if percent else ""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ConfigError(path, f"[resources] {name} must be a number > 0{limit}")
+    if value <= 0 or (percent and value > 100):
+        raise ConfigError(path, f"[resources] {name} must be a number > 0{limit}")
+    return float(value)
 
 
 def _with_tilde(path: Path) -> str:
