@@ -5,11 +5,20 @@ from pathlib import Path
 from textual.pilot import Pilot
 from textual.widgets import Input, Static
 
+from cardak.collectors.machine import MachineSample
 from cardak.core.agents import SessionState
 from cardak.core.config import ConfigError
 from cardak.core.navigate import JumpResult
 from cardak.core.resolver import Kind
-from cardak.core.snapshot import WAITING_NAME, AgentView, DeckSnapshot, Group, PaneRow
+from cardak.core.snapshot import (
+    WAITING_NAME,
+    AgentView,
+    DeckSnapshot,
+    DockerLine,
+    Group,
+    MachineView,
+    PaneRow,
+)
 from cardak.core.summary import SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.app import AddProjectScreen, DeckApp, Node, node_id
@@ -715,3 +724,72 @@ async def test_detail_gets_summary_info() -> None:
         await pilot.press("i")
         await pilot.pause()
         assert isinstance(app.screen, DetailScreen) and app.screen.info == source.info
+
+
+GIB = 2**30
+
+
+def resource_snap(docker_rss: int = 2 * GIB) -> DeckSnapshot:
+    claude = replace(row(1), label="claude", mcp_rss=GIB // 4)
+    webshop = replace(
+        group("config", "webshop", Path("/repos/webshop"), claude),
+        docker=(DockerLine("docker: webshop-db-1", docker_rss, 30.0),),
+    )
+    other = replace(group("other", "Other", None, row(4)), outside_rss=9 * GIB, outside_cpu_pct=1.0)
+    return DeckSnapshot(groups=(webshop, other), n_panes=2)
+
+
+async def test_tree_shows_mcp_docker_and_outside_lines() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(resource_snap()), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        lines = [str(n.label) for n in all_nodes(app)]
+        assert any("└ MCP servers" in line for line in lines)
+        assert any("docker: webshop-db-1" in line for line in lines)
+        assert any("outside WezTerm" in line for line in lines)
+        ids = [node_id(n.data) for n in all_nodes(app)]
+        assert ids == [
+            "g:config:/repos/webshop", "p:1", "m:1", "d:config:/repos/webshop:docker: webshop-db-1",
+            "g:other:None", "p:4", "o:other:None",
+        ]  # fmt: skip
+        for target in (2, 3, 6):  # mcp jumps to its pane; docker and outside do nothing
+            app.deck_tree.move_cursor(all_nodes(app)[target])
+            await pilot.press("enter")
+            await settle(app, pilot)
+        assert nav.jumps == [1]
+
+
+async def test_cursor_on_docker_line_survives_refresh() -> None:
+    app = DeckApp(StubSource(resource_snap(), resource_snap(3 * GIB)), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(all_nodes(app)[3])
+        await pilot.pause()
+        app.action_refresh()
+        await settle(app, pilot)
+        cursor = app.deck_tree.cursor_node
+        assert cursor is not None and "RAM 3.0G" in str(cursor.label)
+
+
+async def test_machine_header() -> None:
+    m = MachineSample(32 * GIB, 10 * GIB, 0, 0, 38.0, 16)
+    with_machine = replace(SNAP, machine_view=MachineView(m, None, "▄", "▂"))
+    app = DeckApp(StubSource(SNAP, with_machine), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        header = app.query_one("#machine", Static)
+        assert not header.display
+        app.action_refresh()
+        await settle(app, pilot)
+        assert header.display and "RAM 22.0 / 32.0G" in str(header.render())
+
+
+async def test_waiting_pane_with_mcp_has_unique_ids() -> None:
+    waiting = replace(agent_row(7, "waiting", "question"), mcp_rss=GIB // 4)
+    app = DeckApp(StubSource(waiting_snap(waiting)), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        ids = [node_id(n.data) for n in all_nodes(app)]
+        assert len(ids) == len(set(ids)), ids
+        assert ids == ["g:waiting:None", "w:7", "g:config:/repos/webshop", "p:7", "m:7", "r:7"]

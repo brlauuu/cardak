@@ -236,3 +236,30 @@ def test_working_agent_gets_no_summary() -> None:
 def test_no_summaries_by_default() -> None:
     state = SessionState("x", pane_id=5, status="waiting", kind="finished")
     assert rows_by_pane(agents_snap(state))[5].agent.summary is None  # type: ignore[union-attr]
+
+
+def test_group_totals_include_mcp() -> None:
+    gib = 2**30
+    with_mcp = PaneProcs(
+        fg_name="claude",
+        fg_pid=1,
+        claude_pid=78,
+        cpu_pct=10.0,
+        rss=gib,
+        n_procs=3,
+        mcp_cpu_pct=2.0,
+        mcp_rss=gib // 2,
+        docker_build=True,
+    )
+    s = build_snapshot(
+        [pane(5, R / "webshop", "/dev/pts/11")],
+        {"/dev/pts/11": with_mcp},
+        ProjectResolver(CONFIG, git=fake_git),
+        sessions,
+        None,
+        HOME,
+    )
+    group = s.groups[0]
+    row = group.panes[0]
+    assert (row.rss, row.mcp_rss, row.mcp_cpu_pct, row.docker_build) == (gib, gib // 2, 2.0, True)
+    assert group.rss == gib + gib // 2 and group.cpu_pct == 12.0

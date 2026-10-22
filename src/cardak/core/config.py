@@ -42,11 +42,26 @@ class SummarySettings:
 
 
 @dataclass(frozen=True)
+class ResourceSettings:
+    """[resources]: every None means "derive from the machine" (core/resources.py)."""
+
+    ram_warn_available_gb: float | None = None
+    ram_critical_available_gb: float | None = None
+    pane_ram_gb: float | None = None
+    growth_gb_per_min: float | None = None
+    pane_cpu_pct: float | None = None
+    machine_cpu_pct: float | None = None
+    sustain_s: float | None = None
+    repeat_min: float | None = None
+
+
+@dataclass(frozen=True)
 class Config:
     projects: tuple[Project, ...] = ()
     defaults: dict[str, object] = field(default_factory=dict)
     notify: NotifySettings = NotifySettings()
     summary: SummarySettings = SummarySettings()
+    resources: ResourceSettings = ResourceSettings()
 
 
 class ConfigError(Exception):
@@ -146,6 +161,7 @@ def load(path: Path) -> Config:
         defaults=dict(defaults),
         notify=_notify(path, data),
         summary=_summary(path, data),
+        resources=_resources(path, data),
     )
 
 
@@ -175,6 +191,26 @@ def _summary(path: Path, data: Mapping[str, object]) -> SummarySettings:
     if isinstance(limit, bool) or not isinstance(limit, int | float) or limit < 0:
         raise ConfigError(path, "[summary] monthly_limit_usd must be a number ≥ 0")
     return SummarySettings(float(limit))
+
+
+def _resources(path: Path, data: Mapping[str, object]) -> ResourceSettings:
+    raw = data.get("resources", {})
+    if not isinstance(raw, dict):
+        raise ConfigError(path, "[resources] must be a table")
+    names = ResourceSettings.__dataclass_fields__
+    return ResourceSettings(
+        **{name: _resource(path, name, raw[name]) for name in names if raw.get(name) is not None}
+    )
+
+
+def _resource(path: Path, name: str, value: object) -> float:
+    percent = name == "machine_cpu_pct"
+    limit = " and ≤ 100" if percent else ""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ConfigError(path, f"[resources] {name} must be a number > 0{limit}")
+    if value <= 0 or (percent and value > 100):
+        raise ConfigError(path, f"[resources] {name} must be a number > 0{limit}")
+    return float(value)
 
 
 def _with_tilde(path: Path) -> str:

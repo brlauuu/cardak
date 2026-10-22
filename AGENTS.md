@@ -22,7 +22,8 @@ src/cardak/
   core/{config, resolver, snapshot, source, filter, navigate, themes}.py
   core/{agents, store, alerts, focus, hook}.py         # M4: agent status
   core/{summary, summarize}.py                         # #30: waiting summaries
-  collectors/{wezterm, processes, claude, hooks, transcripts}.py
+  core/{accounting, resources, recent}.py              # M5: resources
+  collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker}.py
   ui/{app, widgets, theme_picker, detail}.py
   wezterm/{cardak.lua, generate.py, install.py, schemes.py, files.py, tint.zsh}
   claude/install.py       # M4: cardak's hooks in ~/.claude/settings.json
@@ -178,6 +179,26 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   its device → tty map on first use, so panes opened after the deck started have no tty.
   `PsutilTable` reads `tty_nr` from `/proc/<pid>/stat` and rebuilds the map every snapshot.
 
+## Resources (measured in M5, Docker 29, cgroup v2 with the systemd driver)
+- All Docker access lives in `collectors/docker.py`, read-only: `GET /containers/json` over the
+  unix socket (`DOCKER_HOST=unix://…` honoured) for `Id`, `Names`, `Labels`
+  (`com.docker.compose.project.working_dir`) and bind `Mounts`; usage from cgroup files.
+  Containers: `/sys/fs/cgroup/system.slice/docker-<full id>.scope/`. BuildKit build steps:
+  `/sys/fs/cgroup/system.slice/system.slice:docker:<build id>/`, present only while a step
+  runs, readable without the API. Both have `memory.current`, `memory.stat` and `cpu.stat`
+  (`usage_usec`); RAM is `memory.current − inactive_file`, as `docker stats` counts it.
+  No Docker or no access: Docker usage silently falls into Other.
+- A `docker build` runs under Docker, not in the pane; the pane only holds the client. Builds go
+  to the one project with a pane running a build client, else to Other.
+- Machine used = `MemTotal − MemAvailable` (`collectors/machine.py`). Pane RAM is RSS, which
+  double-counts shared pages, so Other (machine used − Σ projects) is clamped at 0.
+- A pane row's number, graph and ▲ are its work only (MCP has its own line); the project's
+  total includes MCP. Other's graph is scaled to the machine's RAM, every other to the pane
+  threshold.
+- "GB" in `[resources]` keys means GiB. Missing keys are derived from the machine
+  (`core/resources.derive`): warn below 15% available, critical below 7% or swap full, a pane or
+  project over 25% of RAM or half the cores. Other as a whole is never marked.
+
 ## Commits and PRs
 - Conventional commits with a scope where it helps: `feat(collectors): ...`,
   `fix(ui): ...`, `docs: ...`, `ci: ...`, `chore: ...`, `release: cut X.Y.Z`. End the subject
@@ -228,6 +249,10 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   (`_needs`, back to 11). Accepted after that: `config.load` crossing into god-class
   (fan-in 8: the summarizer is one more reader), `read_transcript` (3 × 5) and
   `config_path` (5 × 3) as hotspots, and `core/summary` in `exported-surface`.
+- **M5 part 1 (live numbers)** split `docker._container` (14), `accounting._attach_builds` /
+  `_attach_containers` and `config._resources`. Accepted after that: `_pane_procs` at
+  complexity 10, and the coordinators `LiveSource._resources` (3 × 6) and `widgets.usage`
+  (5 × 4: every row kind formats its numbers through it).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

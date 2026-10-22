@@ -7,6 +7,7 @@ from cardak.core.config import (
     ConfigError,
     NotifySettings,
     Project,
+    ResourceSettings,
     SummarySettings,
     add_project,
     anthropic_key_path,
@@ -348,3 +349,31 @@ def test_summary_rejects_bad_values(tmp_path: Path, body: str) -> None:
 
 def test_anthropic_key_path() -> None:
     assert anthropic_key_path({"XDG_CONFIG_HOME": "/x"}) == Path("/x/cardak/anthropic_key")
+
+
+def test_resources_default_to_derived(tmp_path: Path) -> None:
+    assert _summary_cfg(tmp_path, "").resources == ResourceSettings()
+
+
+def test_resources_section_parsed(tmp_path: Path) -> None:
+    cfg = _summary_cfg(tmp_path, "[resources]\npane_ram_gb = 10.5\nsustain_s = 60\n")
+    assert cfg.resources == ResourceSettings(pane_ram_gb=10.5, sustain_s=60.0)
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("[resources]\npane_ram_gb = -1\n", r"\[resources\] pane_ram_gb must be a number > 0"),
+        ("[resources]\npane_ram_gb = 0\n", r"\[resources\] pane_ram_gb must be a number > 0"),
+        ("[resources]\npane_ram_gb = true\n", r"\[resources\] pane_ram_gb must be a number > 0"),
+        ('[resources]\nsustain_s = "1"\n', r"\[resources\] sustain_s must be a number > 0"),
+        (
+            "[resources]\nmachine_cpu_pct = 150\n",
+            r"\[resources\] machine_cpu_pct must be a number > 0 and ≤ 100",
+        ),
+        ("resources = 3\n", r"\[resources\] must be a table"),
+    ],
+)
+def test_resources_rejects_bad_values(tmp_path: Path, body: str, message: str) -> None:
+    with pytest.raises(ConfigError, match=message):
+        _summary_cfg(tmp_path, body)

@@ -3,6 +3,8 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 
+from cardak.collectors.docker import DockerWork
+from cardak.collectors.machine import MachineSample
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane, WeztermUnavailable
 from cardak.core.agents import FocusChange, SessionState, mark_seen
@@ -33,6 +35,14 @@ def no_git(cwd: Path) -> Path | None:
     return None
 
 
+def no_machine() -> MachineSample | None:
+    return None
+
+
+def no_docker() -> list[DockerWork]:
+    return []
+
+
 def make(cfg: Path, list_panes=panes, env: dict[str, str] | None = None) -> LiveSource:
     return LiveSource(
         cfg,
@@ -42,6 +52,8 @@ def make(cfg: Path, list_panes=panes, env: dict[str, str] | None = None) -> Live
         claude_lookup=lambda pid: None,
         git=no_git,
         home=HOME,
+        machine=no_machine,
+        docker=no_docker,
     )
 
 
@@ -157,6 +169,8 @@ def test_on_config_runs_after_reloads_only(tmp_path: Path) -> None:
         claude_lookup=lambda p: None,
         git=no_git,
         home=HOME,
+        machine=no_machine,
+        docker=no_docker,
         on_config=on_config,
     )
     assert source.poll().config_warnings == ("a warning",)
@@ -178,6 +192,8 @@ def test_on_config_failure_becomes_a_warning(tmp_path: Path) -> None:
         claude_lookup=lambda p: None,
         git=no_git,
         home=HOME,
+        machine=no_machine,
+        docker=no_docker,
         on_config=broken,
     )
     assert source.poll().config_warnings == ("couldn't update theme files: OSError('disk full')",)
@@ -208,6 +224,8 @@ def test_accents_come_from_schemes(tmp_path: Path) -> None:
         claude_lookup=lambda p: None,
         git=no_git,
         home=HOME,
+        machine=no_machine,
+        docker=no_docker,
         schemes=lambda: red,
     )
     assert source.poll().groups[0].accent == "#ff0000"
@@ -270,6 +288,8 @@ def agent_source(
         claude_lookup=lambda pid: None,
         git=no_git,
         home=HOME,
+        machine=no_machine,
+        docker=no_docker,
         store=store,
         focus_history=lambda: list(history),
         clock=lambda: now,
@@ -404,3 +424,68 @@ def test_source_warns_when_summaries_fail(tmp_path: Path) -> None:
     ) in source.poll().config_warnings
     store.error = None
     assert not any("failing" in w for w in source.poll().config_warnings)
+
+
+GIB = 2**30
+WEBSHOP_CFG = f'[[project]]\nname = "webshop"\npath = "{HOME}/repos/webshop"\n'
+
+
+def machine_20_used() -> MachineSample:
+    return MachineSample(32 * GIB, 12 * GIB, GIB, GIB, 25.0, 16)
+
+
+def resourced(cfg: Path, machine=machine_20_used, docker=no_docker, list_panes=panes) -> LiveSource:
+    return LiveSource(
+        cfg,
+        env={},
+        list_panes=list_panes,
+        sample=sample,
+        claude_lookup=lambda pid: None,
+        git=no_git,
+        home=HOME,
+        machine=machine,
+        docker=docker,
+    )
+
+
+def test_poll_attaches_docker_and_machine(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(WEBSHOP_CFG)
+    db = DockerWork("container", "i", "webshop-db-1", GIB, 5.0, HOME / "repos/webshop")
+    snap = resourced(cfg, docker=lambda: [db]).poll()
+    webshop, other = snap.groups
+    assert [line.label for line in webshop.docker] == ["docker: webshop-db-1"]
+    assert other.kind == "other" and other.outside_rss is not None
+    assert snap.machine_view is not None and snap.machine_view.ram_spark != ""
+
+
+def test_unreachable_wezterm_still_shows_machine(tmp_path: Path) -> None:
+    snap = resourced(tmp_path / "p.toml", list_panes=unavailable).poll()
+    assert snap.error == "no WezTerm GUI socket found"
+    assert snap.machine_view is not None and snap.groups == ()
+
+
+def test_sampler_errors_do_not_break_poll(tmp_path: Path) -> None:
+    def broken_machine() -> MachineSample | None:
+        raise OSError("boom")
+
+    def broken_docker() -> list[DockerWork]:
+        raise RuntimeError("boom")
+
+    snap = resourced(tmp_path / "p.toml", machine=broken_machine, docker=broken_docker).poll()
+    assert [g.name for g in snap.groups] == ["Other"]
+    assert snap.machine_view is None
+
+
+def test_resources_setting_changes_marks(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(WEBSHOP_CFG + "\n[resources]\npane_cpu_pct = 0.5\n")
+    webshop = resourced(cfg).poll().groups[0]
+    assert webshop.over and webshop.panes[0].over
+
+
+def test_default_thresholds_leave_small_panes_unmarked(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(WEBSHOP_CFG)
+    webshop = resourced(cfg).poll().groups[0]
+    assert not webshop.over and webshop.ram_spark != ""

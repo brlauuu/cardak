@@ -9,6 +9,10 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+- Every project and pane shows its RAM with a short graph of the last few minutes, and the machine's CPU and RAM sit at the top, with a warning when memory runs low. A pane or project over a threshold turns red; the thresholds come from your machine, or from `[resources]` in projects.toml. (#33, #57)
+- Docker containers count toward the project they belong to (by their Compose folder or a mounted project folder), and a `docker build` toward the project that started it. MCP servers under Claude show as their own line. Everything else is "Other", so the numbers add up to the machine. (#57)
+
 ## 0.5.0 — 2026-10-21
 
 ### Added

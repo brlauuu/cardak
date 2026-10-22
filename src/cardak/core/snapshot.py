@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import Literal
 
 from cardak.collectors.claude import ClaudeSession
+from cardak.collectors.machine import MachineSample
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane
 from cardak.core.agents import SessionState, Status, WaitKind
 from cardak.core.resolver import Kind, ProjectResolver, Resolved
+from cardak.core.resources import MemoryLevel
 
 ClaudeLookup = Callable[[int], ClaudeSession | None]
 AccentFor = Callable[[Resolved], str | None]
@@ -41,6 +43,18 @@ class PaneRow:
     is_self: bool
     is_claude: bool = False
     agent: AgentView | None = None  # None: not Claude, or no hook record for its session
+    mcp_rss: int = 0  # MCP servers under its claude; rss/cpu_pct above are the work only
+    mcp_cpu_pct: float = 0.0
+    docker_build: bool = False
+    ram_spark: str = ""
+    over: bool = False  # over a pane threshold right now
+
+
+@dataclass(frozen=True)
+class DockerLine:
+    label: str  # "docker: webshop-db-1", "docker build", "docker builds, 2 panes"
+    rss: int
+    cpu_pct: float | None
 
 
 @dataclass(frozen=True)
@@ -54,6 +68,19 @@ class Group:
     rss: int
     panes: tuple[PaneRow, ...]
     theme: str | None = None
+    docker: tuple[DockerLine, ...] = ()
+    outside_rss: int | None = None  # Other only: the remainder minus its panes
+    outside_cpu_pct: float | None = None
+    ram_spark: str = ""
+    over: bool = False
+
+
+@dataclass(frozen=True)
+class MachineView:
+    sample: MachineSample
+    level: MemoryLevel | None
+    ram_spark: str
+    cpu_spark: str
 
 
 @dataclass(frozen=True)
@@ -66,6 +93,8 @@ class DeckSnapshot:
     n_waiting: int = 0
     summary_capped: bool = False  # this month's summaries reached [summary] monthly_limit_usd
     summary_limit: float = 0.0
+    machine: MachineSample | None = None
+    machine_view: MachineView | None = None
 
     @property
     def n_projects(self) -> int:
@@ -163,6 +192,9 @@ def _row(pane: Pane, resolved: Resolved, ctx: _Context) -> PaneRow:
         is_self=pane.pane_id == ctx.self_pane_id,
         is_claude=pp is not None and pp.claude_pid is not None,
         agent=_agent(pp, pane.pane_id, resolved.name, ctx),
+        mcp_rss=pp.mcp_rss if pp else 0,
+        mcp_cpu_pct=pp.mcp_cpu_pct if pp else 0.0,
+        docker_build=pp.docker_build if pp else False,
     )
 
 
@@ -178,11 +210,16 @@ def _group(resolved: Resolved, members: list[Pane], ctx: _Context) -> Group:
             else resolved.accent
         ),
         path=tilde(resolved.key, ctx.home) if resolved.key else None,
-        cpu_pct=sum(r.cpu_pct or 0.0 for r in rows),
-        rss=sum(r.rss for r in rows),
+        cpu_pct=sum((r.cpu_pct or 0.0) + r.mcp_cpu_pct for r in rows),
+        rss=sum(r.rss + r.mcp_rss for r in rows),
         panes=rows,
         theme=resolved.theme,
     )
+
+
+def group_for(resolved: Resolved, home: Path, accent_for: AccentFor | None = None) -> Group:
+    """A group with no panes, for a project that only runs Docker work (or an empty Other)."""
+    return _group(resolved, [], _Context({}, lambda _pid: None, None, home, accent_for))
 
 
 def build_snapshot(
