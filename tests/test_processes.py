@@ -2,12 +2,15 @@ import os
 import subprocess
 import time
 
+import pytest
+
 from cardak.collectors.processes import (
     PaneProcs,
     ProcessSampler,
     ProcInfo,
     PsutilTable,
     is_claude,
+    is_docker_build,
     is_mcp_server,
     summarize,
 )
@@ -194,3 +197,33 @@ def test_psutil_table_sees_terminals_opened_after_the_first_snapshot() -> None:
         child.wait()
         os.close(master)
         os.close(slave)
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (("docker", "build", "."), True),
+        (("docker", "buildx", "build", "-t", "x", "."), True),
+        (("docker", "image", "build", "."), True),
+        (("docker", "builder", "build", "."), True),
+        (("docker", "compose", "-f", "c.yml", "build"), True),
+        (("docker-compose", "build"), True),
+        (("/usr/bin/docker", "build", "."), True),
+        (("docker", "run", "busybox"), False),
+        (("docker", "compose", "up"), False),
+        (("docker", "run", "img", "build"), False),
+        (("make", "build"), False),
+        ((), False),
+    ],
+)
+def test_is_docker_build(argv: tuple[str, ...], expected: bool) -> None:
+    assert is_docker_build(proc(5, name=argv[0] if argv else "?", cmdline=argv)) is expected
+
+
+def test_pane_with_docker_build_client() -> None:
+    procs = [
+        proc(10, tty=T, name="zsh"),
+        proc(11, 10, tty=T, name="docker", cmdline=("docker", "build", ".")),
+    ]
+    assert summarize(procs, [T])[T].docker_build is True
+    assert summarize([proc(10, tty=T, name="zsh")], [T])[T].docker_build is False

@@ -41,6 +41,9 @@ class PaneRow:
     is_self: bool
     is_claude: bool = False
     agent: AgentView | None = None  # None: not Claude, or no hook record for its session
+    mcp_rss: int = 0  # MCP servers under its claude; rss/cpu_pct above are the work only
+    mcp_cpu_pct: float = 0.0
+    docker_build: bool = False
 
 
 @dataclass(frozen=True)
@@ -163,6 +166,9 @@ def _row(pane: Pane, resolved: Resolved, ctx: _Context) -> PaneRow:
         is_self=pane.pane_id == ctx.self_pane_id,
         is_claude=pp is not None and pp.claude_pid is not None,
         agent=_agent(pp, pane.pane_id, resolved.name, ctx),
+        mcp_rss=pp.mcp_rss if pp else 0,
+        mcp_cpu_pct=pp.mcp_cpu_pct if pp else 0.0,
+        docker_build=pp.docker_build if pp else False,
     )
 
 
@@ -178,8 +184,8 @@ def _group(resolved: Resolved, members: list[Pane], ctx: _Context) -> Group:
             else resolved.accent
         ),
         path=tilde(resolved.key, ctx.home) if resolved.key else None,
-        cpu_pct=sum(r.cpu_pct or 0.0 for r in rows),
-        rss=sum(r.rss for r in rows),
+        cpu_pct=sum((r.cpu_pct or 0.0) + r.mcp_cpu_pct for r in rows),
+        rss=sum(r.rss + r.mcp_rss for r in rows),
         panes=rows,
         theme=resolved.theme,
     )

@@ -107,6 +107,7 @@ class PaneProcs:
     n_procs: int
     mcp_cpu_pct: float
     mcp_rss: int
+    docker_build: bool = False  # a `docker build` client runs in the pane
 
 
 MCP_PREFIXES = (("npm", "exec"), ("npx",), ("uvx",))
@@ -132,6 +133,37 @@ def is_mcp_server(p: ProcInfo) -> bool:
     if any(tuple(words[: len(prefix)]) == prefix for prefix in MCP_PREFIXES):
         return True
     return "mcp" in " ".join(p.cmdline).lower()
+
+
+_BUILD_GROUPS = frozenset({"buildx", "image", "builder"})
+# compose subcommands, to find which one a `docker compose -f x.yml …` line runs
+_COMPOSE_COMMANDS = frozenset(
+    {"build", "up", "down", "run", "exec", "start", "stop", "restart", "create", "rm", "kill",
+     "logs", "ps", "pull", "push", "config", "watch"}
+)  # fmt: skip
+
+
+def _compose_builds(words: list[str]) -> bool:
+    return next((w for w in words if w in _COMPOSE_COMMANDS), None) == "build"
+
+
+def is_docker_build(p: ProcInfo) -> bool:
+    """A docker client that hands a build to the daemon: the build itself runs outside the pane."""
+    words = _words(p)
+    if not words:
+        return False
+    if words[0] == "docker-compose":
+        return _compose_builds(words[1:])
+    if words[0] != "docker":
+        return False
+    rest = [w for w in words[1:] if not w.startswith("-")]
+    if not rest:
+        return False
+    if rest[0] == "build":
+        return True
+    if rest[0] in _BUILD_GROUPS:
+        return rest[1:2] == ["build"]
+    return rest[0] == "compose" and _compose_builds(rest[1:])
 
 
 def _subtree(start: Iterable[ProcInfo], children: dict[int, list[ProcInfo]]) -> list[ProcInfo]:
@@ -184,6 +216,7 @@ def _pane_procs(on_tty: list[ProcInfo], children: dict[int, list[ProcInfo]]) -> 
         n_procs=len(work),
         mcp_cpu_pct=sum(p.cpu_pct or 0.0 for p in mcp),
         mcp_rss=sum(p.rss for p in mcp),
+        docker_build=any(is_docker_build(p) for p in work),
     )
 
 
