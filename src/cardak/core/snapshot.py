@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from cardak.collectors.claude import ClaudeSession
+from cardak.collectors.machine import MachineSample
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane
 from cardak.core.agents import SessionState, Status, WaitKind
@@ -47,6 +48,13 @@ class PaneRow:
 
 
 @dataclass(frozen=True)
+class DockerLine:
+    label: str  # "docker: webshop-db-1", "docker build", "docker builds, 2 panes"
+    rss: int
+    cpu_pct: float | None
+
+
+@dataclass(frozen=True)
 class Group:
     kind: GroupKind
     key: Path | None
@@ -57,6 +65,9 @@ class Group:
     rss: int
     panes: tuple[PaneRow, ...]
     theme: str | None = None
+    docker: tuple[DockerLine, ...] = ()
+    outside_rss: int | None = None  # Other only: the remainder minus its panes
+    outside_cpu_pct: float | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +80,7 @@ class DeckSnapshot:
     n_waiting: int = 0
     summary_capped: bool = False  # this month's summaries reached [summary] monthly_limit_usd
     summary_limit: float = 0.0
+    machine: MachineSample | None = None
 
     @property
     def n_projects(self) -> int:
@@ -189,6 +201,11 @@ def _group(resolved: Resolved, members: list[Pane], ctx: _Context) -> Group:
         panes=rows,
         theme=resolved.theme,
     )
+
+
+def group_for(resolved: Resolved, home: Path, accent_for: AccentFor | None = None) -> Group:
+    """A group with no panes, for a project that only runs Docker work (or an empty Other)."""
+    return _group(resolved, [], _Context({}, lambda _pid: None, None, home, accent_for))
 
 
 def build_snapshot(
