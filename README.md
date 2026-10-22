@@ -112,6 +112,37 @@ stops summaries when it's reached:
 monthly_limit_usd = 5    # 0 turns summaries off
 ```
 
+## Resources
+
+Every project and pane shows its RAM, a small graph of the last few minutes, and its CPU
+(100% is one core); the machine's CPU and RAM sit at the top of the deck:
+
+```
+CPU 38% ▂▃▃▅▄▃   RAM 27.6 / 32.0G ▃▄▅▆▇█  ⚠ 14% free
+webshop  ~/repos/webshop  RAM 3.1G ▂▂▃▃▃  CPU 45%
+  ● claude · checkout  .  RAM 1.2G ▃▃▃▃▃  CPU 12%
+    └ MCP servers  RAM 412M  CPU 1%
+    docker: webshop-db-1  RAM 1.5G  CPU 30%
+Other  RAM 9.8G ▅▅▅▆▅  CPU 61%
+    outside WezTerm  RAM 9.5G  CPU 58%
+```
+
+- A project counts its panes, the MCP servers under its Claude sessions, its Docker containers
+  (by their Compose folder, or a project folder they mount) and a `docker build` started from
+  one of its panes. Docker needs your user in the `docker` group; without it, Docker work lands
+  in Other.
+- **Other** is everything else the machine is using, so the numbers add up to the total.
+- A pane or project over a threshold turns red, with a ▲. The thresholds come from your
+  machine; set them yourself in `projects.toml` if you like (sizes in GiB):
+
+```toml
+[resources]
+ram_warn_available_gb = 4.8      # warn below this much available RAM (default 15%)
+ram_critical_available_gb = 2.2  # critical below this (default 7%), or when swap is full
+pane_ram_gb = 8.0                # a pane or project above this (default 25% of RAM)
+pane_cpu_pct = 800               # a pane or project above this (default half the cores)
+```
+
 ## Development
 
 See `AGENTS.md` for conventions and `PLAN.md` for the roadmap.
