@@ -783,3 +783,13 @@ async def test_machine_header() -> None:
         app.action_refresh()
         await settle(app, pilot)
         assert header.display and "RAM 22.0 / 32.0G" in str(header.render())
+
+
+async def test_waiting_pane_with_mcp_has_unique_ids() -> None:
+    waiting = replace(agent_row(7, "waiting", "question"), mcp_rss=GIB // 4)
+    app = DeckApp(StubSource(waiting_snap(waiting)), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        ids = [node_id(n.data) for n in all_nodes(app)]
+        assert len(ids) == len(set(ids)), ids
+        assert ids == ["g:waiting:None", "w:7", "g:config:/repos/webshop", "p:7", "m:7", "r:7"]

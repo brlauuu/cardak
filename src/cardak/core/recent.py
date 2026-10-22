@@ -50,9 +50,8 @@ class Recent:
         for g in snap.groups:
             if g.kind != "waiting":
                 self._add(group_key(g), g.rss, g.cpu_pct, seen)
-            for r in g.panes:
-                cpu = None if r.cpu_pct is None else r.cpu_pct + r.mcp_cpu_pct
-                self._add(pane_key(r), r.rss + r.mcp_rss, cpu, seen)
+            for r in g.panes:  # the work only, as the row prints it; MCP has its own line
+                self._add(pane_key(r), r.rss, r.cpu_pct, seen)
         if m := snap.machine:
             self._add(MACHINE, m.mem_used, m.cpu_pct, seen)
         for key in set(self._series) - seen:
@@ -66,28 +65,30 @@ class Recent:
 
 
 def _row(r: PaneRow, recent: Recent, t: Thresholds) -> PaneRow:
-    cpu = None if r.cpu_pct is None else r.cpu_pct + r.mcp_cpu_pct
     return replace(
         r,
         ram_spark=spark(recent.ram(pane_key(r)), t.pane_ram),
-        over=is_over(r.rss + r.mcp_rss, cpu, t),
+        over=is_over(r.rss, r.cpu_pct, t),
     )
 
 
-def _group(g: Group, recent: Recent, t: Thresholds) -> Group:
+def _group(g: Group, recent: Recent, t: Thresholds, mem_total: int | None) -> Group:
     rows = tuple(_row(r, recent, t) for r in g.panes)
     if g.kind == "waiting":
         return replace(g, panes=rows)
+    # Other is the desktop and browsers too: against the pane threshold it would always be full
+    top = mem_total if g.kind == "other" and mem_total else t.pane_ram
     return replace(
         g,
         panes=rows,
-        ram_spark=spark(recent.ram(group_key(g)), t.pane_ram),
+        ram_spark=spark(recent.ram(group_key(g)), top),
         over=g.kind != "other" and is_over(g.rss, g.cpu_pct, t),  # Other is never a culprit
     )
 
 
 def decorate(snap: DeckSnapshot, recent: Recent, t: Thresholds) -> DeckSnapshot:
-    groups = tuple(_group(g, recent, t) for g in snap.groups)
+    total = snap.machine.mem_total if snap.machine else None
+    groups = tuple(_group(g, recent, t, total) for g in snap.groups)
     view = None
     if m := snap.machine:
         view = MachineView(

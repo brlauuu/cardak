@@ -137,3 +137,14 @@ def test_vanished_cgroup_is_skipped() -> None:
 
 def test_missing_cgroup_root_gives_nothing(tmp_path: Path) -> None:
     assert DockerSampler(list_fn=lambda: [], cgroup_root=tmp_path / "none").sample() == []
+
+
+def test_read_cgroup_leaves_out_inactive_page_cache(tmp_path: Path) -> None:
+    d = tmp_path / "g"
+    d.mkdir()
+    (d / "memory.current").write_text(f"{3 * 2**30}\n")
+    (d / "memory.stat").write_text(f"anon 1000\nfile 5000\ninactive_file {2 * 2**30}\n")
+    (d / "cpu.stat").write_text("usage_usec 1\n")
+    assert read_cgroup(d) == (2**30, 1)  # as `docker stats` counts it
+    (d / "memory.stat").write_text(f"inactive_file {4 * 2**30}\n")
+    assert read_cgroup(d) == (0, 1)

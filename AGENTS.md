@@ -185,12 +185,16 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   (`com.docker.compose.project.working_dir`) and bind `Mounts`; usage from cgroup files.
   Containers: `/sys/fs/cgroup/system.slice/docker-<full id>.scope/`. BuildKit build steps:
   `/sys/fs/cgroup/system.slice/system.slice:docker:<build id>/`, present only while a step
-  runs, readable without the API. Both have `memory.current` and `cpu.stat` (`usage_usec`).
+  runs, readable without the API. Both have `memory.current`, `memory.stat` and `cpu.stat`
+  (`usage_usec`); RAM is `memory.current − inactive_file`, as `docker stats` counts it.
   No Docker or no access: Docker usage silently falls into Other.
 - A `docker build` runs under Docker, not in the pane; the pane only holds the client. Builds go
   to the one project with a pane running a build client, else to Other.
 - Machine used = `MemTotal − MemAvailable` (`collectors/machine.py`). Pane RAM is RSS, which
   double-counts shared pages, so Other (machine used − Σ projects) is clamped at 0.
+- A pane row's number, graph and ▲ are its work only (MCP has its own line); the project's
+  total includes MCP. Other's graph is scaled to the machine's RAM, every other to the pane
+  threshold.
 - "GB" in `[resources]` keys means GiB. Missing keys are derived from the machine
   (`core/resources.derive`): warn below 15% available, critical below 7% or swap full, a pane or
   project over 25% of RAM or half the cores. Other as a whole is never marked.

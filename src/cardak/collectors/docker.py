@@ -118,8 +118,24 @@ def list_containers(sock: Path | None = None, timeout: float = 0.5) -> list[Cont
         raise DockerUnavailable(f"bad JSON: {e}") from e
 
 
+def _inactive_file(path: Path) -> int:
+    try:
+        stat = (path / "memory.stat").read_text()
+    except OSError:
+        return 0
+    for line in stat.splitlines():
+        key, _, value = line.partition(" ")
+        if key == "inactive_file" and value.strip().isdigit():
+            return int(value)
+    return 0
+
+
 def read_cgroup(path: Path) -> tuple[int, int] | None:
-    """(memory bytes, cpu usage_usec); None if the cgroup is gone or unreadable."""
+    """(memory bytes, cpu usage_usec); None if the cgroup is gone or unreadable.
+
+    Memory leaves out inactive page cache, as `docker stats` does: memory.current counts it,
+    and the machine's "used" (MemTotal − MemAvailable) mostly doesn't.
+    """
     try:
         memory = int((path / "memory.current").read_text())
         stat = (path / "cpu.stat").read_text()
@@ -128,7 +144,7 @@ def read_cgroup(path: Path) -> tuple[int, int] | None:
     for line in stat.splitlines():
         key, _, value = line.partition(" ")
         if key == "usage_usec" and value.strip().isdigit():
-            return memory, int(value)
+            return max(0, memory - _inactive_file(path)), int(value)
     return None
 
 

@@ -91,11 +91,15 @@ def test_decorate_marks_over_and_spares_other() -> None:
     assert webshop.panes[0].ram_spark == "█" and webshop.ram_spark == "█"
 
 
-def test_mcp_counts_toward_a_pane_being_over() -> None:
-    snap = DeckSnapshot(groups=(group("other", None, row(1, rss=5 * GIB, mcp=4 * GIB)),))
+def test_pane_mark_and_graph_follow_its_own_number() -> None:
+    # the row prints the work only (MCP has its own line); the project total includes MCP
+    claude = row(1, rss=5 * GIB, mcp=4 * GIB)
+    snap = DeckSnapshot(groups=(group("config", WEBSHOP, claude),))
     recent = Recent()
     recent.record(snap)
-    assert decorate(snap, recent, T32).groups[0].panes[0].over
+    out = decorate(snap, recent, T32).groups[0]
+    assert not out.panes[0].over and out.over
+    assert recent.ram("p:1") == [5 * GIB]
 
 
 def test_machine_view_levels() -> None:
@@ -106,3 +110,13 @@ def test_machine_view_levels() -> None:
     assert view is not None and view.level == "warning"
     assert view.ram_spark == "█" and view.cpu_spark == "▄"  # 28 of 32 GiB used; 40% CPU
     assert decorate(DeckSnapshot(), recent, T32).machine_view is None
+
+
+def test_other_graph_is_scaled_to_the_machine() -> None:
+    # Other holds the desktop and browsers, often over the pane threshold: against 32 GiB it
+    # reads as a level, not a solid bar
+    other = group("other", None, rss=14 * GIB)
+    snap = replace(DeckSnapshot(groups=(other,)), machine=machine(10))
+    recent = Recent()
+    recent.record(snap)
+    assert decorate(snap, recent, T32).groups[0].ram_spark == "▄"  # 14/32 × 8 = 3.5

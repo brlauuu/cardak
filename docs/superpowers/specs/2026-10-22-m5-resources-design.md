@@ -77,7 +77,7 @@ CPU is reported the way the deck already does it: percent where 100% = one core.
 **What "RAM used" means** *(my call)*: machine used = `MemTotal − MemAvailable`. Pane and project
 RAM is their processes' memory (RSS today; PSS from `/proc/<pid>/smaps_rollup` if the builder
 measures it within the daemon's budget, since RSS double-counts shared pages), Docker is
-`memory.current`. Because these measures overlap, the invariant is approximate: Other is clamped
+`memory.current − inactive_file` (as `docker stats` counts it). Because these measures overlap, the invariant is approximate: Other is clamped
 at 0, and the tree never shows a negative number.
 
 ## Alerts
