@@ -1,4 +1,4 @@
-"""Per-tty process trees and their CPU/RAM. PsutilTable is the only psutil and /proc reader."""
+"""Per-tty process trees and their CPU/RAM. PsutilTable is the only per-process /proc reader."""
 
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
