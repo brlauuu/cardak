@@ -11,6 +11,7 @@ from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane
 from cardak.core.agents import SessionState, Status, WaitKind
 from cardak.core.resolver import Kind, ProjectResolver, Resolved
+from cardak.core.resources import MemoryLevel
 
 ClaudeLookup = Callable[[int], ClaudeSession | None]
 AccentFor = Callable[[Resolved], str | None]
@@ -45,6 +46,8 @@ class PaneRow:
     mcp_rss: int = 0  # MCP servers under its claude; rss/cpu_pct above are the work only
     mcp_cpu_pct: float = 0.0
     docker_build: bool = False
+    ram_spark: str = ""
+    over: bool = False  # over a pane threshold right now
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,16 @@ class Group:
     docker: tuple[DockerLine, ...] = ()
     outside_rss: int | None = None  # Other only: the remainder minus its panes
     outside_cpu_pct: float | None = None
+    ram_spark: str = ""
+    over: bool = False
+
+
+@dataclass(frozen=True)
+class MachineView:
+    sample: MachineSample
+    level: MemoryLevel | None
+    ram_spark: str
+    cpu_spark: str
 
 
 @dataclass(frozen=True)
@@ -81,6 +94,7 @@ class DeckSnapshot:
     summary_capped: bool = False  # this month's summaries reached [summary] monthly_limit_usd
     summary_limit: float = 0.0
     machine: MachineSample | None = None
+    machine_view: MachineView | None = None
 
     @property
     def n_projects(self) -> int:
