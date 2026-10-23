@@ -68,6 +68,19 @@ def build_parser() -> argparse.ArgumentParser:
         )
         if name != "status":
             cmd.add_argument("--yes", action="store_true", help="don't ask before writing")
+    res = sub.add_parser("resources", help="the background service that sends resource alerts")
+    res_sub = res.add_subparsers(dest="resources_command", required=True)
+    res_inst = res_sub.add_parser("install", help="install and start the alert service")
+    res_inst.add_argument("--yes", action="store_true", help="don't ask before writing")
+    res_inst.add_argument(
+        "--refresh-defaults",
+        action="store_true",
+        help="recompute every [resources] threshold from this machine",
+    )
+    res_inst.add_argument(
+        "--force", action="store_true", help="replace a cardak.service not written by cardak"
+    )
+    res_sub.add_parser("uninstall", help="stop and remove the alert service")
     wez = sub.add_parser("wezterm", help="WezTerm integration")
     wez_sub = wez.add_subparsers(dest="wezterm_command", required=True)
     inst = wez_sub.add_parser("install", help="install cardak.lua so jumps raise windows")
@@ -158,6 +171,77 @@ def _write_settings(path: Path, before: dict, after: dict, yes: bool, install: b
         print(f"cardak: cannot write {path}: {e}", file=sys.stderr)
         return 1
     print("Done. New Claude Code sessions report their status to the deck." if install else "Done.")
+    return 0
+
+
+def _resources_install(config_arg: str | None, yes: bool, refresh: bool, force: bool) -> int:
+    from cardak.claude.install import find_executable
+    from cardak.systemd import install as unit
+
+    exe = find_executable(sys.argv[0])
+    if exe is None:
+        print("cardak: can't find the cardak executable; is it on PATH?", file=sys.stderr)
+        return 1
+    path = unit.unit_dir() / unit.UNIT
+    text = unit.unit_text(exe)
+    print(f"{path}:")
+    print("\n".join(f"  {line}" for line in text.splitlines()))
+    if not yes and input(f"Write {path} and start it? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("Nothing written.")
+        return 0
+    try:
+        unit.write_unit(path, text, force)
+    except OSError as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    if error := unit.enable(unit.run_systemctl):
+        print(f"cardak: {error}", file=sys.stderr)
+        return 1
+    print("The alert service is running; it keeps watching with the deck closed.")
+    _resource_defaults(config_arg, refresh)
+    if "stop" in unit.oom_policies(unit.run_systemctl).values() and not unit.dropin_present(
+        unit.unit_dir()
+    ):
+        print()
+        print(unit.oom_advice(unit.unit_dir()), end="")
+    return 0
+
+
+def _resource_defaults(config_arg: str | None, refresh: bool) -> None:
+    from cardak.collectors.machine import MachineSampler
+    from cardak.core.config import write_resource_defaults
+    from cardak.core.resources import default_entries
+
+    sample = MachineSampler().sample()
+    if sample is None:
+        print(
+            "cardak: can't read this machine's memory; [resources] left as it is", file=sys.stderr
+        )
+        return
+    path = config_path(config_arg)
+    try:
+        written = write_resource_defaults(
+            path, default_entries(sample.mem_total, sample.n_cpus), refresh
+        )
+    except ConfigError as e:
+        print(f"cardak: thresholds not written: {e}", file=sys.stderr)
+        return
+    if written:
+        print(f"Thresholds written to [resources] in {path}: {', '.join(written)}")
+
+
+def _resources_uninstall() -> int:
+    from cardak.systemd import install as unit
+
+    path = unit.unit_dir() / unit.UNIT
+    if path.exists() and not unit.is_ours(path):
+        print(f"{path} was not written by cardak; left as it is.")
+        return 0
+    if error := unit.disable(unit.run_systemctl):
+        print(f"cardak: {error}", file=sys.stderr)
+        return 1
+    path.unlink(missing_ok=True)
+    print("The alert service is stopped and removed.")
     return 0
 
 
@@ -267,6 +351,10 @@ def main(argv: list[str] | None = None) -> int:
         return _summarize(args.session_id, args.wait_since)
     if args.command == "hooks":
         return _hooks(args.hooks_command, args.settings, getattr(args, "yes", False))
+    if args.command == "resources":
+        if args.resources_command == "uninstall":
+            return _resources_uninstall()
+        return _resources_install(args.config, args.yes, args.refresh_defaults, args.force)
     if args.command == "wezterm":
         return _wezterm_install(args.dir, args.force)
     if args.command == "themes":
