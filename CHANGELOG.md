@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.7.0 — 2026-10-23
+
 ### Added
 - A desktop notification when memory runs low or a project or pane gets too big, grows too fast or stays too busy, naming the project, pane and command; at most one every 10 minutes per project, and it keeps watching with the deck closed. Run `cardak resources install` once. (#57)
 - `cardak resources install` writes the thresholds it uses into `[resources]` in projects.toml, worked out from your machine, and tells you how to keep a WezTerm window open when the kernel kills one of its processes for lack of memory. (#57)
