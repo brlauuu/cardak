@@ -15,6 +15,7 @@ from cardak.core.config import (
     config_path,
     load,
     set_project_theme,
+    write_resource_defaults,
 )
 
 SAMPLE = """\
@@ -377,3 +378,74 @@ def test_resources_section_parsed(tmp_path: Path) -> None:
 def test_resources_rejects_bad_values(tmp_path: Path, body: str, message: str) -> None:
     with pytest.raises(ConfigError, match=message):
         _summary_cfg(tmp_path, body)
+
+
+RESOURCE_ENTRIES = [
+    ("ram_warn_available_gb", 4.8, "15% of 32 GB"),
+    ("pane_ram_gb", 8.0, "25% of 32 GB"),
+    ("pane_cpu_pct", 800.0, "half of 16 cores"),
+    ("growth_gb_per_min", 1.0, ""),
+]
+MINE = """\
+# my projects
+[[project]]
+name = "webshop"
+path = "/r/webshop"
+
+[resources]
+pane_ram_gb = 4 # mine
+"""
+
+
+def test_write_resource_defaults_adds_missing_keys_only(tmp_path: Path) -> None:
+    f = tmp_path / "p.toml"
+    f.write_text(MINE)
+    written = write_resource_defaults(f, RESOURCE_ENTRIES)
+    assert written == ["ram_warn_available_gb", "pane_cpu_pct", "growth_gb_per_min"]
+    text = f.read_text()
+    assert text.startswith(MINE.rstrip("\n"))  # the user's text is untouched
+    assert "pane_ram_gb = 4 # mine" in text
+    assert "ram_warn_available_gb = 4.8 # 15% of 32 GB" in text
+    assert "pane_cpu_pct = 800 # half of 16 cores" in text
+    assert "growth_gb_per_min = 1\n" in text or "growth_gb_per_min = 1.0\n" in text
+    cfg = load(f)
+    assert cfg.resources.pane_ram_gb == 4.0 and cfg.resources.ram_warn_available_gb == 4.8
+    assert [p.name for p in cfg.projects] == ["webshop"]
+
+
+def test_write_resource_defaults_refresh_overwrites(tmp_path: Path) -> None:
+    f = tmp_path / "p.toml"
+    f.write_text(MINE)
+    write_resource_defaults(f, RESOURCE_ENTRIES, refresh=True)
+    assert load(f).resources.pane_ram_gb == 8.0
+    assert f.read_text().startswith("# my projects\n[[project]]")
+
+
+def test_write_resource_defaults_creates_file_and_table(tmp_path: Path) -> None:
+    f = tmp_path / "new" / "p.toml"
+    assert write_resource_defaults(f, RESOURCE_ENTRIES) == [k for k, _, _ in RESOURCE_ENTRIES]
+    assert load(f).resources.pane_cpu_pct == 800.0
+    assert f.read_text().startswith("[resources]\n")
+
+
+def test_write_resource_defaults_after_projects_only(tmp_path: Path) -> None:
+    f = tmp_path / "p.toml"
+    f.write_text('[[project]]\nname = "webshop"\npath = "/r/webshop"\n')
+    write_resource_defaults(f, RESOURCE_ENTRIES)
+    cfg = load(f)
+    assert [p.name for p in cfg.projects] == ["webshop"] and cfg.resources.pane_ram_gb == 8.0
+
+
+def test_write_resource_defaults_twice_writes_nothing(tmp_path: Path) -> None:
+    f = tmp_path / "p.toml"
+    write_resource_defaults(f, RESOURCE_ENTRIES)
+    before = f.stat().st_mtime_ns
+    assert write_resource_defaults(f, RESOURCE_ENTRIES) == []
+    assert f.stat().st_mtime_ns == before
+
+
+def test_write_resource_defaults_refuses_a_broken_file(tmp_path: Path) -> None:
+    f = tmp_path / "p.toml"
+    f.write_text("[[project]]\nname = \n")
+    with pytest.raises(ConfigError):
+        write_resource_defaults(f, RESOURCE_ENTRIES)

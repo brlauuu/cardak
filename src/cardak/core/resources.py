@@ -39,6 +39,22 @@ def derive(settings: ResourceSettings, mem_total: int, n_cpus: int) -> Threshold
     )
 
 
+def default_entries(mem_total: int, n_cpus: int) -> list[tuple[str, float, str]]:
+    """What `cardak resources install` writes into [resources]: (key, value, how it was derived)."""
+    total = mem_total / GIB
+    of = f"of {total:.0f} GB"
+    return [
+        ("ram_warn_available_gb", round(0.15 * total, 1), f"15% {of}"),
+        ("ram_critical_available_gb", round(0.07 * total, 1), f"7% {of}"),
+        ("pane_ram_gb", round(0.25 * total, 1), f"25% {of}"),
+        ("growth_gb_per_min", 1.0, ""),
+        ("pane_cpu_pct", 50.0 * n_cpus, f"half of {n_cpus} cores"),
+        ("machine_cpu_pct", 90.0, ""),
+        ("sustain_s", 120.0, ""),
+        ("repeat_min", 10.0, ""),
+    ]
+
+
 def memory_level(m: MachineSample, t: Thresholds) -> MemoryLevel | None:
     swap_full = m.swap_total > 0 and m.swap_free == 0
     if m.mem_available < t.ram_critical_available or swap_full:
