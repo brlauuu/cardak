@@ -28,6 +28,7 @@ from cardak.core.summary import SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.detail import DetailScreen
 from cardak.ui.events import EventLogScreen
+from cardak.ui.history import HistoryScreen
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
     docker_label,
@@ -192,6 +193,7 @@ class DeckApp(App[None]):
         Binding("t", "theme", "Theme"),
         Binding("w", "waiting_only", "Waiting"),
         Binding("i", "detail", "Details"),
+        Binding("h", "history", "History"),
         Binding("e", "event_log", "Events"),
         Binding("d", "dismiss_crash", "Dismiss", show=False),
         Binding("slash", "find", "Find"),
@@ -205,7 +207,7 @@ class DeckApp(App[None]):
     # Keys that act on the tree: off (and out of the footer) while another screen is on top.
     DECK_ACTIONS = frozenset(
         {"add_project", "theme", "waiting_only", "detail", "find", "refresh", "cursor_down",
-         "cursor_up", "clear_find", "event_log", "dismiss_crash"}
+         "cursor_up", "clear_find", "event_log", "dismiss_crash", "history"}
     )  # fmt: skip
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
@@ -296,6 +298,12 @@ class DeckApp(App[None]):
             return
         self._crash = None
         self.query_one("#crash", Static).display = False
+
+    def action_history(self) -> None:
+        if self.resource_log is None:
+            self.notify("History unavailable.", severity="warning")
+            return
+        self.push_screen(HistoryScreen(self.resource_log, self.raw, time.time()))
 
     def action_event_log(self) -> None:
         if self.resource_log is None:
