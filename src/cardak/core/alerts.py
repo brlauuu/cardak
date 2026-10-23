@@ -1,4 +1,4 @@
-"""One desktop notification and one sound when a session starts waiting.
+"""One desktop notification and one sound when a session starts waiting, or on a resource alert.
 
 Both run detached, so `cardak hook` returns at once; a missing tool is skipped silently.
 """
@@ -74,6 +74,15 @@ def notification_argv(project: str, ping: Ping) -> list[str]:
     return ["notify-send", "-a", "cardak", f"{project} · claude", body]
 
 
+def _cut(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def resource_argv(level: str, title: str, body: str) -> list[str]:
+    urgency = "critical" if level == "critical" else "normal"  # critical stays until dismissed
+    return ["notify-send", "-a", "cardak", "-u", urgency, title, _cut(body, 2 * MAX_BODY)]
+
+
 def player_argv(sound: Path, which: Which = shutil.which) -> list[str] | None:
     for player in PLAYERS:
         if found := which(player):
@@ -104,6 +113,25 @@ def alert(
 ) -> None:
     if settings.desktop:
         spawn(notification_argv(project, ping))
+    _play(settings, spawn, rng, which)
+
+
+def resource_alert(
+    level: str,
+    title: str,
+    body: str,
+    settings: NotifySettings,
+    *,
+    spawn: Spawn = spawn_detached,
+    rng: random.Random | None = None,
+    which: Which = shutil.which,
+) -> None:
+    if settings.desktop:
+        spawn(resource_argv(level, title, body))
+    _play(settings, spawn, rng, which)
+
+
+def _play(settings: NotifySettings, spawn: Spawn, rng: random.Random | None, which: Which) -> None:
     sound = choose_sound(settings, bundled_sounds(), rng or random.Random())
     if sound is not None and (argv := player_argv(sound, which)):
         spawn(argv)

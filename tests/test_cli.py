@@ -9,6 +9,7 @@ import pytest
 from hookfix import text
 
 from cardak.cli import main
+from cardak.core.config import load
 from cardak.core.navigate import Navigator
 from cardak.ui.app import DeckApp
 
@@ -234,3 +235,180 @@ def test_pinging_hook_imports_no_summarizer(tmp_path: Path) -> None:
         [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_daemon_does_not_import_textual() -> None:
+    script = (
+        "import sys\n"
+        "import cardak.core.daemon\n"
+        "import cardak.core.source\n"
+        "loaded = [m for m in ('textual', 'cardak.ui') if m in sys.modules]\n"
+        "assert not loaded, loaded\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_daemon_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.core import daemon
+
+    monkeypatch.setattr(daemon, "main", lambda: 7)
+    assert main(["daemon"]) == 7
+
+
+GIB = 2**30
+
+
+class FakeSystemctl:
+    def __init__(self, fail_enable: bool = False, scopes: dict[str, str] | None = None) -> None:
+        self.calls: list[list[str]] = []
+        self.fail_enable = fail_enable
+        self.scopes = scopes or {}
+
+    def __call__(self, argv: list[str]) -> subprocess.CompletedProcess[str]:
+        self.calls.append(argv)
+        args = argv[2:]
+        if args[:1] == ["enable"] and self.fail_enable:
+            return subprocess.CompletedProcess(argv, 1, "", "Failed to enable unit\n")
+        if args[:1] == ["list-units"]:
+            out = "".join(f"{s} loaded active running WezTerm\n" for s in self.scopes)
+            return subprocess.CompletedProcess(argv, 0, out, "")
+        if args[:1] == ["show"]:
+            return subprocess.CompletedProcess(argv, 0, self.scopes[args[-1]] + "\n", "")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+
+@pytest.fixture
+def resources_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from cardak.collectors.machine import MachineSample, MachineSampler
+    from cardak.systemd import install as unit
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(
+        "cardak.claude.install.find_executable", lambda argv0, which=None: Path("/u/bin/cardak")
+    )
+    monkeypatch.setattr(
+        MachineSampler, "sample", lambda self: MachineSample(32 * GIB, GIB, 0, 0, None, 16)
+    )
+    fake = FakeSystemctl(scopes={"app-org.wezfurlong.wezterm-a.scope": "stop"})
+    monkeypatch.setattr(unit, "run_systemctl", fake)
+    return tmp_path, fake
+
+
+def test_install_writes_unit_defaults_and_advice(resources_env, capsys) -> None:
+    tmp_path, fake = resources_env
+    cfg = tmp_path / "p.toml"
+    assert main(["--config", str(cfg), "resources", "install", "--yes"]) == 0
+    unit_file = tmp_path / "cfg/systemd/user/cardak.service"
+    assert "ExecStart=/u/bin/cardak daemon" in unit_file.read_text()
+    assert ["systemctl", "--user", "enable", "cardak.service"] in fake.calls
+    assert ["systemctl", "--user", "restart", "cardak.service"] in fake.calls
+    assert load(cfg).resources.pane_ram_gb == 8.0
+    out = capsys.readouterr().out
+    assert "pane_ram_gb" in out and "OOMPolicy=continue" in out
+
+
+def test_install_skips_advice_when_dropin_exists(resources_env, capsys) -> None:
+    tmp_path, _ = resources_env
+    d = tmp_path / "cfg/systemd/user/app-org.wezfurlong.wezterm-.scope.d"
+    d.mkdir(parents=True)
+    (d / "oom.conf").write_text("[Scope]\nOOMPolicy=continue\n")
+    assert main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"]) == 0
+    assert "OOMPolicy=continue" not in capsys.readouterr().out
+
+
+def test_install_keeps_user_values(resources_env) -> None:
+    tmp_path, _ = resources_env
+    cfg = tmp_path / "p.toml"
+    cfg.write_text("[resources]\npane_ram_gb = 4\n")
+    main(["--config", str(cfg), "resources", "install", "--yes"])
+    assert load(cfg).resources.pane_ram_gb == 4.0
+    main(["--config", str(cfg), "resources", "install", "--yes", "--refresh-defaults"])
+    assert load(cfg).resources.pane_ram_gb == 8.0
+
+
+def test_install_without_cardak_on_path(resources_env, monkeypatch, capsys) -> None:
+    tmp_path, fake = resources_env
+    monkeypatch.setattr("cardak.claude.install.find_executable", lambda argv0, which=None: None)
+    assert main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"]) == 1
+    assert "PATH" in capsys.readouterr().err
+    assert not (tmp_path / "cfg/systemd/user/cardak.service").exists() and fake.calls == []
+
+
+def test_install_reports_systemctl_failure(resources_env, monkeypatch, capsys) -> None:
+    from cardak.systemd import install as unit
+
+    tmp_path, _ = resources_env
+    fake = FakeSystemctl(fail_enable=True)
+    monkeypatch.setattr(unit, "run_systemctl", fake)
+    assert main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"]) == 1
+    assert "Failed to enable unit" in capsys.readouterr().err
+    # nothing left half-installed: disabled again, the unit removed, so the deck still hints
+    assert ["systemctl", "--user", "disable", "--now", "cardak.service"] in fake.calls
+    assert not (tmp_path / "cfg/systemd/user/cardak.service").exists()
+
+
+def test_failed_reinstall_restores_the_previous_unit(resources_env, monkeypatch) -> None:
+    from cardak.systemd import install as unit
+
+    tmp_path, _ = resources_env
+    unit_file = tmp_path / "cfg/systemd/user/cardak.service"
+    main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"])
+    before = unit_file.read_text()
+    monkeypatch.setattr(
+        "cardak.claude.install.find_executable", lambda argv0, which=None: Path("/new/cardak")
+    )
+    monkeypatch.setattr(unit, "run_systemctl", FakeSystemctl(fail_enable=True))
+    assert main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"]) == 1
+    assert unit_file.read_text() == before
+
+
+def test_install_asks_and_no_writes_nothing(resources_env, monkeypatch, capsys) -> None:
+    tmp_path, fake = resources_env
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    assert main(["--config", str(tmp_path / "p.toml"), "resources", "install"]) == 0
+    assert "Nothing written" in capsys.readouterr().out
+    assert not (tmp_path / "cfg/systemd/user/cardak.service").exists() and fake.calls == []
+
+
+def test_install_refuses_a_foreign_unit(resources_env, capsys) -> None:
+    tmp_path, _ = resources_env
+    unit_file = tmp_path / "cfg/systemd/user/cardak.service"
+    unit_file.parent.mkdir(parents=True)
+    unit_file.write_text("[Unit]\nDescription=mine\n")
+    assert main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"]) == 1
+    assert "--force" in capsys.readouterr().err
+    assert (
+        main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes", "--force"])
+        == 0
+    )
+
+
+def test_uninstall_removes_our_unit(resources_env, capsys) -> None:
+    tmp_path, fake = resources_env
+    main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"])
+    assert main(["resources", "uninstall"]) == 0
+    assert not (tmp_path / "cfg/systemd/user/cardak.service").exists()
+    assert ["systemctl", "--user", "disable", "--now", "cardak.service"] in fake.calls
+
+
+def test_uninstall_leaves_a_foreign_unit(resources_env, capsys) -> None:
+    tmp_path, _ = resources_env
+    unit_file = tmp_path / "cfg/systemd/user/cardak.service"
+    unit_file.parent.mkdir(parents=True)
+    unit_file.write_text("[Unit]\nDescription=mine\n")
+    assert main(["resources", "uninstall"]) == 0
+    assert unit_file.exists() and "not written by cardak" in capsys.readouterr().out
+
+
+def test_resources_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.cli import RESOURCES_HINT, _resources_hint
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert _resources_hint() == RESOURCES_HINT
+    assert "cardak resources install" in RESOURCES_HINT
+    (tmp_path / "systemd/user").mkdir(parents=True)
+    (tmp_path / "systemd/user/cardak.service").write_text("# cardak: generated\n")
+    assert _resources_hint() is None

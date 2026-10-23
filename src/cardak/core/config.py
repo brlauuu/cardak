@@ -3,7 +3,7 @@
 import os
 import re
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -271,7 +271,7 @@ def add_project(path: Path, name: str, project_path: Path, theme: str | None = N
     _atomic_write(path, target, text)
 
 
-def _set_key(table: "Table", key: str, value: str) -> None:
+def _set_key(table: "Table", key: str, value: object) -> None:
     """Set key in a table; a new key goes after its last key, not after trailing comments.
 
     tomlkit appends new keys at the very end of a table's body, which places them below a
@@ -286,6 +286,39 @@ def _set_key(table: "Table", key: str, value: str) -> None:
         trailing.insert(0, body.pop())
     table.add(key, value)
     body.extend(trailing)
+
+
+def write_resource_defaults(
+    path: Path, entries: Sequence[tuple[str, float, str]], refresh: bool = False
+) -> list[str]:
+    """Add the [resources] keys that are missing (all of them with refresh), with comments.
+
+    The rest of the file is kept as it is. Returns the keys written; writes nothing if none.
+    """
+    load(path)  # refuses a broken file before anything is written
+    target = path.resolve()
+    import tomlkit
+
+    doc = tomlkit.parse(_read(target) or "")
+    table = doc.get("resources")
+    if table is None:
+        table = tomlkit.table()
+        doc.add("resources", table)
+    written: list[str] = []
+    for key, value, comment in entries:
+        if key in table and not refresh:
+            continue
+        item = tomlkit.item(int(value) if float(value).is_integer() else value)
+        if comment:
+            item.comment(comment)
+        _set_key(table, key, item)
+        written.append(key)
+    if not written:
+        return []
+    text = tomlkit.dumps(doc)
+    _parse(path, text)
+    _atomic_write(path, target, text)
+    return written
 
 
 def set_project_theme(path: Path, project_path: Path, theme: str) -> None:

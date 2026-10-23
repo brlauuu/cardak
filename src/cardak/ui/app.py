@@ -195,6 +195,7 @@ class DeckApp(App[None]):
         load_schemes: Callable[[], Mapping[str, Scheme]] | None = None,
         theme_status: Callable[[], str | None] | None = None,
         hooks_status: Callable[[], str | None] | None = None,
+        resources_status: Callable[[], str | None] | None = None,
     ) -> None:
         super().__init__()
         self.source = source
@@ -204,6 +205,7 @@ class DeckApp(App[None]):
         self.load_schemes = load_schemes
         self.theme_status = theme_status  # how to enable themes, when they aren't yet
         self.hooks_status = hooks_status  # how to enable agent status, when it isn't yet
+        self.resources_status = resources_status  # how to enable alerts, when they aren't yet
         self._cap_noticed = False  # the summary-limit notice shows once per run
         self.waiting_only = False
         self.interval = interval
@@ -232,8 +234,9 @@ class DeckApp(App[None]):
         self.deck_tree.focus()
         self.action_refresh()
         self.set_interval(self.interval, self.action_refresh)
-        if self.hooks_status is not None and (hint := self.hooks_status()):
-            self.notify(escape(hint), severity="warning")
+        for status in (self.hooks_status, self.resources_status):
+            if status is not None and (hint := status()):
+                self.notify(escape(hint), severity="warning")
         if self.schemes is not None and not self.schemes.get() and self.load_schemes is not None:
             self.run_worker(self._load_schemes, thread=True, group="schemes", exit_on_error=False)
 

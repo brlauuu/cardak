@@ -6,12 +6,15 @@ import pytest
 
 from cardak.core.agents import Ping
 from cardak.core.alerts import (
+    MAX_BODY,
     alert,
     bundled_sounds,
     check,
     choose_sound,
     notification_argv,
     player_argv,
+    resource_alert,
+    resource_argv,
     sound_pool,
     spawn_detached,
 )
@@ -112,3 +115,39 @@ def test_spawn_detached_starts_new_session(monkeypatch: pytest.MonkeyPatch) -> N
     spawn_detached(["true"])
     assert calls[0]["start_new_session"] is True
     assert calls[0]["stdout"] is subprocess.DEVNULL
+
+
+def test_resource_argv_levels() -> None:
+    assert resource_argv("critical", "cardak · memory critical", "x") == [
+        "notify-send", "-a", "cardak", "-u", "critical", "cardak · memory critical", "x",
+    ]  # fmt: skip
+    assert resource_argv("warning", "t", "b")[4] == "normal"
+    body = resource_argv("warning", "t", "y" * 1000)[-1]
+    assert len(body) == 2 * MAX_BODY and body.endswith("…")
+
+
+def test_resource_alert_spawns_notification_and_sound() -> None:
+    spawned: list[list[str]] = []
+    which = {"pw-play": "/usr/bin/pw-play"}.get
+    resource_alert(
+        "critical", "t", "b", NotifySettings(), spawn=spawned.append, rng=random.Random(0),
+        which=which,
+    )  # fmt: skip
+    assert [argv[0] for argv in spawned] == ["notify-send", "/usr/bin/pw-play"]
+    assert spawned[0][4] == "critical"
+
+
+def test_resource_alert_follows_notify_settings() -> None:
+    # same meaning as for waiting pings: desktop turns notify-send off, sound = "off" the sound
+    spawned: list[list[str]] = []
+    which = {"pw-play": "/usr/bin/pw-play"}.get
+    resource_alert(
+        "warning", "t", "b", NotifySettings(desktop=False, sound="off"), spawn=spawned.append,
+        which=which,
+    )  # fmt: skip
+    assert spawned == []
+    resource_alert(
+        "warning", "t", "b", NotifySettings(desktop=False), spawn=spawned.append,
+        rng=random.Random(0), which=which,
+    )  # fmt: skip
+    assert [argv[0] for argv in spawned] == ["/usr/bin/pw-play"]

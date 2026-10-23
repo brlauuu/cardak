@@ -143,6 +143,40 @@ pane_ram_gb = 8.0                # a pane or project above this (default 25% of 
 pane_cpu_pct = 800               # a pane or project above this (default half the cores)
 ```
 
+### Alerts with the deck closed
+
+```sh
+cardak resources install
+```
+
+This installs and starts `cardak.service`, a systemd user service that keeps watching with
+the deck (or all of WezTerm) closed. It asks before writing `~/.config/systemd/user/cardak.service`
+and fills in `[resources]` from your machine, each value with a comment saying where it came from.
+Values you set yourself are kept; `--refresh-defaults` recomputes them all.
+`cardak resources uninstall` stops and removes the service.
+
+You get a desktop notification when memory runs low, or when a project or a pane gets too big,
+grows fast or stays busy for two minutes, naming what's responsible:
+
+```
+cardak · webshop is big
+webshop · pytest in pane 12 · 13.9 GB of the project's 15.1 GB · RAM 88% used
+```
+
+At most one per project and kind every 10 minutes (`repeat_min`); running out of memory
+notifies at once and stays on screen. cardak only tells you; it never stops anything.
+
+When memory runs out, the kernel kills one process, but systemd then closes the whole WezTerm
+window that process ran in. `cardak resources install` checks for this and prints the fix:
+
+```sh
+mkdir -p ~/.config/systemd/user/app-org.wezfurlong.wezterm-.scope.d
+printf '[Scope]\nOOMPolicy=continue\n' > ~/.config/systemd/user/app-org.wezfurlong.wezterm-.scope.d/oom.conf
+systemctl --user daemon-reload
+```
+
+WezTerm windows opened after that lose only the process that was killed.
+
 ## Development
 
 See `AGENTS.md` for conventions and `PLAN.md` for the roadmap.
