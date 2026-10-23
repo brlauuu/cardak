@@ -14,8 +14,9 @@ from typing import TypeVar
 from cardak.core.agents import SessionState, mark_seen
 from cardak.core.config import state_dir
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 KEEP_SECONDS = 7 * 86_400
+RESOURCE_KEEP_SECONDS = 30 * 86_400
 SUMMARY_KEEP_SECONDS = 62 * 86_400  # longer than a month: the spend cap counts them
 MAX_EVENTS = 10_000
 BUSY_TIMEOUT = 2.0
@@ -49,6 +50,15 @@ CREATE TABLE IF NOT EXISTS summaries (
     PRIMARY KEY (session_id, wait_since)
 );
 CREATE INDEX IF NOT EXISTS summaries_created ON summaries (created_at);
+CREATE TABLE IF NOT EXISTS resource_events (
+    ts REAL NOT NULL,
+    kind TEXT NOT NULL,
+    level TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    text TEXT NOT NULL,
+    notified INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS resource_events_ts ON resource_events (ts);
 """
 
 
@@ -65,6 +75,18 @@ class SummaryRow:
     cost_usd: float
     created_at: float
     error: str | None = None  # why no summary could be made (API error, key problem)
+
+
+@dataclass(frozen=True)
+class ResourceEvent:
+    """A resource alert as the daemon logged it. Primitives only: the hook imports this module."""
+
+    ts: float
+    kind: str  # "memory" | "big" | "growth" | "busy" | "machine_busy"
+    level: str  # "warning" | "critical"
+    subject: str  # "machine" | "project:<path>" | "pane:<id>"
+    text: str
+    notified: bool
 
 
 class StoreError(Exception):
@@ -257,6 +279,27 @@ class Store:
             raise StoreError(str(e)) from e
         return float(row[0])
 
+    def record_resource_event(self, event: ResourceEvent) -> None:
+        try:
+            self._con.execute(
+                "INSERT INTO resource_events VALUES (?, ?, ?, ?, ?, ?)",
+                (event.ts, event.kind, event.level, event.subject, event.text, int(event.notified)),
+            )
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+
+    def resource_events_since(self, ts: float) -> list[ResourceEvent]:
+        """Oldest first."""
+        try:
+            rows = self._con.execute(
+                "SELECT ts, kind, level, subject, text, notified FROM resource_events "
+                "WHERE ts >= ? ORDER BY ts, rowid",
+                (ts,),
+            ).fetchall()
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+        return [ResourceEvent(r[0], r[1], r[2], r[3], r[4], bool(r[5])) for r in rows]
+
     def event_count(self) -> int:
         return self._con.execute("SELECT count(*) FROM events").fetchone()[0]
 
@@ -269,6 +312,9 @@ class Store:
             self._con.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
             self._con.execute(
                 "DELETE FROM summaries WHERE created_at < ?", (now - SUMMARY_KEEP_SECONDS,)
+            )
+            self._con.execute(
+                "DELETE FROM resource_events WHERE ts < ?", (now - RESOURCE_KEEP_SECONDS,)
             )
             self._con.execute(
                 "DELETE FROM events WHERE rowid NOT IN "

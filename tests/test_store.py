@@ -1,13 +1,21 @@
 import sqlite3
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from cardak.core.agents import SessionState
 from cardak.core.config import state_dir
-from cardak.core.store import SCHEMA_VERSION, Store, StoreError, SummaryRow, db_path
+from cardak.core.store import (
+    SCHEMA_VERSION,
+    ResourceEvent,
+    Store,
+    StoreError,
+    SummaryRow,
+    db_path,
+)
 
 DAY = 86_400.0
 
@@ -68,7 +76,7 @@ def test_creates_parent_dir_and_schema_version(tmp_path: Path) -> None:
     path = tmp_path / "deep" / "cardak.db"
     Store(path).close()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
+    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -211,7 +219,7 @@ def test_v1_database_gains_summaries(tmp_path: Path) -> None:
     store = Store(path)
     store.add_summary(summary_row())
     assert store.has_summary("s", 10.0)
-    assert SCHEMA_VERSION == 2
+    assert SCHEMA_VERSION == 3
 
 
 def test_latest_error_since(tmp_path: Path) -> None:
@@ -226,3 +234,45 @@ def test_latest_error_since(tmp_path: Path) -> None:
     assert store.latest_error_since(200.0) is None  # nothing this period
     store.add_summary(summary_row(sid="c", at=160.0))
     assert store.latest_error_since(100.0) is None  # a newer summary succeeded
+
+
+def test_resource_events_round_trip(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    e = ResourceEvent(10.0, "big", "warning", "project:/r/webshop", "webshop · pytest …", True)
+    store.record_resource_event(e)
+    store.record_resource_event(replace(e, ts=20.0, notified=False))
+    assert store.resource_events_since(15.0) == [replace(e, ts=20.0, notified=False)]
+    assert store.resource_events_since(0.0)[0] == e
+
+
+def test_resource_events_pruned_after_30_days(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    store.record_resource_event(ResourceEvent(0.0, "memory", "critical", "machine", "x", True))
+    store.record_resource_event(ResourceEvent(29 * DAY, "memory", "critical", "machine", "y", True))
+    store.prune(31 * DAY)
+    assert [e.text for e in store.resource_events_since(-1.0)] == ["y"]
+
+
+def test_schema_2_database_gains_the_table(tmp_path: Path) -> None:
+    path = tmp_path / "c.db"
+    con = sqlite3.connect(path)
+    con.executescript(
+        "CREATE TABLE events (ts REAL NOT NULL, session_id TEXT NOT NULL, "
+        "event TEXT NOT NULL, payload_json TEXT NOT NULL);"
+        "INSERT INTO events VALUES (1.0, 's', 'Stop', '{}');"
+        "PRAGMA user_version = 2;"
+    )
+    con.close()
+    store = Store(path)
+    assert store._con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
+    store.record_resource_event(ResourceEvent(1.0, "big", "warning", "pane:3", "x", False))
+    assert store.event_count() == 1 and len(store.resource_events_since(0.0)) == 1
+
+
+def test_resource_event_errors_become_store_errors(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    store.close()
+    with pytest.raises(StoreError):
+        store.record_resource_event(ResourceEvent(1.0, "big", "warning", "pane:3", "x", False))
+    with pytest.raises(StoreError):
+        store.resource_events_since(0.0)
