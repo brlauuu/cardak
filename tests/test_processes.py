@@ -59,6 +59,7 @@ def test_idle_shell() -> None:
             n_procs=1,
             mcp_cpu_pct=0.0,
             mcp_rss=0,
+            pids=frozenset({10}),
         )
     }
 
@@ -90,6 +91,7 @@ def test_build_under_claude_counts_as_work_and_mcp_is_split() -> None:
     assert out.rss == 1 + 300 + 2 + 5 * GIB
     assert out.n_procs == 4
     assert (out.mcp_cpu_pct, out.mcp_rss) == (4.5, 160)
+    assert out.pids == frozenset({10, 20, 30, 31, 40, 41, 42})  # work and MCP, not 99
 
 
 def test_foreground_falls_back_to_newest_when_tpgid_unknown() -> None:

@@ -10,6 +10,7 @@ from cardak.collectors.wezterm import (
     WeztermUnavailable,
     activate_pane,
     find_socket,
+    gui_processes,
     list_panes,
     parse_cwd,
     parse_panes,
@@ -174,3 +175,23 @@ def test_activate_pane_errors(env: dict[str, str], tmp_path: Path) -> None:
         activate_pane(7, env, runner=FakeRunner(returncode=1, stderr="ERROR pane 7 not found\n"))
     with pytest.raises(WeztermUnavailable, match="no WezTerm GUI socket found"):
         activate_pane(7, {"XDG_RUNTIME_DIR": str(tmp_path)}, runner=FakeRunner())
+
+
+def test_gui_processes_maps_scopes(tmp_path: Path) -> None:
+    d = _runtime(tmp_path)
+    pid = os.getpid()
+    (d / f"gui-sock-{pid}").touch()
+    (d / f"gui-sock-{_dead_pid()}").touch()
+    (d / "sock").touch()
+    proc = tmp_path / "proc"
+    env = {"XDG_RUNTIME_DIR": str(tmp_path)}
+    assert gui_processes(env, proc) == {pid: None}
+    scope = "app-org.wezfurlong.wezterm-0123456789abcdef0123456789abcdef.scope"
+    (proc / str(pid)).mkdir(parents=True)
+    (proc / str(pid) / "cgroup").write_text(
+        f"0::/user.slice/user-1000.slice/user@1000.service/app.slice/{scope}\n"
+    )
+    assert gui_processes(env, proc) == {pid: scope}
+    (proc / str(pid) / "cgroup").write_text("0::/user.slice/user-1000.slice/session-2.scope/x\n")
+    assert gui_processes(env, proc) == {pid: None}
+    assert gui_processes({}, proc) == {}

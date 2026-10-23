@@ -275,9 +275,8 @@ class LiveSource:
         self._recent.record(snap)
         if machine is None:
             return snap
-        return decorate(
-            snap, self._recent, derive(self._config.resources, machine.mem_total, machine.n_cpus)
-        )
+        t = derive(self._config.resources, machine.mem_total, machine.n_cpus)
+        return replace(decorate(snap, self._recent, t), thresholds=t)
 
     def _poll(self) -> DeckSnapshot:
         self._reload_if_changed()
