@@ -422,6 +422,10 @@ def _deck(config_arg: str | None) -> int:
     except StoreError as e:
         print(f"cardak: agent status unavailable: {e}", file=sys.stderr)
         agents = None
+    try:
+        log: Store | None = Store(db_path())  # its own connection: the UI thread reads it
+    except StoreError:
+        log = None
     source = LiveSource(
         config_path(config_arg),
         on_config=_theme_writer(default_dir(), config_dir(), store),
@@ -439,7 +443,9 @@ def _deck(config_arg: str | None) -> int:
         theme_status=lambda: _module_message(module_version(default_dir() / "cardak.lua")),
         hooks_status=_hooks_hint,
         resources_status=_resources_hint,
+        log=log,
     ).run()
-    if agents is not None:
-        agents.close()
+    for db in (agents, log):
+        if db is not None:
+            db.close()
     return 0

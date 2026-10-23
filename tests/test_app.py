@@ -1,9 +1,11 @@
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 
+from logfix import FakeLog
 from textual.pilot import Pilot
-from textual.widgets import Input, Static
+from textual.widgets import Input, Static, Tree
 
 from cardak.collectors.machine import MachineSample
 from cardak.core.agents import SessionState
@@ -19,6 +21,7 @@ from cardak.core.snapshot import (
     MachineView,
     PaneRow,
 )
+from cardak.core.store import ResourceEvent
 from cardak.core.summary import SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.app import AddProjectScreen, DeckApp, Node, node_id
@@ -809,3 +812,56 @@ async def test_resources_hint_once() -> None:
         await settle(app, pilot)
         assert calls == [1]
         assert any("resources install" in str(n.message) for n in app._notifications)  # noqa: SLF001
+
+
+CRASH = "WezTerm was closed at 15:28:48 on Oct 21. The machine ran out of memory (32 GB)."
+
+
+def crash_log() -> FakeLog:
+
+    now = time.time()
+    return FakeLog(
+        events=[
+            ResourceEvent(now - 100, "big", "warning", "pane:3", "pane 3 · zsh · 9.0 GB", True),
+            ResourceEvent(now - 50, "crash", "critical", "wezterm:7", CRASH, True),
+        ]
+    )
+
+
+async def test_crash_banner_and_dismiss() -> None:
+    log = crash_log()
+    app = DeckApp(StubSource(SNAP), interval=3600, log=log)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        banner = app.query_one("#crash", Static)
+        assert banner.display
+        assert str(banner.render()).startswith("WezTerm was closed at 15:28:48 on Oct 21. · d:")
+        await pilot.press("d")
+        assert not banner.display and log.dismissed == [log.events[1].ts]
+
+
+async def test_event_log_screen_lists_newest_first() -> None:
+    from cardak.ui.events import EventLogScreen
+
+    app = DeckApp(StubSource(SNAP), interval=3600, log=crash_log())
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("e")
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, EventLogScreen)
+        first, second = screen.query_one(Tree).root.children
+        assert "WezTerm closed" in str(first.label) and "big" in str(second.label)
+        assert len(first.children) == 2  # the full report, one sentence per line
+        await pilot.press("escape")
+        assert not isinstance(app.screen, EventLogScreen)
+
+
+async def test_event_log_without_log_notifies() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("e")
+        await pilot.pause()
+        assert [n.message for n in app._notifications] == ["Event log unavailable."]
+        assert not app.query_one("#crash", Static).display
