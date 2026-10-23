@@ -1,0 +1,6 @@
+{"__REALTIME_TIMESTAMP": "1792589326500000", "_TRANSPORT": "journal", "MESSAGE": "app-org.wezfurlong.wezterm-0123456789abcdef0123456789abcdef.scope: A process of this unit has been killed by the OOM killer."}
+{"__REALTIME_TIMESTAMP": "1792589328100000", "_TRANSPORT": "journal", "MESSAGE": "app-org.wezfurlong.wezterm-0123456789abcdef0123456789abcdef.scope: Failed with result 'oom-kill'."}
+not json
+{"__REALTIME_TIMESTAMP": "1792589328105000", "_TRANSPORT": "journal", "MESSAGE": [104, 105, 255]}
+{"__REALTIME_TIMESTAMP": "1792589328110000", "_TRANSPORT": "journal", "MESSAGE": "app-org.wezfurlong.wezterm-0123456789abcdef0123456789abcdef.scope: Consumed 8h 44min 37.147s CPU time."}
+{"__REALTIME_TIMESTAMP": "1792589330000000", "_TRANSPORT": "journal", "MESSAGE": "Started app-org.wezfurlong.wezterm-89abcdef0123456789abcdef01234567.scope - WezTerm."}
