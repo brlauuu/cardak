@@ -835,7 +835,9 @@ async def test_crash_banner_and_dismiss() -> None:
         await settle(app, pilot)
         banner = app.query_one("#crash", Static)
         assert banner.display
-        assert str(banner.render()).startswith("WezTerm was closed at 15:28:48 on Oct 21. · d:")
+        assert str(banner.render()).startswith(
+            "WezTerm was closed at 15:28:48 on Oct 21. The machine ran out of memory (32 GB). · d:"
+        )
         await pilot.press("d")
         assert not banner.display and log.dismissed == [log.events[1].ts]
 
@@ -865,3 +867,28 @@ async def test_event_log_without_log_notifies() -> None:
         await pilot.pause()
         assert [n.message for n in app._notifications] == ["Event log unavailable."]
         assert not app.query_one("#crash", Static).display
+
+
+async def test_event_log_survives_markup_in_texts() -> None:
+    from cardak.ui.events import EventLogScreen
+
+    now = time.time()
+    odd = "pane 3 · claude · fix [/bold] [link] · 9.0 GB"
+    log = FakeLog(
+        events=[
+            ResourceEvent(now - 60, "big", "warning", "pane:3", odd, True),
+            ResourceEvent(
+                now - 50, "crash", "critical", "wezterm:7", f"WezTerm was closed. {odd}.", True
+            ),
+        ]
+    )
+    app = DeckApp(StubSource(SNAP), interval=3600, log=log)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("e")
+        await pilot.pause()
+        assert isinstance(app.screen, EventLogScreen)
+        tree = app.screen.query_one(Tree)
+        tree.root.children[0].expand()
+        await pilot.pause()
+        assert "[/bold]" in str(tree.root.children[0].children[1].label)

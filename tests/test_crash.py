@@ -61,7 +61,11 @@ def crashed(guis_before: dict[int, str | None] | None = None) -> tuple[CrashWatc
     before = guis_before or {7: SCOPE}
     w.observe(before, snap(2.1), G - 366)
     w.observe(before, snap(13.9), G - 6)
-    w.observe({}, DeckSnapshot(error="no WezTerm GUI socket found", machine=FULL), G)
+    # after the kill (G - 1.63) and before systemd stops the scope: pytest gone, its swap freed
+    after_kill = replace(FULL, mem_available=14 * GIB, swap_free=GIB)
+    gone_pytest = snap(0.0, after_kill)
+    w.observe(before, gone_pytest, G - 1)
+    w.observe({}, DeckSnapshot(error="no WezTerm GUI socket found", machine=after_kill), G)
     [gone] = w.due(G + CHECK_AFTER_S)
     return w, gone
 
@@ -110,7 +114,7 @@ def test_report_quiet_exit() -> None:
     assert not rep.loud
     assert rep.text == (
         "WezTerm (pid 7) closed at 13:28:48 on Oct 21; the journal shows no OOM kill. "
-        "The 3 biggest users then: api-gw 15.1 GB, outside WezTerm 9.8 GB, pane 20 · zsh 0.1 GB."
+        "The 3 biggest users then: outside WezTerm 9.8 GB, api-gw 1.2 GB, pane 20 · zsh 0.1 GB."
     )
 
 
@@ -157,3 +161,14 @@ def test_old_pids_and_series_are_dropped() -> None:
     [gone] = w.due(1010.0)
     rep = w.report(replace(gone, ts=G), kernel(), user(), None)
     assert "which cardak didn't see in a WezTerm pane" in rep.text
+
+
+def test_earlier_kill_does_not_make_a_normal_quit_loud() -> None:
+    # OOMPolicy=continue: the kill left the window open; the user quit it 90 s later
+    w = CrashWatch()
+    w.observe({7: SCOPE}, snap(13.9, CALM), G - 100)
+    w.observe({7: SCOPE}, snap(1.0, CALM), G + 88)
+    w.observe({}, snap(1.0, CALM), G + 90)
+    [gone] = w.due(G + 95)
+    rep = w.report(gone, kernel(), [], None)  # the kill is in the journal, no failed scope
+    assert not rep.loud

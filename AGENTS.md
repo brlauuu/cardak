@@ -289,7 +289,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   install, with the rollback, is one branch).
 - **M5 part 3 (history and crash report)** split `CrashWatch.report` (19: `_memory`, `_quiet`),
   `CrashWatch.observe` (14: `_forget`), `history_rows` (13: `_day_cells`) and `crash._biggest`
-  (`_users`). Accepted: `CrashWatch.report` at 12 (each sentence of the report is one condition),
+  (`_users`). Accepted: `CrashWatch.report` at 13 (each sentence of the report is one condition),
+  `CrashWatch._forget` at 10 (four time windows trimmed in one place),
   complexity 10–11 in `history._live`, `history_rows`, `plot.braille` and `PlotScreen._draw`,
   `_pane_procs` at 11 (one more field: the pids), `Store._query` (fan-in 8: every history query
   shares its error wrapping), and the coordinators `HistoryScreen._fill` (5 × 11),

@@ -284,8 +284,8 @@ class DeckApp(App[None]):
         if self._crash is None:
             return
         banner = self.query_one("#crash", Static)
-        first = sentences(self._crash.text)[0]
-        banner.update(escape(f"{first} · d: dismiss · e: event log"))
+        what = " ".join(sentences(self._crash.text)[:2])  # when, and why: out of memory
+        banner.update(escape(f"{what} · d: dismiss · e: event log"))
         banner.display = True
 
     def action_dismiss_crash(self) -> None:

@@ -8,6 +8,7 @@ from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.markup import escape
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
@@ -124,7 +125,7 @@ class HistoryScreen(Screen[None]):
             table.add_column(" ", width=1)
         self.query_one("#axis", Static).update(self._axis())
         hint = self._error or (EMPTY if not self._days else "")
-        self.query_one("#hint", Static).update(hint)
+        self.query_one("#hint", Static).update(Text(hint))
         self._fill()
         table.focus()
 
@@ -149,7 +150,7 @@ class HistoryScreen(Screen[None]):
         table.clear()
         for r in self._rows:
             alerts = "-" if r.alerts is None else str(r.alerts)
-            fixed = [
+            fixed = [  # Text: DataTable parses plain strings as markup, and names are free text
                 r.name[:13].ljust(14),
                 fmt(r.now, metric).rjust(9),
                 fmt(r.median, metric).rjust(9),
@@ -160,7 +161,7 @@ class HistoryScreen(Screen[None]):
                 Text(CELLS[b], style=BAND_STYLES[b]) if (b := band(v, e)) >= 0 else Text(" ")
                 for v in r.days
             ]
-            table.add_row(*fixed, *cells, key=r.subject)
+            table.add_row(*(Text(x) for x in fixed), *cells, key=r.subject)
         other = "CPU" if metric == "ram" else "RAM"
         keys = f"[c] {other}  [s] sort: {self._sort}"
         title = f"history · last {DAYS} days · {metric.upper()}      {keys}"
@@ -187,7 +188,7 @@ class HistoryScreen(Screen[None]):
                 e for e in self._log.resource_events_since(self._since) if e.subject == row.subject
             ]
         except StoreError as e:
-            self.notify(f"History unavailable: {e}", severity="error")
+            self.notify(escape(f"History unavailable: {e}"), severity="error")
             return
         t = _thresholds(self._live)
         threshold = None
@@ -244,7 +245,8 @@ class PlotScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(f"{self._name} · {self._metric.upper()} · last {DAYS} days", id="plot-title")
+        title = Text(f"{self._name} · {self._metric.upper()} · last {DAYS} days")
+        yield Static(title, id="plot-title")
         yield Static("", id="plot")
         yield Static("", id="day")
         yield Footer()
@@ -282,7 +284,7 @@ class PlotScreen(Screen[None]):
             axis[start : start + len(label)] = label
         plot.append("".join(axis))
         self.query_one("#plot", Static).update(plot)
-        self.query_one("#day", Static).update(self._day_text())
+        self.query_one("#day", Static).update(Text(self._day_text()))  # alert texts: not markup
 
     def _day_text(self) -> str:
         start = _midnight(self._day)

@@ -33,7 +33,7 @@ class EventLogScreen(Screen[None]):
         tree.show_root = False
         lines = log_lines(self._events)
         if not lines:
-            tree.root.add_leaf(EMPTY)
+            tree.root.add_leaf(Text(EMPTY))
         for line in lines:
             label = Text(line_text(line), style=STYLES.get(line.level, ""))
             if line.full is None:
@@ -41,5 +41,5 @@ class EventLogScreen(Screen[None]):
                 continue
             node = tree.root.add(label, expand=False)
             for sentence in sentences(line.full):
-                node.add_leaf(sentence)
+                node.add_leaf(Text(sentence))  # Text: pane labels are not markup
         tree.focus()

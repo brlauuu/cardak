@@ -1,3 +1,4 @@
+import time
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
@@ -127,3 +128,22 @@ async def test_axis_lines_up_with_day_columns() -> None:
         cells = next(x for x in lines if "█" in x and x.startswith("webshop"))
         assert axis.rstrip().endswith(f"{date.today():%b %-d}")
         assert len(axis.rstrip()) - 1 == cells.rindex("█")  # today's label ends over today's cell
+
+
+async def test_plot_survives_markup_in_names_and_events() -> None:
+    odd = FakeLog(
+        events=[ResourceEvent(time.time(), "big", "warning", WEB, "web [/x] · 9 GB", True)],
+        days=[DayPeak(WEB, "web[/x]", day(0), 9 * GIB, 300.0)],
+    )
+    app = DeckApp(StubSource(live()), interval=3600, log=odd)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("h")
+        await pilot.pause()
+        table = app.screen.query_one(DataTable)
+        names = [str(table.get_row_at(i)[0]).strip() for i in range(table.row_count)]
+        table.move_cursor(row=names.index("web[/x]"), column=len(table.columns) - 1)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, PlotScreen)
+        assert "web [/x]" in str(app.screen.query_one("#day", Static).render())

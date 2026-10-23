@@ -23,6 +23,9 @@ JOURNAL_BEFORE_S = 120.0
 KEEP_S = 600.0  # each pane's RAM over the last 10 minutes: "grew from … in N minutes"
 PID_KEEP_S = 60.0
 CRITICAL_BEFORE_S = 30.0
+# With OOMPolicy=stop systemd closes the window within seconds of the kill; an older kill in a
+# scope that didn't fail left the window open (OOMPolicy=continue), so it didn't close it.
+KILL_CLOSES_S = 15.0
 WEZTERM_SCOPE = "app-org.wezfurlong.wezterm-"
 PROJECT_KINDS = ("config", "git")
 POLICY = (
@@ -100,7 +103,7 @@ class CrashWatch:
         self._pids: dict[int, tuple[int, float]] = {}  # pid → (pane id, last seen)
         self._panes: dict[int, _PaneInfo] = {}
         self._machine: deque[tuple[float, MachineSample]] = deque()
-        self._last: DeckSnapshot | None = None
+        self._snaps: deque[tuple[float, DeckSnapshot]] = deque()  # good ones, for "then"
 
     def observe(self, guis: Mapping[int, str | None], snap: DeckSnapshot, now: float) -> None:
         self._pending += [
@@ -110,13 +113,15 @@ class CrashWatch:
         if snap.machine is not None:
             self._machine.append((now, snap.machine))
         if snap.error is None:
-            self._last = snap
+            self._snaps.append((now, snap))
             self._record_panes(snap, now)
         self._forget(now)
 
     def _forget(self, now: float) -> None:
         while self._machine and self._machine[0][0] < now - KEEP_S:
             self._machine.popleft()
+        while self._snaps and self._snaps[0][0] < now - PID_KEEP_S:
+            self._snaps.popleft()
         for key, series in list(self._series.items()):
             while series and series[0][0] < now - KEEP_S:
                 series.popleft()
@@ -140,17 +145,22 @@ class CrashWatch:
         self._pending = [g for g in self._pending if now - g.ts < CHECK_AFTER_S]
         return ready
 
-    def _relevant(self, gone: Gone, kernel: Sequence[JournalEntry]) -> list[OomKill]:
+    def _relevant(self, gone: Gone, kernel: Sequence[JournalEntry], failed: bool) -> list[OomKill]:
         def ours(k: OomKill) -> bool:
             if gone.scope is not None:
                 return k.memcg.endswith("/" + gone.scope)
             return WEZTERM_SCOPE in k.memcg
 
+        lookback = JOURNAL_BEFORE_S if failed else KILL_CLOSES_S
         return [
-            k
-            for k in oom_kills(kernel)
-            if gone.ts - JOURNAL_BEFORE_S <= k.ts <= gone.ts + 10 and ours(k)
+            k for k in oom_kills(kernel) if gone.ts - lookback <= k.ts <= gone.ts + 10 and ours(k)
         ]
+
+    def _before(self, cutoff: float) -> tuple[DeckSnapshot | None, MachineSample | None]:
+        """The newest snapshot and machine sample from before the kill (or the close)."""
+        snaps = [snap for ts, snap in self._snaps if ts < cutoff] or [s for _, s in self._snaps]
+        machines = [m for ts, m in self._machine if ts < cutoff] or [m for _, m in self._machine]
+        return (snaps[-1] if snaps else None), (machines[-1] if machines else None)
 
     def _killed(self, k: OomKill) -> str:
         seen = self._pids.get(k.pid)
@@ -178,15 +188,14 @@ class CrashWatch:
                 return m
         return None
 
-    def _memory(self, critical: MachineSample | None) -> str | None:
+    def _memory(self, critical: MachineSample | None, last: MachineSample | None) -> str | None:
         if critical is not None:
             return (
                 "The journal wasn't readable, but memory was critical just before "
                 f"({gb(critical.mem_available)} free of {_total(critical)})."
             )
-        if not self._machine:
+        if last is None:
             return None
-        last = self._machine[-1][1]
         swap = "; swap full" if last.swap_total > 0 and last.swap_free == 0 else ""
         return f"The machine ran out of memory ({_total(last)}{swap})."
 
@@ -197,16 +206,17 @@ class CrashWatch:
         user: Sequence[JournalEntry],
         t: Thresholds | None,
     ) -> CrashReport:
-        kills = self._relevant(gone, kernel) if kernel is not None else []
         failed = gone.scope is not None and gone.scope in failed_scopes(user)
+        kills = self._relevant(gone, kernel, failed) if kernel is not None else []
         critical = self._critical_before(gone, t) if kernel is None else None
-        biggest = _biggest(self._last)
+        snap, machine = self._before(min((k.ts for k in kills), default=gone.ts))
+        biggest = _biggest(snap)
         if not (kills or failed or critical):
             return _quiet(gone, kernel is not None, biggest)
         killed = self._killed(max(kills, key=lambda k: k.anon_rss or 0)) if kills else None
         sentences = [
             f"WezTerm was closed at {_when(gone.ts)}.",
-            self._memory(critical),
+            self._memory(critical, machine),
             killed,
             POLICY if failed else None,
             biggest,
