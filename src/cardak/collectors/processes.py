@@ -1,12 +1,12 @@
-"""Per-tty process trees and their CPU/RAM. PsutilTable is the only per-process /proc reader."""
+"""Per-tty process trees and their CPU/RAM. ProcTable is the only per-process /proc reader."""
 
+import os
+import time
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
-
-import psutil
 
 
 @dataclass(frozen=True)
@@ -27,26 +27,81 @@ class ProcessTable(Protocol):
     def snapshot(self) -> list[ProcInfo]: ...
 
 
-class PsutilTable:
-    """Keeps psutil.Process objects between snapshots: cpu_percent needs two samples."""
+def _read_bytes(path: str) -> bytes:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        return os.read(fd, 1 << 16)
+    finally:
+        os.close(fd)
 
-    def __init__(self, proc_root: Path = Path("/proc"), dev_root: Path = Path("/dev")) -> None:
+
+def _boot_time(proc_root: Path) -> float:
+    for line in (proc_root / "stat").read_text().splitlines():
+        if line.startswith("btime "):
+            return float(line.split()[1])
+    raise ValueError("no btime in /proc/stat")
+
+
+@dataclass(frozen=True)
+class _Stat:
+    comm: str
+    ppid: int
+    pgid: int
+    tty_nr: int
+    tpgid: int
+    ticks: int  # utime + stime
+    start: int  # starttime, in clock ticks after boot
+    rss_pages: int
+
+
+def _parse_stat(text: str) -> _Stat:
+    """/proc/<pid>/stat; comm is in parentheses and may itself contain spaces or ")"."""
+    comm = text[text.index("(") + 1 : text.rindex(")")]
+    f = text[text.rindex(")") + 2 :].split()
+    return _Stat(
+        comm,
+        int(f[1]),
+        int(f[2]),
+        int(f[4]),
+        int(f[5]),
+        int(f[11]) + int(f[12]),
+        int(f[19]),
+        int(f[21]),
+    )
+
+
+class ProcTable:
+    """Reads /proc directly: one stat read per process per snapshot.
+
+    psutil opened several files per process (~140 ms for ~400 processes), too much for a
+    daemon polling every 2 s. Command lines are read once a process's argv has settled
+    (`npm exec` rewrites its argv shortly after start), and again after an exec (new comm).
+    """
+
+    SETTLE_S = 30.0
+
+    def __init__(
+        self,
+        proc_root: Path = Path("/proc"),
+        dev_root: Path = Path("/dev"),
+        clock: Callable[[], float] = time.monotonic,
+        clk_tck: int | None = None,
+        page_size: int | None = None,
+        wall: Callable[[], float] = time.time,
+    ) -> None:
         self._proc_root = proc_root
+        self._root = str(proc_root)  # plain strings: pathlib costs more than the reads here
         self._dev_root = dev_root
-        self._seen: dict[tuple[int, float], psutil.Process] = {}
-
-    def _stat(self, pid: int) -> tuple[int, int, int]:
-        """(pgrp, tty_nr, tpgid) from /proc/<pid>/stat; the comm field may contain spaces."""
-        stat = (self._proc_root / str(pid) / "stat").read_text()
-        fields = stat[stat.rindex(")") + 2 :].split()
-        return int(fields[2]), int(fields[4]), int(fields[5])
+        self._clock = clock
+        self._wall = wall
+        self._clk_tck = clk_tck or os.sysconf("SC_CLK_TCK")
+        self._page_size = page_size or os.sysconf("SC_PAGE_SIZE")
+        self._boot: float | None = None
+        self._ticks: dict[tuple[int, int], tuple[int, float]] = {}  # (pid, start) → (ticks, when)
+        self._cmdlines: dict[tuple[int, int, str], tuple[str, ...]] = {}
 
     def _terminal_map(self) -> dict[int, str]:
-        """Device number -> tty path, rebuilt per snapshot.
-
-        psutil's own map (behind Process.terminal) is memoized on first use, so a pane
-        opened after the deck started would never get a tty.
-        """
+        """Device number -> tty path, rebuilt per snapshot (a pane opened later has a new pts)."""
         ttys: dict[int, str] = {}
         for path in [*self._dev_root.glob("tty*"), *self._dev_root.glob("pts/*")]:
             try:
@@ -55,46 +110,66 @@ class PsutilTable:
                 continue
         return ttys
 
+    def _cmdline(self, pid: int, st: _Stat, created: float) -> tuple[str, ...]:
+        key = (pid, st.start, st.comm)
+        cached = self._cmdlines.get(key)
+        if cached is not None and self._wall() - created >= self.SETTLE_S:
+            return cached
+        raw = _read_bytes(f"{self._root}/{pid}/cmdline")
+        argv = tuple(a.decode(errors="replace") for a in raw.split(b"\0") if a)
+        self._cmdlines[key] = argv
+        return argv
+
     def _read(
         self,
-        proc: psutil.Process,
+        pid: int,
         ttys: dict[int, str],
-        seen: dict[tuple[int, float], psutil.Process],
+        now: float,
+        ticks: dict[tuple[int, int], tuple[int, float]],
     ) -> ProcInfo:
-        """One process; records it in `seen`. Raises psutil.Error/OSError if it vanished."""
-        info = proc.info
-        key = (info["pid"], info["create_time"])
-        known = self._seen.get(key)
-        tracked = known or proc
-        cpu = tracked.cpu_percent(None)
-        pgid, tty_nr, tpgid = self._stat(info["pid"])
-        seen[key] = tracked
-        memory = info["memory_info"]
+        st = _parse_stat(_read_bytes(f"{self._root}/{pid}/stat").decode(errors="replace"))
+        created = (self._boot or 0.0) + st.start / self._clk_tck
+        argv = self._cmdline(pid, st, created)
+        name = st.comm
+        if len(name) == 15 and argv and Path(argv[0]).name.startswith(name):
+            name = Path(argv[0]).name  # comm is cut at 15 characters
+        key = (pid, st.start)
+        prev = self._ticks.get(key)
+        ticks[key] = (st.ticks, now)
+        cpu = None
+        if prev is not None and now > prev[1]:
+            cpu = (st.ticks - prev[0]) / self._clk_tck / (now - prev[1]) * 100
         return ProcInfo(
-            pid=info["pid"],
-            ppid=info["ppid"] or 0,
-            tty=ttys.get(tty_nr) if tty_nr else None,
-            pgid=pgid,
-            tpgid=tpgid,
-            name=info["name"] or "?",
-            cmdline=tuple(info["cmdline"] or ()),
-            create_time=info["create_time"],
-            cpu_pct=cpu if known else None,
-            rss=memory.rss if memory else 0,
+            pid=pid,
+            ppid=st.ppid,
+            tty=ttys.get(st.tty_nr) if st.tty_nr else None,
+            pgid=st.pgid,
+            tpgid=st.tpgid,
+            name=name,
+            cmdline=argv,
+            create_time=created,
+            cpu_pct=cpu,
+            rss=st.rss_pages * self._page_size,
         )
 
     def snapshot(self) -> list[ProcInfo]:
-        seen: dict[tuple[int, float], psutil.Process] = {}
-        infos: list[ProcInfo] = []
+        if self._boot is None:
+            self._boot = _boot_time(self._proc_root)
         ttys = self._terminal_map()
-        attrs = ["pid", "ppid", "name", "cmdline", "create_time", "memory_info"]
-        for proc in psutil.process_iter(attrs):
-            try:
-                infos.append(self._read(proc, ttys, seen))
-            except (psutil.Error, OSError, ValueError):
+        now = self._clock()
+        ticks: dict[tuple[int, int], tuple[int, float]] = {}
+        infos: list[ProcInfo] = []
+        for entry in os.listdir(self._root):
+            if not entry.isdigit():
                 continue
-        self._seen = seen
-        return infos
+            try:
+                infos.append(self._read(int(entry), ttys, now, ticks))
+            except (OSError, ValueError, IndexError):
+                continue  # exited, or unreadable
+        self._ticks = ticks
+        alive = {(i.pid, round((i.create_time - self._boot) * self._clk_tck)) for i in infos}
+        self._cmdlines = {k: v for k, v in self._cmdlines.items() if k[:2] in alive}
+        return sorted(infos, key=lambda i: i.pid)
 
 
 @dataclass(frozen=True)
@@ -138,9 +213,26 @@ def is_mcp_server(p: ProcInfo) -> bool:
 _BUILD_GROUPS = frozenset({"buildx", "image", "builder"})
 # compose subcommands, to find which one a `docker compose -f x.yml …` line runs
 _COMPOSE_COMMANDS = frozenset(
-    {"build", "up", "down", "run", "exec", "start", "stop", "restart", "create", "rm", "kill",
-     "logs", "ps", "pull", "push", "config", "watch"}
-)  # fmt: skip
+    {
+        "build",
+        "up",
+        "down",
+        "run",
+        "exec",
+        "start",
+        "stop",
+        "restart",
+        "create",
+        "rm",
+        "kill",
+        "logs",
+        "ps",
+        "pull",
+        "push",
+        "config",
+        "watch",
+    }
+)
 
 
 def _compose_builds(words: list[str]) -> bool:
@@ -233,7 +325,7 @@ def summarize(procs: Sequence[ProcInfo], ttys: Iterable[str]) -> dict[str, PaneP
 
 class ProcessSampler:
     def __init__(self, table: ProcessTable | None = None) -> None:
-        self._table = table or PsutilTable()
+        self._table = table or ProcTable()
 
     def sample(self, ttys: Iterable[str]) -> dict[str, PaneProcs]:
         return summarize(self._table.snapshot(), ttys)
