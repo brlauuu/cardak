@@ -199,6 +199,7 @@ def _resources_install(config_arg: str | None, yes: bool, refresh: bool, force: 
     if not yes and input(f"Write {path} and start it? [y/N] ").strip().lower() not in ("y", "yes"):
         print("Nothing written.")
         return 0
+    previous = path.read_text(encoding="utf-8") if unit.is_ours(path) else None
     try:
         unit.write_unit(path, text, force)
     except OSError as e:
@@ -206,6 +207,7 @@ def _resources_install(config_arg: str | None, yes: bool, refresh: bool, force: 
         return 1
     if error := unit.enable(unit.run_systemctl):
         print(f"cardak: {error}", file=sys.stderr)
+        _roll_back(path, previous)
         return 1
     print("The alert service is running; it keeps watching with the deck closed.")
     _resource_defaults(config_arg, refresh)
@@ -215,6 +217,21 @@ def _resources_install(config_arg: str | None, yes: bool, refresh: bool, force: 
         print()
         print(unit.oom_advice(unit.unit_dir()), end="")
     return 0
+
+
+def _roll_back(path: Path, previous: str | None) -> None:
+    """After a failed enable, leave nothing half-installed: enable links before restart runs."""
+    from cardak.systemd import install as unit
+
+    unit.disable(unit.run_systemctl)
+    try:
+        if previous is None:
+            path.unlink(missing_ok=True)
+        else:
+            unit.write_unit(path, previous)
+            unit.enable(unit.run_systemctl)
+    except OSError as e:
+        print(f"cardak: cannot restore {path}: {e}", file=sys.stderr)
 
 
 def _resource_defaults(config_arg: str | None, refresh: bool) -> None:

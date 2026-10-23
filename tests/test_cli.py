@@ -303,7 +303,8 @@ def test_install_writes_unit_defaults_and_advice(resources_env, capsys) -> None:
     assert main(["--config", str(cfg), "resources", "install", "--yes"]) == 0
     unit_file = tmp_path / "cfg/systemd/user/cardak.service"
     assert "ExecStart=/u/bin/cardak daemon" in unit_file.read_text()
-    assert ["systemctl", "--user", "enable", "--now", "cardak.service"] in fake.calls
+    assert ["systemctl", "--user", "enable", "cardak.service"] in fake.calls
+    assert ["systemctl", "--user", "restart", "cardak.service"] in fake.calls
     assert load(cfg).resources.pane_ram_gb == 8.0
     out = capsys.readouterr().out
     assert "pane_ram_gb" in out and "OOMPolicy=continue" in out
@@ -340,9 +341,28 @@ def test_install_reports_systemctl_failure(resources_env, monkeypatch, capsys) -
     from cardak.systemd import install as unit
 
     tmp_path, _ = resources_env
-    monkeypatch.setattr(unit, "run_systemctl", FakeSystemctl(fail_enable=True))
+    fake = FakeSystemctl(fail_enable=True)
+    monkeypatch.setattr(unit, "run_systemctl", fake)
     assert main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"]) == 1
     assert "Failed to enable unit" in capsys.readouterr().err
+    # nothing left half-installed: disabled again, the unit removed, so the deck still hints
+    assert ["systemctl", "--user", "disable", "--now", "cardak.service"] in fake.calls
+    assert not (tmp_path / "cfg/systemd/user/cardak.service").exists()
+
+
+def test_failed_reinstall_restores_the_previous_unit(resources_env, monkeypatch) -> None:
+    from cardak.systemd import install as unit
+
+    tmp_path, _ = resources_env
+    unit_file = tmp_path / "cfg/systemd/user/cardak.service"
+    main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"])
+    before = unit_file.read_text()
+    monkeypatch.setattr(
+        "cardak.claude.install.find_executable", lambda argv0, which=None: Path("/new/cardak")
+    )
+    monkeypatch.setattr(unit, "run_systemctl", FakeSystemctl(fail_enable=True))
+    assert main(["--config", str(tmp_path / "p.toml"), "resources", "install", "--yes"]) == 1
+    assert unit_file.read_text() == before
 
 
 def test_install_asks_and_no_writes_nothing(resources_env, monkeypatch, capsys) -> None:

@@ -40,6 +40,7 @@ def unit_text(cardak_bin: Path) -> str:
         f"ExecStart={cardak_bin} daemon\n"
         "Restart=on-failure\n"
         "RestartSec=5\n"
+        "RestartPreventExitStatus=3\n"  # another daemon holds the lock
         "\n"
         "[Install]\n"
         "WantedBy=default.target\n"
@@ -87,8 +88,8 @@ def _failed(result: subprocess.CompletedProcess[str] | str) -> str | None:
 
 
 def enable(run: Run = run_systemctl) -> str | None:
-    """daemon-reload, then enable --now; the error text, or None."""
-    for args in (("daemon-reload",), ("enable", "--now", UNIT)):
+    """daemon-reload, enable, restart (a reinstall replaces a running daemon); the error or None."""
+    for args in (("daemon-reload",), ("enable", UNIT), ("restart", UNIT)):
         if error := _failed(_systemctl(run, *args)):
             return error
     return None

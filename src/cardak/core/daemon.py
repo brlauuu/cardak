@@ -21,6 +21,7 @@ from cardak.core.store import ResourceEvent, StoreError
 from cardak.core.watch import ResourceAlert, Watcher
 
 INTERVAL = 2.0
+ALREADY_RUNNING = 3  # the unit's RestartPreventExitStatus: systemd must not retry it
 PRUNE_EVERY_S = 3600.0
 
 Notify = Callable[[ResourceAlert, NotifySettings], None]
@@ -124,7 +125,7 @@ def main() -> int:
         held = lock(state_dir() / "daemon.lock")
     except DaemonRunning:
         print("cardak daemon: already running", file=sys.stderr)
-        return 1
+        return ALREADY_RUNNING
     try:
         store: Store | None = Store(db_path())
     except StoreError as e:

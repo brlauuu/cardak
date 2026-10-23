@@ -35,6 +35,16 @@ def _read_bytes(path: str) -> bytes:
         os.close(fd)
 
 
+def _argv(raw: bytes) -> tuple[str, ...]:
+    """/proc/<pid>/cmdline as psutil splits it: a process that rewrote its title leaves one
+    space-joined string (with no trailing NUL, or as a single argument), split on spaces."""
+    text = raw.decode(errors="replace")
+    parts = [a for a in text.split("\0") if a] if text.endswith("\0") else [text] if text else []
+    if len(parts) == 1 and " " in parts[0]:
+        parts = [a for a in parts[0].split(" ") if a]
+    return tuple(parts)
+
+
 def _boot_time(proc_root: Path) -> float:
     for line in (proc_root / "stat").read_text().splitlines():
         if line.startswith("btime "):
@@ -115,8 +125,7 @@ class ProcTable:
         cached = self._cmdlines.get(key)
         if cached is not None and self._wall() - created >= self.SETTLE_S:
             return cached
-        raw = _read_bytes(f"{self._root}/{pid}/cmdline")
-        argv = tuple(a.decode(errors="replace") for a in raw.split(b"\0") if a)
+        argv = _argv(_read_bytes(f"{self._root}/{pid}/cmdline"))
         self._cmdlines[key] = argv
         return argv
 

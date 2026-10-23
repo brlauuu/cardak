@@ -63,9 +63,11 @@ def test_write_unit_replaces_its_own(tmp_path: Path) -> None:
 def test_enable_runs_reload_then_enable() -> None:
     run = FakeRun()
     assert enable(run) is None
+    # restart, not --now: a reinstall after an upgrade must replace the running daemon
     assert run.calls == [
         ["systemctl", "--user", "daemon-reload"],
-        ["systemctl", "--user", "enable", "--now", UNIT],
+        ["systemctl", "--user", "enable", UNIT],
+        ["systemctl", "--user", "restart", UNIT],
     ]
 
 
@@ -124,3 +126,8 @@ def test_dropin_present(tmp_path: Path) -> None:
     assert not dropin_present(tmp_path)
     (d / "oom.conf").write_text("[Scope]\nOOMPolicy = continue\n")
     assert dropin_present(tmp_path)
+
+
+def test_unit_does_not_restart_while_another_daemon_runs() -> None:
+    # `cardak daemon` exits 3 when another one holds the lock; restarting would loop every 5 s
+    assert "RestartPreventExitStatus=3\n" in unit_text(Path("/bin/cardak"))

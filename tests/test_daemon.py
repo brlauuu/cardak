@@ -136,3 +136,17 @@ def test_second_daemon_exits(tmp_path: Path) -> None:
         lock(tmp_path / "daemon.lock")
     held.close()
     lock(tmp_path / "daemon.lock").close()
+
+
+def test_main_exits_with_already_running_when_locked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from cardak.core import daemon
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    held = lock(tmp_path / "cardak" / "daemon.lock")
+    try:
+        assert daemon.main() == daemon.ALREADY_RUNNING == 3
+    finally:
+        held.close()
+    assert "already running" in capsys.readouterr().err

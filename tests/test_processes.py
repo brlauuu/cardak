@@ -331,7 +331,7 @@ def test_proc_table_rereads_cmdline_after_exec_and_while_young(tmp_path: Path) -
     )
     young.snapshot()
     (root / "10" / "cmdline").write_bytes(b"npm exec @x/mcp\0")
-    assert young.snapshot()[0].cmdline == ("npm exec @x/mcp",)
+    assert young.snapshot()[0].cmdline == ("npm", "exec", "@x/mcp")  # split, as psutil does
 
 
 def test_proc_table_long_comm_takes_the_name_from_argv(tmp_path: Path) -> None:
@@ -349,3 +349,17 @@ def test_proc_table_matches_psutil_for_this_process() -> None:
     assert me.name == ps.name() and me.cmdline == tuple(ps.cmdline())
     assert me.create_time == pytest.approx(ps.create_time(), abs=0.05)
     assert abs(me.rss - ps.memory_info().rss) < 32 * 2**20
+
+
+def test_proc_table_splits_retitled_command_lines_like_psutil(tmp_path: Path) -> None:
+    # processes that set their own title leave one space-joined string, with or without a NUL
+    root = _proc_root(tmp_path)
+    _fake_proc(root, 10, "longname-proces", ())
+    (root / "10" / "cmdline").write_bytes(b"/opt/x/longname-process --flag /a/b\0")
+    _fake_proc(root, 11, "avahi-daemon", ())
+    (root / "11" / "cmdline").write_bytes(b"avahi-daemon: running [host.local]")
+    table = ProcTable(root, tmp_path / "dev", clock=lambda: 0.0, clk_tck=100, page_size=4096)
+    procs = {p.pid: p for p in table.snapshot()}
+    assert procs[10].cmdline == ("/opt/x/longname-process", "--flag", "/a/b")
+    assert procs[10].name == "longname-process"
+    assert procs[11].cmdline == ("avahi-daemon:", "running", "[host.local]")
