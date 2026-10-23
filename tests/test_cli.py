@@ -234,3 +234,24 @@ def test_pinging_hook_imports_no_summarizer(tmp_path: Path) -> None:
         [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_daemon_does_not_import_textual() -> None:
+    script = (
+        "import sys\n"
+        "import cardak.core.daemon\n"
+        "import cardak.core.source\n"
+        "loaded = [m for m in ('textual', 'cardak.ui') if m in sys.modules]\n"
+        "assert not loaded, loaded\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_daemon_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.core import daemon
+
+    monkeypatch.setattr(daemon, "main", lambda: 7)
+    assert main(["daemon"]) == 7

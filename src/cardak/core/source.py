@@ -95,6 +95,11 @@ class LiveSource:
         self._reload_if_changed()
 
     @property
+    def config(self) -> Config:
+        with self._lock:
+            return self._config
+
+    @property
     def can_add(self) -> bool:
         return self._config_error is None
 

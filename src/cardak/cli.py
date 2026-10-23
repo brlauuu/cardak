@@ -51,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("tui", help="open the deck (the default)")
     sub.add_parser("hook", help="record a Claude Code hook event (run by Claude Code)")
+    sub.add_parser("daemon", help="watch resources and alert (run by the systemd service)")
     summ = sub.add_parser("summarize", help="summarize a waiting session (run by cardak hook)")
     summ.add_argument("session_id")
     summ.add_argument("wait_since")
@@ -258,6 +259,10 @@ def main(argv: list[str] | None = None) -> int:
 
         return hook.main(sys.stdin)
     args = build_parser().parse_args(argv)
+    if args.command == "daemon":
+        from cardak.core import daemon
+
+        return daemon.main()
     if args.command == "summarize":
         return _summarize(args.session_id, args.wait_since)
     if args.command == "hooks":
