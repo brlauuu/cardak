@@ -84,7 +84,8 @@ class HistoryScreen(Screen[None]):
         Binding("escape", "app.pop_screen", "Back"),
     ]
     CSS = """
-    #title, #axis, #legend, #hint { padding: 0 1; }
+    #title, #legend, #hint { padding: 0 1; }
+    #axis { padding: 0; }  /* lines up with the table, which has no padding */
     #hint { color: $text-muted; }
     """
 

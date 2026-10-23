@@ -114,3 +114,16 @@ async def test_day_cell_opens_plot_and_arrows_move() -> None:
         assert info.startswith(f"{date.today() - timedelta(days=1):%b %-d}: no data")
         await pilot.press("escape")
         assert isinstance(app.screen, HistoryScreen)
+
+
+async def test_axis_lines_up_with_day_columns() -> None:
+    app = DeckApp(StubSource(live()), interval=3600, log=log())
+    async with app.run_test(size=(100, 16)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("h")
+        await pilot.pause()
+        lines = [s.text for s in app.screen._compositor.render_strips()]
+        axis = next(x for x in lines if f"{date.today():%b %-d}" in x and "history" not in x)
+        cells = next(x for x in lines if "█" in x and x.startswith("webshop"))
+        assert axis.rstrip().endswith(f"{date.today():%b %-d}")
+        assert len(axis.rstrip()) - 1 == cells.rindex("█")  # today's label ends over today's cell
