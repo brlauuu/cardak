@@ -361,17 +361,22 @@ def main(argv: list[str] | None = None) -> int:
         return _summarize(args.session_id, args.wait_since)
     if args.command == "hooks":
         return _hooks(args.hooks_command, args.settings, getattr(args, "yes", False))
+    if args.command in ("resources", "wezterm", "themes"):
+        return _setup(args)
+    return _deck(args.config)
+
+
+def _setup(args: argparse.Namespace) -> int:
+    """The commands that install or generate files: resources, wezterm, themes."""
     if args.command == "resources":
         if args.resources_command == "uninstall":
             return _resources_uninstall()
         return _resources_install(args.config, args.yes, args.refresh_defaults, args.force)
     if args.command == "wezterm":
         return _wezterm_install(args.dir, args.force)
-    if args.command == "themes":
-        if args.themes_command == "apply":
-            return _themes_apply(args.config)
-        return _themes_zsh(args.config, args.force)
-    return _deck(args.config)
+    if args.themes_command == "apply":
+        return _themes_apply(args.config)
+    return _themes_zsh(args.config, args.force)
 
 
 def _summarize(session_id: str, wait_since: str) -> int:
