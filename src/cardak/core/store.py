@@ -6,6 +6,7 @@ a busy timeout, and `BEGIN IMMEDIATE` around each read-modify-write.
 
 import json
 import sqlite3
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import astuple, dataclass, fields
 from pathlib import Path
@@ -70,6 +71,17 @@ CREATE TABLE IF NOT EXISTS resource_minutes (
     PRIMARY KEY (subject, minute)
 );
 CREATE INDEX IF NOT EXISTS resource_minutes_minute ON resource_minutes (minute);
+-- covering indexes: a median is one ordered index walk per subject, no sort
+CREATE INDEX IF NOT EXISTS resource_minutes_ram ON resource_minutes (subject, ram_mean, minute);
+CREATE INDEX IF NOT EXISTS resource_minutes_cpu ON resource_minutes (subject, cpu_mean, minute);
+CREATE TABLE IF NOT EXISTS resource_days (
+    subject TEXT NOT NULL,
+    day TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ram_peak INTEGER NOT NULL,
+    cpu_peak REAL NOT NULL,
+    PRIMARY KEY (subject, day)
+);
 CREATE TABLE IF NOT EXISTS dismissed_reports (ts REAL PRIMARY KEY);
 """
 ALERT_KINDS = ("memory", "big", "growth", "busy", "machine_busy")
@@ -126,6 +138,10 @@ class DayPeak:
 
 class StoreError(Exception):
     pass
+
+
+def _local_day(ts: float) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(ts))
 
 
 def db_path(env: Mapping[str, str] | None = None) -> Path:
@@ -349,16 +365,25 @@ class Store:
                     "INSERT OR REPLACE INTO resource_minutes VALUES (?, ?, ?, ?, ?, ?, ?)",
                     [astuple(r) for r in rows],
                 )
+                # Daily peaks kept as the minutes arrive: the history view reads ~30 rows per
+                # project instead of grouping ~43k minutes each into local days.
+                self._con.executemany(
+                    "INSERT INTO resource_days VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT (subject, day) DO UPDATE SET name = excluded.name, "
+                    "ram_peak = max(ram_peak, excluded.ram_peak), "
+                    "cpu_peak = max(cpu_peak, excluded.cpu_peak)",
+                    [(r.subject, _local_day(r.minute * 60), r.name, r.ram_max, r.cpu_max)
+                     for r in rows],
+                )  # fmt: skip
         except sqlite3.Error as e:
             raise StoreError(str(e)) from e
 
     def history_days(self, since: float) -> list[DayPeak]:
         rows = self._query(
-            "SELECT m.subject, (SELECT name FROM resource_minutes n WHERE n.subject = m.subject "
-            "ORDER BY minute DESC LIMIT 1), date(m.minute * 60, 'unixepoch', 'localtime') AS day, "
-            "max(m.ram_max), max(m.cpu_max) FROM resource_minutes m WHERE m.minute >= ? "
-            "GROUP BY m.subject, day ORDER BY m.subject, day",
-            (int(since // 60),),
+            "SELECT d.subject, (SELECT name FROM resource_days n WHERE n.subject = d.subject "
+            "ORDER BY day DESC LIMIT 1), d.day, d.ram_peak, d.cpu_peak FROM resource_days d "
+            "WHERE d.day >= ? ORDER BY d.subject, d.day",
+            (_local_day(since),),
         )
         return [DayPeak(r[0], r[1], r[2], int(r[3]), float(r[4])) for r in rows]
 
@@ -436,6 +461,9 @@ class Store:
                 "DELETE FROM resource_minutes WHERE minute < ?", (int(resource_cutoff // 60),)
             )
             self._con.execute("DELETE FROM dismissed_reports WHERE ts < ?", (resource_cutoff,))
+            self._con.execute(
+                "DELETE FROM resource_days WHERE day < ?", (_local_day(resource_cutoff),)
+            )
             self._con.execute(
                 "DELETE FROM events WHERE rowid NOT IN "
                 "(SELECT rowid FROM events ORDER BY ts DESC LIMIT ?)",

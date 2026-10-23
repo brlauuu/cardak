@@ -385,4 +385,5 @@ def test_prune_drops_old_minutes(tmp_path: Path) -> None:
     store.dismiss_report(0.0)
     store.prune(31 * DAY)
     assert [h[1] for h in store.history_hours(WEB, 0.0)] == [3]
+    assert [d.ram_peak for d in store.history_days(-1.0)] == [3]  # daily peaks pruned too
     assert store.latest_crash(-1.0) is None
