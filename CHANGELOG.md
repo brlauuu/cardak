@@ -9,6 +9,11 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+- `h` opens 30 days of history per project: RAM (or CPU with `c`) now, median and peak, the number of alerts, and a calendar strip of daily peaks. A day opens that project's 30-day plot with the alert threshold and that day's alerts. The background service records it; run `cardak resources install` if you haven't. (#57)
+- `e` opens the event log: every resource alert, crash report and service start, newest first, with quiet repeats folded into one line. (#57)
+- When a WezTerm window closes because memory ran out, a notification says what happened: which process the kernel killed, in which project and pane, how fast it grew, the biggest users at that moment, and how to keep the window open next time. The deck shows it at the top until you press `d`. (#57)
+
 ## 0.7.0 — 2026-10-23
 
 ### Added
