@@ -270,8 +270,10 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   (fan-in 8: the summarizer is one more reader), `read_transcript` (3 × 5) and
   `config_path` (5 × 3) as hotspots, and `core/summary` in `exported-surface`.
 - **M5 part 2 (daemon and alerts)** split `cli.main` (11, the setup commands went to `_setup`).
-  Accepted: the coordinators `Watcher._subject_alerts` (3 × 8) and `_machine_alerts` (3 × 6),
-  and `config._read` (4 × 4: one more writer reads the file).
+  Accepted: the coordinators `Watcher._subject_alerts` (3 × 8), `_machine_alerts` (3 × 6) and
+  `ProcTable._read` (3 × 6: stat, cmdline, name, CPU for one process), `config._read` (4 × 4: one
+  more writer reads the file), and `cli._resources_install` at complexity 10 (each step of the
+  install, with the rollback, is one branch).
 - **M5 part 1 (live numbers)** split `docker._container` (14), `accounting._attach_builds` /
   `_attach_containers` and `config._resources`. Accepted after that: `_pane_procs` at
   complexity 10, and the coordinators `LiveSource._resources` (3 × 6) and `widgets.usage`
