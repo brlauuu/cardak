@@ -287,6 +287,13 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   `ProcTable._read` (3 × 6: stat, cmdline, name, CPU for one process), `config._read` (4 × 4: one
   more writer reads the file), and `cli._resources_install` at complexity 10 (each step of the
   install, with the rollback, is one branch).
+- **M5 part 3 (history and crash report)** split `CrashWatch.report` (19: `_memory`, `_quiet`),
+  `CrashWatch.observe` (14: `_forget`), `history_rows` (13: `_day_cells`) and `crash._biggest`
+  (`_users`). Accepted: `CrashWatch.report` at 12 (each sentence of the report is one condition),
+  complexity 10–11 in `history._live`, `history_rows`, `plot.braille` and `PlotScreen._draw`,
+  `_pane_procs` at 11 (one more field: the pids), `Store._query` (fan-in 8: every history query
+  shares its error wrapping), and the coordinators `HistoryScreen._fill` (5 × 11),
+  `PlotScreen._draw` (5 × 8) and `eventlog.line_text` (4 × 4).
 - **M5 part 1 (live numbers)** split `docker._container` (14), `accounting._attach_builds` /
   `_attach_containers` and `config._resources`. Accepted after that: `_pane_procs` at
   complexity 10, and the coordinators `LiveSource._resources` (3 × 6) and `widgets.usage`

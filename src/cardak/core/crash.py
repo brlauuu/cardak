@@ -63,9 +63,8 @@ def _total(m: MachineSample) -> str:
     return f"{m.mem_total / GIB:.0f} GB"
 
 
-def _biggest(snap: DeckSnapshot | None) -> str | None:
-    if snap is None:
-        return None
+def _users(snap: DeckSnapshot) -> list[tuple[int, str]]:
+    """Projects, and Other split into its panes, Docker lines and what runs outside WezTerm."""
     users: list[tuple[int, str]] = []
     for g in snap.groups:
         if g.kind in PROJECT_KINDS:
@@ -73,17 +72,24 @@ def _biggest(snap: DeckSnapshot | None) -> str | None:
         elif g.kind == "other":
             users += [(r.rss + r.mcp_rss, f"pane {r.pane_id} · {r.label}") for r in g.panes]
             users += [(d.rss, d.label) for d in g.docker]
-            if g.outside_rss:
-                users.append((g.outside_rss, "outside WezTerm"))
-    top = sorted(users, key=lambda u: -u[0])[:5]
+            users += [(g.outside_rss, "outside WezTerm")] if g.outside_rss else []
+    return users
+
+
+def _biggest(snap: DeckSnapshot | None) -> str | None:
+    top = sorted(_users(snap), key=lambda u: -u[0])[:5] if snap is not None else []
     if not top:
         return None
     listed = ", ".join(f"{name} {gb(rss)}" for rss, name in top)
-    return (
-        f"The {len(top)} biggest users then: {listed}."
-        if len(top) > 1
-        else (f"The biggest user then: {listed}.")
-    )
+    if len(top) == 1:
+        return f"The biggest user then: {listed}."
+    return f"The {len(top)} biggest users then: {listed}."
+
+
+def _quiet(gone: Gone, readable: bool, biggest: str | None) -> CrashReport:
+    why = "shows no OOM kill" if readable else "wasn't readable"
+    text = f"WezTerm (pid {gone.pid}) closed at {_when(gone.ts)}; the journal {why}."
+    return CrashReport(False, "cardak · WezTerm closed", " ".join(filter(None, [text, biggest])))
 
 
 class CrashWatch:
@@ -97,17 +103,20 @@ class CrashWatch:
         self._last: DeckSnapshot | None = None
 
     def observe(self, guis: Mapping[int, str | None], snap: DeckSnapshot, now: float) -> None:
-        for pid, scope in self._guis.items():
-            if pid not in guis:
-                self._pending.append(Gone(pid, scope, now))
+        self._pending += [
+            Gone(pid, scope, now) for pid, scope in self._guis.items() if pid not in guis
+        ]
         self._guis = {pid: scope or self._guis.get(pid) for pid, scope in guis.items()}
         if snap.machine is not None:
             self._machine.append((now, snap.machine))
-        while self._machine and self._machine[0][0] < now - KEEP_S:
-            self._machine.popleft()
         if snap.error is None:
             self._last = snap
             self._record_panes(snap, now)
+        self._forget(now)
+
+    def _forget(self, now: float) -> None:
+        while self._machine and self._machine[0][0] < now - KEEP_S:
+            self._machine.popleft()
         for key, series in list(self._series.items()):
             while series and series[0][0] < now - KEEP_S:
                 series.popleft()
@@ -169,6 +178,18 @@ class CrashWatch:
                 return m
         return None
 
+    def _memory(self, critical: MachineSample | None) -> str | None:
+        if critical is not None:
+            return (
+                "The journal wasn't readable, but memory was critical just before "
+                f"({gb(critical.mem_available)} free of {_total(critical)})."
+            )
+        if not self._machine:
+            return None
+        last = self._machine[-1][1]
+        swap = "; swap full" if last.swap_total > 0 and last.swap_free == 0 else ""
+        return f"The machine ran out of memory ({_total(last)}{swap})."
+
     def report(
         self,
         gone: Gone,
@@ -181,29 +202,15 @@ class CrashWatch:
         critical = self._critical_before(gone, t) if kernel is None else None
         biggest = _biggest(self._last)
         if not (kills or failed or critical):
-            why = (
-                "the journal wasn't readable" if kernel is None else "the journal shows no OOM kill"
-            )
-            text = f"WezTerm (pid {gone.pid}) closed at {_when(gone.ts)}; {why}."
-            return CrashReport(
-                False, "cardak · WezTerm closed", " ".join([text, biggest or ""]).strip()
-            )
-        sentences = [f"WezTerm was closed at {_when(gone.ts)}."]
-        last = self._machine[-1][1] if self._machine else None
-        if critical is not None:
-            sentences.append(
-                "The journal wasn't readable, but memory was critical just before "
-                f"({gb(critical.mem_available)} free of {_total(critical)})."
-            )
-        elif last is not None:
-            swap = "; swap full" if last.swap_total > 0 and last.swap_free == 0 else ""
-            sentences.append(f"The machine ran out of memory ({_total(last)}{swap}).")
-        if kills:
-            sentences.append(self._killed(max(kills, key=lambda k: k.anon_rss or 0)))
-        if failed:
-            sentences.append(POLICY)
-        if biggest:
-            sentences.append(biggest)
-        if failed:
-            sentences.append(FIX)
-        return CrashReport(True, "cardak · WezTerm closed: out of memory", " ".join(sentences))
+            return _quiet(gone, kernel is not None, biggest)
+        killed = self._killed(max(kills, key=lambda k: k.anon_rss or 0)) if kills else None
+        sentences = [
+            f"WezTerm was closed at {_when(gone.ts)}.",
+            self._memory(critical),
+            killed,
+            POLICY if failed else None,
+            biggest,
+            FIX if failed else None,
+        ]
+        text = " ".join(s for s in sentences if s)
+        return CrashReport(True, "cardak · WezTerm closed: out of memory", text)

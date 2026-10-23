@@ -84,15 +84,10 @@ class HistoryRow:
     days: tuple[float | None, ...]  # oldest first; the last cell is today
 
 
-def history_rows(
-    days: Sequence[DayPeak],
-    medians: Mapping[str, tuple[float, float]],
-    counts: Mapping[str, int],
-    live: DeckSnapshot | None,
-    today: date,
-    metric: Metric,
-) -> list[HistoryRow]:
-    first = today - timedelta(days=DAYS - 1)
+def _day_cells(
+    days: Sequence[DayPeak], first: date, metric: Metric
+) -> tuple[dict[str, str], dict[str, list[float | None]]]:
+    """Stored names, and each subject's DAYS cells of daily peaks (None: no data that day)."""
     names: dict[str, str] = {}
     cells: dict[str, list[float | None]] = {}
     for d in days:
@@ -101,10 +96,23 @@ def history_rows(
         index = (date.fromisoformat(d.day) - first).days
         if 0 <= index < DAYS:
             row[index] = float(d.ram_peak if metric == "ram" else d.cpu_peak)
+    return names, cells
+
+
+def history_rows(
+    days: Sequence[DayPeak],
+    medians: Mapping[str, tuple[float, float]],
+    counts: Mapping[str, int],
+    live: DeckSnapshot | None,
+    today: date,
+    metric: Metric,
+) -> list[HistoryRow]:
+    names, cells = _day_cells(days, today - timedelta(days=DAYS - 1), metric)
     now: dict[str, float] = {}
     for subject, name, rss, cpu in _live(live) if live is not None else []:
         names[subject] = name
         now[subject] = float(rss if metric == "ram" else cpu)
+    pick = 0 if metric == "ram" else 1
     out: list[HistoryRow] = []
     for subject in sorted(names, key=lambda s: (s == OTHER, names[s].lower())):
         values = cells.get(subject, [None] * DAYS)
@@ -115,7 +123,7 @@ def history_rows(
                 subject=subject,
                 name=names[subject],
                 now=now.get(subject),
-                median=(median[0] if metric == "ram" else median[1]) if median else None,
+                median=median[pick] if median else None,
                 peak=max(seen) if seen else None,
                 alerts=None if subject == OTHER else counts.get(subject, 0),
                 days=tuple(values),
