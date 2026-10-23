@@ -99,6 +99,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 HOOKS_HINT = "Run `cardak hooks install` to see Claude Code sessions' status."
+RESOURCES_HINT = (
+    "Resource alerts are off with the deck closed. Run `cardak resources install` to turn them on."
+)
+
+
+def _resources_hint() -> str | None:
+    """The deck's one-time hint when the alert service isn't installed."""
+    from cardak.systemd import install as unit
+
+    return None if (unit.unit_dir() / unit.UNIT).exists() else RESOURCES_HINT
 
 
 def _hooks_hint() -> str | None:
@@ -406,6 +416,7 @@ def _deck(config_arg: str | None) -> int:
         load_schemes=lambda: load_schemes(cache_dir),
         theme_status=lambda: _module_message(module_version(default_dir() / "cardak.lua")),
         hooks_status=_hooks_hint,
+        resources_status=_resources_hint,
     ).run()
     if agents is not None:
         agents.close()

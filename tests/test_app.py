@@ -793,3 +793,19 @@ async def test_waiting_pane_with_mcp_has_unique_ids() -> None:
         ids = [node_id(n.data) for n in all_nodes(app)]
         assert len(ids) == len(set(ids)), ids
         assert ids == ["g:waiting:None", "w:7", "g:config:/repos/webshop", "p:7", "m:7", "r:7"]
+
+
+async def test_resources_hint_once() -> None:
+    calls: list[int] = []
+
+    def hint() -> str:
+        calls.append(1)
+        return "Run `cardak resources install`"
+
+    app = DeckApp(StubSource(SNAP), interval=3600, resources_status=hint)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.action_refresh()
+        await settle(app, pilot)
+        assert calls == [1]
+        assert any("resources install" in str(n.message) for n in app._notifications)  # noqa: SLF001

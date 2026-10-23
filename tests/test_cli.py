@@ -381,3 +381,14 @@ def test_uninstall_leaves_a_foreign_unit(resources_env, capsys) -> None:
     unit_file.write_text("[Unit]\nDescription=mine\n")
     assert main(["resources", "uninstall"]) == 0
     assert unit_file.exists() and "not written by cardak" in capsys.readouterr().out
+
+
+def test_resources_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.cli import RESOURCES_HINT, _resources_hint
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert _resources_hint() == RESOURCES_HINT
+    assert "cardak resources install" in RESOURCES_HINT
+    (tmp_path / "systemd/user").mkdir(parents=True)
+    (tmp_path / "systemd/user/cardak.service").write_text("# cardak: generated\n")
+    assert _resources_hint() is None
