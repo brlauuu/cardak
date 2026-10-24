@@ -177,6 +177,25 @@ systemctl --user daemon-reload
 
 WezTerm windows opened after that lose only the process that was killed.
 
+### History, the event log and crash reports
+
+With the service running, cardak keeps 30 days of each project's usage:
+
+- `h` shows every project's RAM now, its median and peak, how many alerts it raised, and one cell
+  per day coloured by that day's peak (full red: it would have alerted). `c` switches to CPU, `s`
+  changes the order. Enter or a click on a day opens that project's 30-day plot with the alert
+  threshold drawn in and the day's alerts below it; ←/→ move the day.
+- `e` lists every alert, newest first; a repeat that didn't notify you is folded into its line.
+- When a WezTerm window closes because memory ran out, you get a notification and the deck shows
+  what happened at the top next time you open it (`d` dismisses it). For example:
+
+  > WezTerm was closed at 15:28:48 on Oct 21. The machine ran out of memory (32 GB; swap full).
+  > The kernel killed `pytest` (pid 41872) in api-gw, pane 12, which grew from 2.1 GB to 13.9 GB
+  > in 6 minutes. systemd then stopped the whole WezTerm window, …
+
+  The details come from the system journal, which you can read if you're in the `adm` or
+  `systemd-journal` group. Any other way a window closes is one quiet line in the event log.
+
 ## Development
 
 See `AGENTS.md` for conventions and `PLAN.md` for the roadmap.

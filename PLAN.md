@@ -191,7 +191,7 @@ Design exploration (browser and TUI variants) can be done separately with Claude
 - [x] Per-pane process-tree sampling, sparkline.
 - [x] Spike alerts with attribution ("pane 12 · api-gw · `cargo build` 290% CPU, 5.8 GB").
 - [x] Daemon (moved from M4): runs outside WezTerm as a systemd user service.
-- [ ] Event log view; survives the terminal crashing because the daemon runs outside WezTerm.
+- [x] Event log view; survives the terminal crashing because the daemon runs outside WezTerm.
 
 **M6: Checkpoint & recap.**
 - [ ] Two skills (usable standalone).

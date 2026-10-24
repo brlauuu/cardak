@@ -11,7 +11,7 @@ from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane
 from cardak.core.agents import SessionState, Status, WaitKind
 from cardak.core.resolver import Kind, ProjectResolver, Resolved
-from cardak.core.resources import MemoryLevel
+from cardak.core.resources import MemoryLevel, Thresholds
 
 ClaudeLookup = Callable[[int], ClaudeSession | None]
 AccentFor = Callable[[Resolved], str | None]
@@ -48,6 +48,7 @@ class PaneRow:
     docker_build: bool = False
     ram_spark: str = ""
     over: bool = False  # over a pane threshold right now
+    pids: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,7 @@ class DeckSnapshot:
     summary_limit: float = 0.0
     machine: MachineSample | None = None
     machine_view: MachineView | None = None
+    thresholds: Thresholds | None = None  # set whenever there is a machine sample
 
     @property
     def n_projects(self) -> int:
@@ -195,6 +197,7 @@ def _row(pane: Pane, resolved: Resolved, ctx: _Context) -> PaneRow:
         mcp_rss=pp.mcp_rss if pp else 0,
         mcp_cpu_pct=pp.mcp_cpu_pct if pp else 0.0,
         docker_build=pp.docker_build if pp else False,
+        pids=pp.pids if pp else frozenset(),
     )
 
 

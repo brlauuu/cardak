@@ -24,8 +24,9 @@ src/cardak/
   core/{summary, summarize}.py                         # #30: waiting summaries
   core/{accounting, resources, recent}.py              # M5: resources
   core/{watch, daemon}.py                              # M5: alerts and the background service
-  collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker}.py
-  ui/{app, widgets, theme_picker, detail}.py
+  core/{history, crash, eventlog}.py                   # M5: history, crash reports, the event log
+  collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
+  ui/{app, widgets, theme_picker, detail, events, history, plot}.py
   wezterm/{cardak.lua, generate.py, install.py, schemes.py, files.py, tint.zsh}
   claude/install.py       # M4: cardak's hooks in ~/.claude/settings.json
   systemd/install.py      # M5: cardak.service, and WezTerm's OOMPolicy check
@@ -103,7 +104,7 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   | `~/.config/cardak/tint.zsh` | `cardak themes zsh` | the opt-in per-pane tint hook |
   | `~/.config/cardak/anthropic_key` | the user (cardak only reads it, in `cardak summarize`; refused with group/other bits) | the Anthropic API key for waiting summaries |
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
-  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts (30 days) |
+  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days) |
   | `~/.local/state/cardak/focus` | `cardak.lua` (module 3) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>` |
   | `~/.local/state/cardak/daemon.lock` | `cardak daemon` | empty; locked while a daemon runs, so a second one exits |
   | `~/.config/systemd/user/cardak.service` | `cardak resources install` / `uninstall`, after asking (or `--yes`) | runs `cardak daemon`; first line `# cardak: generated` |
@@ -213,6 +214,18 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   nothing on recovery; a condition that persists is logged (not notified) once a minute.
 - The daemon polls through `LiveSource` (no store, no theme writer, no summaries) every 2 s:
   0.8% of one core and ~28 MB measured on the dev machine. `daemon.lock` (flock) keeps it single.
+- **History** (`core/history.Rollup`): the daemon writes one row per minute per project and for Other
+  (RAM mean/max, CPU mean/max) to `resource_minutes`, and keeps each local day's peak in
+  `resource_days` as it writes, so the history view reads ~30 rows per project (500k minutes:
+  70 ms). With WezTerm unreachable, Other is the machine's used RAM minus the projects.
+- **Crash report** (`core/crash.py`): every poll the daemon lists the live `gui-sock-<pid>` GUIs and
+  their scope (from `/proc/<pid>/cgroup`). When one disappears it waits 5 s, then reads
+  `journalctl -o json` (kernel and `--user`, `collectors/journal.py`) for `oom-kill:` lines in that
+  scope and `<scope>: Failed with result 'oom-kill'`. Only those make the report loud (a critical
+  notification and the deck's banner until `d`); any other exit is one quiet event-log line. Kernel
+  lines need `adm` or `systemd-journal`; without them journalctl prints only a hint, read as
+  "unreadable", and a crash is loud only if memory was critical in the 30 s before. The killed pid
+  is joined to its pane through `PaneRow.pids` (kept 60 s), its growth from the last 10 minutes.
 - **OOMPolicy** (verified 2026-10-23, systemd 255): WezTerm windows run in
   `app-org.wezfurlong.wezterm-<id>.scope` with `OOMPolicy=stop`, so one OOM kill closes the
   window. A prefix drop-in `app-org.wezfurlong.wezterm-.scope.d/oom.conf` with `[Scope]` /
@@ -274,6 +287,14 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   `ProcTable._read` (3 × 6: stat, cmdline, name, CPU for one process), `config._read` (4 × 4: one
   more writer reads the file), and `cli._resources_install` at complexity 10 (each step of the
   install, with the rollback, is one branch).
+- **M5 part 3 (history and crash report)** split `CrashWatch.report` (19: `_memory`, `_quiet`),
+  `CrashWatch.observe` (14: `_forget`), `history_rows` (13: `_day_cells`) and `crash._biggest`
+  (`_users`). Accepted: `CrashWatch.report` at 13 (each sentence of the report is one condition),
+  `CrashWatch._forget` at 10 (four time windows trimmed in one place),
+  complexity 10–11 in `history._live`, `history_rows`, `plot.braille` and `PlotScreen._draw`,
+  `_pane_procs` at 11 (one more field: the pids), `Store._query` (fan-in 8: every history query
+  shares its error wrapping), and the coordinators `HistoryScreen._fill` (5 × 11),
+  `PlotScreen._draw` (5 × 8) and `eventlog.line_text` (4 × 4).
 - **M5 part 1 (live numbers)** split `docker._container` (14), `accounting._attach_builds` /
   `_attach_containers` and `config._resources`. Accepted after that: `_pane_procs` at
   complexity 10, and the coordinators `LiveSource._resources` (3 × 6) and `widgets.usage`

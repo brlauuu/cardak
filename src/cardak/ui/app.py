@@ -19,12 +19,16 @@ from textual.worker import Worker
 
 from cardak.core.agents import SessionState
 from cardak.core.config import ConfigError
+from cardak.core.eventlog import sentences
 from cardak.core.filter import filter_snapshot, waiting_only
 from cardak.core.navigate import JumpResult
 from cardak.core.snapshot import DeckSnapshot, DockerLine, Group, PaneRow
+from cardak.core.store import DayPeak, ResourceEvent, StoreError
 from cardak.core.summary import SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.detail import DetailScreen
+from cardak.ui.events import EventLogScreen
+from cardak.ui.history import HistoryScreen
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
     docker_label,
@@ -39,6 +43,8 @@ from cardak.ui.widgets import (
     unreachable_label,
     waiting_label,
 )
+
+LOG_DAYS = 30
 
 
 @dataclass(frozen=True)
@@ -71,6 +77,24 @@ class DeckSource(Protocol):
     def session(self, session_id: str) -> SessionState | None: ...
 
     def summary_info(self, state: SessionState) -> SummaryInfo | None: ...
+
+
+class ResourceLog(Protocol):
+    """What the deck reads from cardak.db for the event log, the crash banner and history."""
+
+    def resource_events_since(self, ts: float) -> list[ResourceEvent]: ...
+
+    def latest_crash(self, since: float) -> ResourceEvent | None: ...
+
+    def dismiss_report(self, ts: float) -> None: ...
+
+    def history_days(self, since: float) -> list[DayPeak]: ...
+
+    def history_medians(self, since: float) -> dict[str, tuple[float, float]]: ...
+
+    def history_hours(self, subject: str, since: float) -> list[tuple[int, int, float]]: ...
+
+    def alert_counts(self, since: float) -> dict[str, int]: ...
 
 
 class Jumper(Protocol):
@@ -161,6 +185,7 @@ class DeckApp(App[None]):
     #find { display: none; }
     #banner.warning { background: $warning; }
     #banner { display: none; background: $error; color: $text; padding: 0 1; }
+    #crash { display: none; background: $error-darken-1; color: $text; padding: 0 1; }
     #machine { display: none; padding: 0 1; }
     """
     BINDINGS = [
@@ -168,6 +193,9 @@ class DeckApp(App[None]):
         Binding("t", "theme", "Theme"),
         Binding("w", "waiting_only", "Waiting"),
         Binding("i", "detail", "Details"),
+        Binding("h", "history", "History"),
+        Binding("e", "event_log", "Events"),
+        Binding("d", "dismiss_crash", "Dismiss", show=False),
         Binding("slash", "find", "Find"),
         Binding("escape", "clear_find", "Clear find", show=False),
         Binding("j", "cursor_down", "Down", show=False),
@@ -179,7 +207,7 @@ class DeckApp(App[None]):
     # Keys that act on the tree: off (and out of the footer) while another screen is on top.
     DECK_ACTIONS = frozenset(
         {"add_project", "theme", "waiting_only", "detail", "find", "refresh", "cursor_down",
-         "cursor_up", "clear_find"}
+         "cursor_up", "clear_find", "event_log", "dismiss_crash", "history"}
     )  # fmt: skip
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
@@ -196,6 +224,7 @@ class DeckApp(App[None]):
         theme_status: Callable[[], str | None] | None = None,
         hooks_status: Callable[[], str | None] | None = None,
         resources_status: Callable[[], str | None] | None = None,
+        log: ResourceLog | None = None,
     ) -> None:
         super().__init__()
         self.source = source
@@ -206,6 +235,8 @@ class DeckApp(App[None]):
         self.theme_status = theme_status  # how to enable themes, when they aren't yet
         self.hooks_status = hooks_status  # how to enable agent status, when it isn't yet
         self.resources_status = resources_status  # how to enable alerts, when they aren't yet
+        self.resource_log = log  # its own cardak.db connection: events, crash banner, history
+        self._crash: ResourceEvent | None = None
         self._cap_noticed = False  # the summary-limit notice shows once per run
         self.waiting_only = False
         self.interval = interval
@@ -220,6 +251,7 @@ class DeckApp(App[None]):
         yield Header()
         yield Static("", id="machine")
         yield Static("", id="banner")
+        yield Static("", id="crash")
         yield Input(placeholder="find: project, process, title or path", id="find")
         yield Tree[NodeData]("projects", id="tree")
         yield Footer()
@@ -237,8 +269,52 @@ class DeckApp(App[None]):
         for status in (self.hooks_status, self.resources_status):
             if status is not None and (hint := status()):
                 self.notify(escape(hint), severity="warning")
+        self._show_crash()
         if self.schemes is not None and not self.schemes.get() and self.load_schemes is not None:
             self.run_worker(self._load_schemes, thread=True, group="schemes", exit_on_error=False)
+
+    def _show_crash(self) -> None:
+        """The last loud crash report, until dismissed: the deck may be the first thing reopened."""
+        if self.resource_log is None:
+            return
+        try:
+            self._crash = self.resource_log.latest_crash(time.time() - LOG_DAYS * 86_400)
+        except StoreError:
+            return
+        if self._crash is None:
+            return
+        banner = self.query_one("#crash", Static)
+        what = " ".join(sentences(self._crash.text)[:2])  # when, and why: out of memory
+        banner.update(escape(f"{what} · d: dismiss · e: event log"))
+        banner.display = True
+
+    def action_dismiss_crash(self) -> None:
+        if self._crash is None or self.resource_log is None:
+            return
+        try:
+            self.resource_log.dismiss_report(self._crash.ts)
+        except StoreError as e:
+            self.notify(escape(str(e)), severity="error")
+            return
+        self._crash = None
+        self.query_one("#crash", Static).display = False
+
+    def action_history(self) -> None:
+        if self.resource_log is None:
+            self.notify("History unavailable.", severity="warning")
+            return
+        self.push_screen(HistoryScreen(self.resource_log, self.raw, time.time()))
+
+    def action_event_log(self) -> None:
+        if self.resource_log is None:
+            self.notify("Event log unavailable.", severity="warning")
+            return
+        try:
+            events = self.resource_log.resource_events_since(time.time() - LOG_DAYS * 86_400)
+        except StoreError as e:
+            self.notify(escape(f"Event log unavailable: {e}"), severity="error")
+            return
+        self.push_screen(EventLogScreen(events))
 
     def action_refresh(self) -> None:
         # Thread workers cannot be cancelled, so never start a poll while one is running:

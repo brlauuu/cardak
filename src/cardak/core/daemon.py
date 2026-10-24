@@ -1,4 +1,4 @@
-"""`cardak daemon`: sample every ~2 s, alert, log; runs as the systemd user service.
+"""`cardak daemon`: sample every ~2 s; alert, roll up history, report crashes; the user service.
 
 It polls through LiveSource like the deck (no store, no theme writes, no summaries), so the
 numbers match what the deck shows. It never imports Textual.
@@ -9,22 +9,28 @@ import signal
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Protocol
 
+from cardak.collectors.journal import JournalEntry
 from cardak.core.config import Config, NotifySettings
-from cardak.core.resources import derive
+from cardak.core.crash import JOURNAL_BEFORE_S, CrashWatch, Gone
+from cardak.core.history import Rollup
+from cardak.core.resources import Thresholds, derive
 from cardak.core.snapshot import DeckSnapshot
-from cardak.core.store import ResourceEvent, StoreError
+from cardak.core.store import MinuteRow, ResourceEvent, StoreError
 from cardak.core.watch import ResourceAlert, Watcher
 
 INTERVAL = 2.0
 ALREADY_RUNNING = 3  # the unit's RestartPreventExitStatus: systemd must not retry it
 PRUNE_EVERY_S = 3600.0
 
-Notify = Callable[[ResourceAlert, NotifySettings], None]
+Notify = Callable[[str, str, str, NotifySettings], None]  # level, title, text, settings
+Journal = Callable[[float, float], tuple[list[JournalEntry] | None, list[JournalEntry]]]
+Guis = Callable[[], Mapping[int, str | None]]
 
 
 class Poller(Protocol):
@@ -36,6 +42,8 @@ class Poller(Protocol):
 
 class EventStore(Protocol):
     def record_resource_event(self, event: ResourceEvent) -> None: ...
+
+    def record_minutes(self, rows: Sequence[MinuteRow]) -> None: ...
 
     def prune(self, now: float) -> None: ...
 
@@ -62,58 +70,104 @@ def _log(message: str) -> None:
     )
 
 
-def step(
-    source: Poller, watcher: Watcher, store: EventStore | None, notify: Notify, now: float
-) -> list[ResourceAlert]:
-    snap = source.poll()
-    m = snap.machine
-    if m is None:
-        return []
-    config = source.config
-    alerts = watcher.step(snap, derive(config.resources, m.mem_total, m.n_cpus), now)
-    for a in alerts:
-        if store is not None:
-            try:
-                store.record_resource_event(
-                    ResourceEvent(a.ts, a.kind, a.level, a.subject, a.text, a.notify)
-                )
-            except StoreError as e:
-                _log(f"event log: {e}")
-        if a.notify:
-            notify(a, config.notify)
-    return alerts
+def _no_journal(since: float, until: float) -> tuple[list[JournalEntry] | None, list[JournalEntry]]:
+    return None, []
+
+
+@dataclass
+class Daemon:
+    source: Poller
+    store: EventStore | None
+    notify: Notify
+    watcher: Watcher = field(default_factory=Watcher)
+    rollup: Rollup = field(default_factory=Rollup)
+    crashes: CrashWatch = field(default_factory=CrashWatch)
+    guis: Guis = dict
+    journal: Journal = _no_journal
+
+    def _store(self, what: str, write: Callable[[EventStore], None]) -> None:
+        if self.store is None:
+            return
+        try:
+            write(self.store)
+        except StoreError as e:
+            _log(f"{what}: {e}")
+
+    def _event(self, event: ResourceEvent) -> None:
+        self._store("event log", lambda s: s.record_resource_event(event))
+
+    def _minutes(self, rows: Sequence[MinuteRow]) -> None:
+        if rows:
+            self._store("history", lambda s: s.record_minutes(rows))
+
+    def step(self, now: float) -> list[ResourceAlert]:
+        guis = self.guis()
+        snap = self.source.poll()
+        config = self.source.config
+        self.crashes.observe(guis, snap, now)
+        self._minutes(self.rollup.add(snap, now))
+        m = snap.machine
+        t = derive(config.resources, m.mem_total, m.n_cpus) if m is not None else None
+        alerts = self.watcher.step(snap, t, now) if t is not None else []
+        for a in alerts:
+            self._event(ResourceEvent(a.ts, a.kind, a.level, a.subject, a.text, a.notify))
+            if a.notify:
+                self.notify(a.level, a.title, a.text, config.notify)
+        for gone in self.crashes.due(now):
+            self._crash(gone, t, now, config.notify)
+        return alerts
+
+    def _crash(
+        self, gone: Gone, t: Thresholds | None, now: float, settings: NotifySettings
+    ) -> None:
+        try:
+            kernel, user = self.journal(gone.ts - JOURNAL_BEFORE_S, now)
+        except Exception as e:  # a journal problem costs the details, never the report
+            _log(f"journal: {e!r}")
+            kernel, user = None, []
+        rep = self.crashes.report(gone, kernel, user, t)
+        level = "critical" if rep.loud else "info"
+        self._event(ResourceEvent(now, "crash", level, f"wezterm:{gone.pid}", rep.text, rep.loud))
+        if rep.loud:
+            self.notify(level, rep.title, rep.text, settings)
+
+    def prune(self, now: float) -> None:
+        self._store("prune", lambda s: s.prune(now))
+
+    def started(self, now: float) -> None:
+        self._event(ResourceEvent(now, "daemon", "info", "daemon", "cardak daemon started", False))
+
+    def stopped(self, now: float) -> None:
+        self._minutes(self.rollup.flush())
+        self._event(ResourceEvent(now, "daemon", "info", "daemon", "cardak daemon stopped", False))
 
 
 def run(
-    source: Poller,
-    watcher: Watcher,
-    store: EventStore | None,
-    notify: Notify,
+    daemon: Daemon,
     clock: Callable[[], float] = time.time,
     sleep: Callable[[float], object] = time.sleep,
     stop: threading.Event | None = None,
 ) -> None:
     stop = stop or threading.Event()
+    daemon.started(clock())
     pruned: float | None = None
     while not stop.is_set():
         now = clock()
-        if store is not None and (pruned is None or now - pruned >= PRUNE_EVERY_S):
-            try:
-                store.prune(now)
-            except StoreError as e:
-                _log(f"prune: {e}")
+        if pruned is None or now - pruned >= PRUNE_EVERY_S:
+            daemon.prune(now)
             pruned = now
         try:
-            step(source, watcher, store, notify, now)
+            daemon.step(now)
         except Exception as e:  # WezTerm restarting, a collector bug: log and keep watching
             _log(repr(e))
         sleep(INTERVAL)
+    daemon.stopped(clock())
 
 
-def _notify(alert: ResourceAlert, settings: NotifySettings) -> None:
+def _notify(level: str, title: str, text: str, settings: NotifySettings) -> None:
     from cardak.core.alerts import resource_alert
 
-    resource_alert(alert.level, alert.title, alert.text, settings)
+    resource_alert(level, title, text, settings)
 
 
 def main() -> int:
@@ -134,6 +188,12 @@ def main() -> int:
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
-    run(LiveSource(config_path(None)), Watcher(), store, _notify, sleep=stop.wait, stop=stop)
+    from cardak.collectors.journal import read_journal
+    from cardak.collectors.wezterm import gui_processes
+
+    daemon = Daemon(
+        LiveSource(config_path(None)), store, _notify, guis=gui_processes, journal=read_journal
+    )
+    run(daemon, sleep=stop.wait, stop=stop)
     held.close()
     return 0

@@ -6,7 +6,8 @@ a busy timeout, and `BEGIN IMMEDIATE` around each read-modify-write.
 
 import json
 import sqlite3
-from collections.abc import Callable, Iterable, Mapping
+import time
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import astuple, dataclass, fields
 from pathlib import Path
 from typing import TypeVar
@@ -14,7 +15,7 @@ from typing import TypeVar
 from cardak.core.agents import SessionState, mark_seen
 from cardak.core.config import state_dir
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 KEEP_SECONDS = 7 * 86_400
 RESOURCE_KEEP_SECONDS = 30 * 86_400
 SUMMARY_KEEP_SECONDS = 62 * 86_400  # longer than a month: the spend cap counts them
@@ -59,7 +60,31 @@ CREATE TABLE IF NOT EXISTS resource_events (
     notified INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS resource_events_ts ON resource_events (ts);
+CREATE TABLE IF NOT EXISTS resource_minutes (
+    minute INTEGER NOT NULL,
+    subject TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ram_mean INTEGER NOT NULL,
+    ram_max INTEGER NOT NULL,
+    cpu_mean REAL NOT NULL,
+    cpu_max REAL NOT NULL,
+    PRIMARY KEY (subject, minute)
+);
+CREATE INDEX IF NOT EXISTS resource_minutes_minute ON resource_minutes (minute);
+-- covering indexes: a median is one ordered index walk per subject, no sort
+CREATE INDEX IF NOT EXISTS resource_minutes_ram ON resource_minutes (subject, ram_mean, minute);
+CREATE INDEX IF NOT EXISTS resource_minutes_cpu ON resource_minutes (subject, cpu_mean, minute);
+CREATE TABLE IF NOT EXISTS resource_days (
+    subject TEXT NOT NULL,
+    day TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ram_peak INTEGER NOT NULL,
+    cpu_peak REAL NOT NULL,
+    PRIMARY KEY (subject, day)
+);
+CREATE TABLE IF NOT EXISTS dismissed_reports (ts REAL PRIMARY KEY);
 """
+ALERT_KINDS = ("memory", "big", "growth", "busy", "machine_busy")
 
 
 @dataclass(frozen=True)
@@ -82,15 +107,41 @@ class ResourceEvent:
     """A resource alert as the daemon logged it. Primitives only: the hook imports this module."""
 
     ts: float
-    kind: str  # "memory" | "big" | "growth" | "busy" | "machine_busy"
-    level: str  # "warning" | "critical"
-    subject: str  # "machine" | "project:<path>" | "pane:<id>"
+    kind: str  # "memory" | "big" | "growth" | "busy" | "machine_busy" | "crash" | "daemon"
+    level: str  # "warning" | "critical" | "info"
+    subject: str  # "machine" | "project:<path>" | "pane:<id>" | "wezterm:<pid>" | "daemon"
     text: str
     notified: bool
 
 
+@dataclass(frozen=True)
+class MinuteRow:
+    """One minute of one project's (or Other's) usage, as the daemon rolls it up."""
+
+    minute: int  # int(ts // 60)
+    subject: str  # "project:<path>" | "other"
+    name: str
+    ram_mean: int
+    ram_max: int
+    cpu_mean: float
+    cpu_max: float
+
+
+@dataclass(frozen=True)
+class DayPeak:
+    subject: str
+    name: str  # from the subject's newest row
+    day: str  # local YYYY-MM-DD
+    ram_peak: int
+    cpu_peak: float
+
+
 class StoreError(Exception):
     pass
+
+
+def _local_day(ts: float) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(ts))
 
 
 def db_path(env: Mapping[str, str] | None = None) -> Path:
@@ -300,6 +351,97 @@ class Store:
             raise StoreError(str(e)) from e
         return [ResourceEvent(r[0], r[1], r[2], r[3], r[4], bool(r[5])) for r in rows]
 
+    def _query(self, sql: str, args: tuple[object, ...] = ()) -> list[sqlite3.Row]:
+        try:
+            return self._con.execute(sql, args).fetchall()
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+
+    def record_minutes(self, rows: Sequence[MinuteRow]) -> None:
+        try:
+            with self._con:
+                self._con.execute("BEGIN")
+                self._con.executemany(
+                    "INSERT OR REPLACE INTO resource_minutes VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [astuple(r) for r in rows],
+                )
+                # Daily peaks kept as the minutes arrive: the history view reads ~30 rows per
+                # project instead of grouping ~43k minutes each into local days.
+                self._con.executemany(
+                    "INSERT INTO resource_days VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT (subject, day) DO UPDATE SET name = excluded.name, "
+                    "ram_peak = max(ram_peak, excluded.ram_peak), "
+                    "cpu_peak = max(cpu_peak, excluded.cpu_peak)",
+                    [(r.subject, _local_day(r.minute * 60), r.name, r.ram_max, r.cpu_max)
+                     for r in rows],
+                )  # fmt: skip
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+
+    def history_days(self, since: float) -> list[DayPeak]:
+        rows = self._query(
+            "SELECT d.subject, (SELECT name FROM resource_days n WHERE n.subject = d.subject "
+            "ORDER BY day DESC LIMIT 1), d.day, d.ram_peak, d.cpu_peak FROM resource_days d "
+            "WHERE d.day >= ? ORDER BY d.subject, d.day",
+            (_local_day(since),),
+        )
+        return [DayPeak(r[0], r[1], r[2], int(r[3]), float(r[4])) for r in rows]
+
+    def history_medians(self, since: float) -> dict[str, tuple[float, float]]:
+        """subject → (median RAM, median CPU) over the per-minute means; the lower middle."""
+        start = int(since // 60)
+        counts = self._query(
+            "SELECT subject, count(*) FROM resource_minutes WHERE minute >= ? GROUP BY subject",
+            (start,),
+        )
+        out: dict[str, tuple[float, float]] = {}
+        for subject, n in counts:
+            middle = []
+            for column in ("ram_mean", "cpu_mean"):
+                row = self._query(
+                    f"SELECT {column} FROM resource_minutes WHERE subject = ? AND minute >= ? "
+                    f"ORDER BY {column} LIMIT 1 OFFSET ?",
+                    (subject, start, (n - 1) // 2),
+                )
+                middle.append(float(row[0][0]))
+            out[subject] = (middle[0], middle[1])
+        return out
+
+    def history_hours(self, subject: str, since: float) -> list[tuple[int, int, float]]:
+        """(hour start, RAM peak, CPU peak), oldest first."""
+        rows = self._query(
+            "SELECT minute / 60 * 3600 AS hour, max(ram_max), max(cpu_max) FROM resource_minutes "
+            "WHERE subject = ? AND minute >= ? GROUP BY hour ORDER BY hour",
+            (subject, int(since // 60)),
+        )
+        return [(int(r[0]), int(r[1]), float(r[2])) for r in rows]
+
+    def alert_counts(self, since: float) -> dict[str, int]:
+        """Notified resource alerts per subject (not crashes or daemon lines)."""
+        marks = ", ".join("?" * len(ALERT_KINDS))
+        rows = self._query(
+            "SELECT subject, count(*) FROM resource_events WHERE ts >= ? AND notified = 1 "
+            f"AND kind IN ({marks}) GROUP BY subject",
+            (since, *ALERT_KINDS),
+        )
+        return {r[0]: int(r[1]) for r in rows}
+
+    def latest_crash(self, since: float) -> ResourceEvent | None:
+        """The newest loud crash report not yet dismissed in the deck."""
+        rows = self._query(
+            "SELECT ts, kind, level, subject, text, notified FROM resource_events "
+            "WHERE ts >= ? AND kind = 'crash' AND level = 'critical' "
+            "AND ts NOT IN (SELECT ts FROM dismissed_reports) ORDER BY ts DESC LIMIT 1",
+            (since,),
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return ResourceEvent(r[0], r[1], r[2], r[3], r[4], bool(r[5]))
+
+    def dismiss_report(self, ts: float) -> None:
+        self._query("INSERT OR IGNORE INTO dismissed_reports VALUES (?)", (ts,))
+
     def event_count(self) -> int:
         return self._con.execute("SELECT count(*) FROM events").fetchone()[0]
 
@@ -313,8 +455,14 @@ class Store:
             self._con.execute(
                 "DELETE FROM summaries WHERE created_at < ?", (now - SUMMARY_KEEP_SECONDS,)
             )
+            resource_cutoff = now - RESOURCE_KEEP_SECONDS
+            self._con.execute("DELETE FROM resource_events WHERE ts < ?", (resource_cutoff,))
             self._con.execute(
-                "DELETE FROM resource_events WHERE ts < ?", (now - RESOURCE_KEEP_SECONDS,)
+                "DELETE FROM resource_minutes WHERE minute < ?", (int(resource_cutoff // 60),)
+            )
+            self._con.execute("DELETE FROM dismissed_reports WHERE ts < ?", (resource_cutoff,))
+            self._con.execute(
+                "DELETE FROM resource_days WHERE day < ?", (_local_day(resource_cutoff),)
             )
             self._con.execute(
                 "DELETE FROM events WHERE rowid NOT IN "

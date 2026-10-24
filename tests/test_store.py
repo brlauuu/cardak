@@ -10,6 +10,8 @@ from cardak.core.agents import SessionState
 from cardak.core.config import state_dir
 from cardak.core.store import (
     SCHEMA_VERSION,
+    DayPeak,
+    MinuteRow,
     ResourceEvent,
     Store,
     StoreError,
@@ -76,7 +78,7 @@ def test_creates_parent_dir_and_schema_version(tmp_path: Path) -> None:
     path = tmp_path / "deep" / "cardak.db"
     Store(path).close()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
+    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 4
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -219,7 +221,7 @@ def test_v1_database_gains_summaries(tmp_path: Path) -> None:
     store = Store(path)
     store.add_summary(summary_row())
     assert store.has_summary("s", 10.0)
-    assert SCHEMA_VERSION == 3
+    assert SCHEMA_VERSION == 4
 
 
 def test_latest_error_since(tmp_path: Path) -> None:
@@ -264,7 +266,7 @@ def test_schema_2_database_gains_the_table(tmp_path: Path) -> None:
     )
     con.close()
     store = Store(path)
-    assert store._con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
+    assert store._con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 4
     store.record_resource_event(ResourceEvent(1.0, "big", "warning", "pane:3", "x", False))
     assert store.event_count() == 1 and len(store.resource_events_since(0.0)) == 1
 
@@ -276,3 +278,112 @@ def test_resource_event_errors_become_store_errors(tmp_path: Path) -> None:
         store.record_resource_event(ResourceEvent(1.0, "big", "warning", "pane:3", "x", False))
     with pytest.raises(StoreError):
         store.resource_events_since(0.0)
+
+
+WEB = "project:/home/user/repos/webshop"
+GIB = 2**30
+
+
+def minute(
+    m: int, ram: int, cpu: float = 10.0, subject: str = WEB, name: str = "webshop"
+) -> MinuteRow:
+    return MinuteRow(m, subject, name, ram, ram + 1, cpu, cpu + 1.0)
+
+
+@pytest.fixture
+def utc(monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_minutes_roundtrip_days_and_medians(tmp_path: Path, utc: None) -> None:
+    store = Store(tmp_path / "db")
+    day2 = int(DAY // 60)
+    store.record_minutes([minute(0, 1), minute(1, 5), minute(2, 3), minute(day2, 7, name="shop")])
+    store.record_minutes([minute(1, 6)])  # the same minute again replaces it
+    store.record_minutes([minute(0, 100, subject="other", name="Other")])
+    assert sorted(store.history_days(0.0), key=lambda d: (d.subject, d.day)) == [
+        DayPeak("other", "Other", "1970-01-01", 101, 11.0),
+        DayPeak(WEB, "shop", "1970-01-01", 7, 11.0),
+        DayPeak(WEB, "shop", "1970-01-02", 8, 11.0),
+    ]
+    medians = store.history_medians(0.0)
+    assert medians[WEB] == (3.0, 10.0)  # ram_mean 1, 3, 6, 7: the lower middle
+    assert medians["other"] == (100.0, 10.0)
+    assert store.history_days(DAY)[0].day == "1970-01-02"
+
+
+def test_days_are_local(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time.tzset()
+    try:
+        store = Store(tmp_path / "db")
+        late = 1792625400  # 2026-10-21 23:30 UTC, 01:30 on the 22nd in Berlin
+        store.record_minutes([minute(late // 60, 1)])
+        assert [d.day for d in store.history_days(0.0)] == ["2026-10-22"]
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+def test_history_hours_buckets_by_hour(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    store.record_minutes([minute(0, 1, 5.0), minute(59, 9, 1.0), minute(60, 2, 2.0)])
+    store.record_minutes([minute(0, 50, subject="other")])
+    assert store.history_hours(WEB, 0.0) == [(0, 10, 6.0), (3600, 3, 3.0)]
+    assert store.history_hours(WEB, 3600.0) == [(3600, 3, 3.0)]
+
+
+def test_alert_counts_counts_notified_only(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    for ts, kind, notified in [(1.0, "big", True), (2.0, "big", False), (3.0, "busy", True),
+                               (4.0, "crash", True)]:  # fmt: skip
+        store.record_resource_event(ResourceEvent(ts, kind, "warning", WEB, "x", notified))
+    store.record_resource_event(ResourceEvent(5.0, "memory", "warning", "machine", "x", True))
+    assert store.alert_counts(0.0) == {WEB: 2, "machine": 1}
+    assert store.alert_counts(2.5) == {WEB: 1, "machine": 1}
+
+
+def test_latest_crash_skips_dismissed_and_quiet(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    loud = ResourceEvent(10.0, "crash", "critical", "wezterm:7", "WezTerm was closed.", True)
+    store.record_resource_event(loud)
+    store.record_resource_event(ResourceEvent(20.0, "crash", "info", "wezterm:8", "q", False))
+    assert store.latest_crash(0.0) == loud
+    assert store.latest_crash(11.0) is None
+    store.dismiss_report(10.0)
+    assert store.latest_crash(0.0) is None
+
+
+def test_v3_db_upgrades_and_keeps_events(tmp_path: Path) -> None:
+    path = tmp_path / "cardak.db"
+    Store(path).close()
+    con = sqlite3.connect(path)  # back to the v3 layout: no history tables
+    con.executescript(
+        "DROP TABLE resource_minutes; DROP TABLE dismissed_reports; "
+        "INSERT INTO resource_events VALUES (1.0, 'big', 'warning', 'pane:3', 'kept', 1); "
+        "PRAGMA user_version = 3;"
+    )
+    con.close()
+    store = Store(path)
+    assert [e.text for e in store.resource_events_since(0.0)] == ["kept"]
+    store.record_minutes([minute(0, 1)])
+    assert len(store.history_days(0.0)) == 1
+    store.close()
+    con = sqlite3.connect(path)
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
+    con.close()
+
+
+def test_prune_drops_old_minutes(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    store.record_minutes([minute(0, 1), minute(int(29 * DAY // 60), 2)])
+    store.record_resource_event(ResourceEvent(0.0, "crash", "critical", "wezterm:1", "x", True))
+    store.dismiss_report(0.0)
+    store.prune(31 * DAY)
+    assert [h[1] for h in store.history_hours(WEB, 0.0)] == [3]
+    assert [d.ram_peak for d in store.history_days(-1.0)] == [3]  # daily peaks pruned too
+    assert store.latest_crash(-1.0) is None

@@ -68,6 +68,39 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _live_gui_socks(directory: Path) -> dict[int, Path]:
+    """pid → socket, for every `gui-sock-<pid>` whose GUI process still runs."""
+    out: dict[int, Path] = {}
+    for sock in directory.glob("gui-sock-*"):
+        pid = sock.name.removeprefix("gui-sock-")
+        if pid.isdigit() and _pid_alive(int(pid)):
+            out[int(pid)] = sock
+    return out
+
+
+def _scope(pid: int, proc: Path) -> str | None:
+    try:
+        text = (proc / str(pid) / "cgroup").read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("0::"):
+            name = line.rsplit("/", 1)[-1]
+            return name if name.endswith(".scope") else None
+    return None
+
+
+def gui_processes(
+    env: Mapping[str, str] | None = None, proc: Path = Path("/proc")
+) -> dict[int, str | None]:
+    """Every running WezTerm GUI: pid → its systemd scope, or None when not in one."""
+    env = os.environ if env is None else env
+    runtime = env.get("XDG_RUNTIME_DIR")
+    if not runtime:
+        return {}
+    return {pid: _scope(pid, proc) for pid in _live_gui_socks(Path(runtime) / "wezterm")}
+
+
 def find_socket(env: Mapping[str, str] | None = None) -> Path | None:
     env = os.environ if env is None else env
     explicit = env.get("WEZTERM_UNIX_SOCKET")
@@ -77,11 +110,7 @@ def find_socket(env: Mapping[str, str] | None = None) -> Path | None:
     if not runtime:
         return None
     directory = Path(runtime) / "wezterm"
-    live = [
-        sock
-        for sock in directory.glob("gui-sock-*")
-        if (pid := sock.name.removeprefix("gui-sock-")).isdigit() and _pid_alive(int(pid))
-    ]
+    live = list(_live_gui_socks(directory).values())
     if live:
         return max(live, key=lambda sock: sock.stat().st_mtime)
     mux = directory / "sock"

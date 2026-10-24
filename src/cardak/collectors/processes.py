@@ -192,6 +192,7 @@ class PaneProcs:
     mcp_cpu_pct: float
     mcp_rss: int
     docker_build: bool = False  # a `docker build` client runs in the pane
+    pids: frozenset[int] = frozenset()  # work and MCP: joins an OOM-killed pid to its pane
 
 
 MCP_PREFIXES = (("npm", "exec"), ("npx",), ("uvx",))
@@ -318,6 +319,7 @@ def _pane_procs(on_tty: list[ProcInfo], children: dict[int, list[ProcInfo]]) -> 
         mcp_cpu_pct=sum(p.cpu_pct or 0.0 for p in mcp),
         mcp_rss=sum(p.rss for p in mcp),
         docker_build=any(is_docker_build(p) for p in work),
+        pids=frozenset(p.pid for p in (*work, *mcp)),
     )
 
 

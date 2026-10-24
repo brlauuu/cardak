@@ -263,3 +263,19 @@ def test_group_totals_include_mcp() -> None:
     row = group.panes[0]
     assert (row.rss, row.mcp_rss, row.mcp_cpu_pct, row.docker_build) == (gib, gib // 2, 2.0, True)
     assert group.rss == gib + gib // 2 and group.cpu_pct == 12.0
+
+
+def test_row_carries_pids() -> None:
+    pp = PaneProcs(
+        fg_name="zsh", fg_pid=1, claude_pid=None, cpu_pct=1.0, rss=1, n_procs=2,
+        mcp_cpu_pct=0.0, mcp_rss=0, pids=frozenset({1, 2}),
+    )  # fmt: skip
+    s = build_snapshot(
+        [pane(5, R / "webshop", "/dev/pts/11")],
+        {"/dev/pts/11": pp},
+        ProjectResolver(CONFIG, git=fake_git),
+        sessions,
+        None,
+        HOME,
+    )
+    assert s.groups[0].panes[0].pids == frozenset({1, 2})

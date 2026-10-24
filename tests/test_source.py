@@ -9,6 +9,7 @@ from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane, WeztermUnavailable
 from cardak.core.agents import FocusChange, SessionState, mark_seen
 from cardak.core.config import Config
+from cardak.core.resources import derive
 from cardak.core.source import LiveSource
 from cardak.core.store import StoreError
 from cardak.core.summary import SummaryInfo
@@ -457,6 +458,10 @@ def test_poll_attaches_docker_and_machine(tmp_path: Path) -> None:
     assert [line.label for line in webshop.docker] == ["docker: webshop-db-1"]
     assert other.kind == "other" and other.outside_rss is not None
     assert snap.machine_view is not None and snap.machine_view.ram_spark != ""
+    assert snap.machine is not None
+    assert snap.thresholds == derive(
+        Config().resources, snap.machine.mem_total, snap.machine.n_cpus
+    )
 
 
 def test_unreachable_wezterm_still_shows_machine(tmp_path: Path) -> None:
