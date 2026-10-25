@@ -9,6 +9,19 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Fixed
+- A bug in cardak shows as "cardak hit an internal error", not as WezTerm being unreachable. (#12)
+- The config error banner names `projects.toml` once. (#13)
+- A WezTerm window closing at the wrong moment no longer shows one poll as an internal error. (#15)
+- Typing in find while the deck refreshes keeps the cursor on the best match. (#16)
+- With `cardak.lua` installed via `--dir`, jumps raise windows without the install hint, and theme files are written next to it. (#19)
+- The header uses `·` like the rest of the deck. (#21)
+- After jumping from "Waiting on you", the cursor lands on that pane in its project, not at the top. (#39)
+- In waiting-only mode (`w`), find counts its matches correctly. (#40)
+- Without an Anthropic key, the `i` panel no longer shows a summary spend line. (#52)
+- A summaries database problem says so, instead of "agent status unavailable". (#53)
+- A deck left running into a new month tells you again when the summary limit is reached. (#55)
+
 ## 0.9.1 — 2026-10-25
 
 ### Fixed
