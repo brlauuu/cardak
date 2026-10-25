@@ -16,14 +16,17 @@ resuming the work, not a transcript.
 1. The project directory is `git rev-parse --show-toplevel` (in a git worktree, that is the
    worktree's own directory). Outside git, use the current directory.
 2. The note is `<project directory>/.cardak/handoff.md`.
-3. If `.cardak/` doesn't exist, create it, and create `.cardak/.gitignore` containing the single
-   line `*`, so the note stays out of git without touching the project's own `.gitignore`.
+3. Create `.cardak/` if it doesn't exist. If `.cardak/.gitignore` doesn't exist, create it
+   containing the single line `*` (even when `.cardak/` was already there), so the note stays
+   out of git without touching the project's own `.gitignore`.
 4. If `handoff.md` doesn't exist, start it with this line and a blank line:
 
    `# Handoff notes (written by /checkpoint, read by /where-were-we and cardak)`
 
 ## What to gather
 
+- The local date and time for the heading: run `date '+%Y-%m-%d %H:%M'`. Don't guess it; what
+  changed since the entry is measured from this time.
 - `git branch --show-current` and `git status --short`, when in a git repo.
 - If `gh` is installed and works here, the pull request for the current branch:
   `gh pr view --json number,url,state` (skip quietly if it fails).

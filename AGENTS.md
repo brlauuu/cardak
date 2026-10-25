@@ -196,15 +196,19 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   own (it goes with the worktree). Recap on a project row gathers the project's and every pane's
   note, newest first. Only `## YYYY-MM-DD HH:MM[ · branch]` headings outside code fences start an
   entry.
-- **Sending** (`c`): `wezterm cli send-text --no-paste "/checkpoint\r"`. Measured 2026-10-25 in a
-  headless `wezterm-mux-server` (scratch `XDG_RUNTIME_DIR`; Unix socket paths have a length
-  limit, so keep it short): the pane reads exactly `b'/checkpoint\r'`, Enter's byte. Without
-  `--no-paste`, Claude Code's bracketed paste would take it as pasted text.
+- **Sending** (`c`): `wezterm cli send-text --no-paste`, twice: `/checkpoint`, then 150 ms later
+  `\r` on its own, so a TUI that treats a multi-character chunk as a paste still sees Enter as a
+  keystroke. Measured 2026-10-25 in a headless `wezterm-mux-server` (scratch `XDG_RUNTIME_DIR`;
+  Unix socket paths have a length limit, so keep it short): the pane reads exactly the bytes
+  sent. Without `--no-paste`, Claude Code's bracketed paste would take it as pasted text.
 - Allowed only at the input box (`core/checkpoint.refusal`): not working, not at a permission
-  prompt, and not while an `AskUserQuestion` menu is open. The menu is marked by
-  `current_tool == "AskUserQuestion"` (set on its `PreToolUse`, cleared by `Stop` /
-  `UserPromptSubmit`, overwritten by `PostToolUse`), because `mark_seen` turns a seen menu idle
-  while it is still on screen. Hooks can't see a half-typed draft; the dialog says it goes along.
+  prompt, and not while any menu or dialog is open. Every wait except a finished turn leaves
+  `current_tool` set (the `AskUserQuestion` marker on its `PreToolUse` or `PermissionRequest`, the
+  notification type for MCP elicitation dialogs, the tool for a permission), and `Stop`,
+  `UserPromptSubmit` and `SessionStart` clear it; `c` refuses whenever it is set, because
+  `mark_seen` turns a seen menu idle while it is still on screen. The decision is made again on
+  the stored session when the user confirms (`checkpoint.recheck`), since Claude can move on while
+  the dialog is open. Hooks can't see a half-typed draft; the dialog says it goes along.
 - Recap runs only `git --no-optional-locks` reads (`collectors/git.py`, 3 s timeout) in a worker;
   no `gh`, no network. GitHub is `/where-were-we`'s job.
 

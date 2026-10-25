@@ -917,7 +917,9 @@ async def checkpoint_app(
 ) -> tuple[DeckApp, Sends]:
     sends = sends or Sends()
     snap = waiting_snap(others=(agent_row(7, status, kind), row(2)))
-    app = DeckApp(StubSource(snap), interval=3600, send=sends, skills_status=lambda: skills)
+    source = StubSource(snap)
+    source.sessions["s7"] = SessionState("s7", pane_id=7, status=status, kind=kind)  # type: ignore[arg-type]
+    app = DeckApp(source, interval=3600, send=sends, skills_status=lambda: skills)
     return app, sends
 
 
@@ -938,7 +940,7 @@ async def test_c_confirm_sends_command() -> None:
         await settle(app, pilot)
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert sends.calls == [(7, "/checkpoint\r")]
+        assert sends.calls == [(7, "/checkpoint"), (7, "\r")]  # Enter as its own keystroke
         assert "Sent /checkpoint to pane 7." in notices(app)
 
 
@@ -1021,3 +1023,36 @@ async def test_r_on_other_header_says_select() -> None:
         await pilot.press("r")
         await pilot.pause()
         assert "Select a project or a pane." in notices(app)
+
+
+async def test_c_rechecks_the_session_on_enter() -> None:
+    app, sends = await checkpoint_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])
+        await pilot.press("c")
+        await pilot.pause()
+        # while the dialog is open, Claude resumes and stops at a permission prompt
+        app.source.sessions["s7"] = SessionState(  # type: ignore[attr-defined]
+            "s7", pane_id=7, status="waiting", kind="permission", current_tool="Bash: rm x"
+        )
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert sends.calls == []
+        assert "Claude is waiting for a permission answer." in notices(app)
+
+
+async def test_c_session_gone_on_enter() -> None:
+    app, sends = await checkpoint_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])
+        await pilot.press("c")
+        await pilot.pause()
+        app.source.sessions["s7"] = SessionState("s7", pane_id=7, ended_at=5.0)  # type: ignore[attr-defined]
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert sends.calls == []
+        assert "That session has ended or moved; nothing sent." in notices(app)

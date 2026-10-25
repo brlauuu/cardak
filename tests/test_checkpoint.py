@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 
 from cardak.collectors.hooks import HookEvent
-from cardak.core.agents import Status, WaitKind, apply, mark_seen
-from cardak.core.checkpoint import COMMAND, refusal, target
+from cardak.core.agents import SessionState, Status, WaitKind, apply, mark_seen
+from cardak.core.checkpoint import ENTER, GONE, TEXT, recheck, refusal, target
 from cardak.core.snapshot import AgentView, Group, PaneRow
 
 ASK = {"questions": [{"question": "Tea or coffee?", "header": "Drink"}]}
@@ -38,8 +38,16 @@ def group(kind: str, *rows: PaneRow) -> Group:
     )  # fmt: skip
 
 
-def test_command_is_slash_checkpoint_and_enter() -> None:
-    assert COMMAND == "/checkpoint\r"
+def test_command_is_slash_checkpoint_then_enter() -> None:
+    assert (TEXT, ENTER) == ("/checkpoint", "\r")
+
+
+def test_recheck() -> None:
+    assert recheck(None, 7) == GONE
+    assert recheck(SessionState("s1", pane_id=8), 7) == GONE
+    assert recheck(SessionState("s1", pane_id=7, ended_at=1.0), 7) == GONE
+    assert recheck(SessionState("s1", pane_id=7, status="working"), 7) == WORKING
+    assert recheck(SessionState("s1", pane_id=7), 7) is None
 
 
 @pytest.mark.parametrize(
@@ -112,3 +120,67 @@ def test_target_claude_without_hook_record() -> None:
         is_self=False, is_claude=True, agent=None,
     )  # fmt: skip
     assert target(group("config", r), r) == NO_HOOKS
+
+
+def event(name: str, **kw: object) -> HookEvent:
+    return HookEvent(name=name, session_id="s1", **kw)  # type: ignore[arg-type]
+
+
+def play(*events: HookEvent):  # noqa: ANN201
+    s = None
+    for i, e in enumerate(events):
+        s, _ = apply(s, e, 7, 1.0 + i)
+    assert s is not None
+    return s
+
+
+GH = {"title": "x"}
+
+
+def test_elicitation_dialog_refused_waiting_and_seen() -> None:
+    s = play(
+        event("SessionStart", source="startup"),
+        event("UserPromptSubmit", prompt="open an issue"),
+        event("PreToolUse", tool_name="mcp__gh__create", tool_input=GH),
+        event("Notification", notification_type="elicitation_dialog", message="Fill in the form"),
+    )
+    assert (s.status, s.kind) == ("waiting", "question")
+    assert refusal(s) == MENU
+    assert refusal(mark_seen(s, 50.0)) == MENU
+
+
+def test_elicitation_without_a_tool_refused() -> None:
+    s = play(
+        event("SessionStart", source="startup"),
+        event("Notification", notification_type="elicitation_dialog", message="Sign in"),
+    )
+    assert refusal(s) == MENU
+
+
+def test_ask_permission_without_pre_tool_refused() -> None:
+    s = play(
+        event("SessionStart", source="startup"),
+        event("PermissionRequest", tool_name="AskUserQuestion", tool_input=ASK),
+    )
+    assert refusal(s) == MENU
+    assert refusal(mark_seen(s, 50.0)) == MENU
+
+
+def test_stop_question_allowed_after_tools() -> None:
+    s = play(
+        event("UserPromptSubmit", prompt="go"),
+        event("PreToolUse", tool_name="Bash", tool_input={"command": "ls"}),
+        event("PostToolUse", tool_name="Bash", tool_input={"command": "ls"}),
+        event("Stop", last_assistant_message="Shall I go on?"),
+    )
+    assert (s.status, s.kind) == ("waiting", "question")
+    assert refusal(s) is None
+    assert refusal(mark_seen(s, 50.0)) is None
+
+
+def test_session_start_clears_a_stale_tool() -> None:
+    s = play(
+        event("PreToolUse", tool_name="AskUserQuestion", tool_input=ASK),
+        event("SessionStart", source="resume"),
+    )
+    assert s.current_tool is None and refusal(s) is None

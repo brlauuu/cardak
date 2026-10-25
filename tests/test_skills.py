@@ -114,3 +114,9 @@ def test_hint(tmp_path: Path) -> None:
 def test_default_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     assert skills.default_dir() == tmp_path / ".claude" / "skills"
+
+
+def test_checkpoint_reads_the_clock_and_always_ignores_the_folder() -> None:
+    text = bundled("checkpoint")
+    assert "date '+%Y-%m-%d %H:%M'" in text  # the model knows the date, not the time
+    assert "If `.cardak/.gitignore` doesn't exist" in text  # also when .cardak/ already does

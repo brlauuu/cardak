@@ -463,20 +463,28 @@ class DeckApp(App[None]):
             return
         row = found
         project = row.agent.project if row.agent else node.data.group.name
+        session_id = row.agent.session_id if row.agent else ""
 
         def done(yes: bool | None) -> None:
-            if yes:
-                self.run_worker(
-                    lambda: self._send(send, row.pane_id), thread=True, group="send",
-                    exit_on_error=False,
-                )  # fmt: skip
+            if not yes:
+                return
+            # the dialog can stay open while Claude moves on: decide again on what's stored now
+            if reason := checkpoint.recheck(self.source.session(session_id), row.pane_id):
+                self.notify(escape(reason), severity="warning")
+                return
+            self.run_worker(
+                lambda: self._send(send, row.pane_id), thread=True, group="send",
+                exit_on_error=False,
+            )  # fmt: skip
 
         question = f"Send /checkpoint to pane {row.pane_id} · {project} · {row.label}?"
         self.push_screen(ConfirmScreen(question, SENT_WITH_IT), done)
 
     def _send(self, send: Callable[[int, str], None], pane_id: int) -> None:
         try:
-            send(pane_id, checkpoint.COMMAND)
+            send(pane_id, checkpoint.TEXT)
+            time.sleep(checkpoint.ENTER_DELAY_S)
+            send(pane_id, checkpoint.ENTER)
         except Exception as e:  # a WezTerm failure (or any bug) is a notice, not a crash
             self.call_from_thread(self.notify, escape(f"Couldn't send: {e}"), severity="error")
             return

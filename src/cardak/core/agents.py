@@ -142,7 +142,7 @@ Handler = Callable[[SessionState, HookEvent, float], SessionState]
 
 def _on_session_start(s: SessionState, e: HookEvent, now: float) -> SessionState:
     # `--resume` keeps the session id, so a session that ended can start again
-    return _set_status(replace(s, ended_at=None), "idle", None, None, now)
+    return _set_status(replace(s, ended_at=None, current_tool=None), "idle", None, None, now)
 
 
 def _on_prompt(s: SessionState, e: HookEvent, now: float) -> SessionState:
@@ -174,7 +174,9 @@ def _on_permission(s: SessionState, e: HookEvent, now: float) -> SessionState:
     tool = e.tool_name or ""
     s = replace(s, permission_requested=True)
     if tool != ASK_TOOL:
+        s = replace(s, current_tool=s.current_tool or tool_summary(tool, e.tool_input))
         return _set_status(s, "waiting", "permission", tool_summary(tool, e.tool_input), now)
+    s = replace(s, current_tool=ASK_TOOL)  # the menu is open (its PreToolUse may be missing)
     if (s.status, s.kind) == ("waiting", "question"):
         return s  # AskUserQuestion asks permission too; it is already waiting
     return _set_status(s, "waiting", "question", tool_summary(tool, e.tool_input), now)
@@ -186,7 +188,8 @@ def _on_notification(s: SessionState, e: HookEvent, now: float) -> SessionState:
             return s  # the PermissionRequest for this prompt already counted
         reason = s.current_tool or e.message or KIND_LABELS["permission"]
         return _set_status(s, "waiting", "permission", reason, now)
-    if e.notification_type in QUESTION_NOTIFICATIONS:
+    if e.notification_type in QUESTION_NOTIFICATIONS:  # a dialog is open: mark it like a menu
+        s = replace(s, current_tool=s.current_tool or e.notification_type)
         return _set_status(s, "waiting", "question", e.message, now)
     return s  # idle_prompt and the rest change nothing
 
