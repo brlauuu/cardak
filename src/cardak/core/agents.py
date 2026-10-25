@@ -219,6 +219,8 @@ HANDLERS: dict[str, Handler] = {
     "Stop": _on_stop,
     "SessionEnd": _on_session_end,
 }
+# Registered but deliberately unhandled (an internal agent finishing); anything else is new.
+IGNORED_EVENTS = frozenset({"SubagentStop"})
 
 
 def apply(
