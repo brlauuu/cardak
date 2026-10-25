@@ -68,6 +68,21 @@ def build_parser() -> argparse.ArgumentParser:
         )
         if name != "status":
             cmd.add_argument("--yes", action="store_true", help="don't ask before writing")
+    sk = sub.add_parser("skills", help="the /checkpoint and /where-were-we Claude Code skills")
+    sk_sub = sk.add_subparsers(dest="skills_command", required=True)
+    for name, text in (
+        ("install", "add /checkpoint and /where-were-we to ~/.claude/skills"),
+        ("uninstall", "remove cardak's skills from ~/.claude/skills"),
+        ("status", "show whether cardak's skills are installed"),
+    ):
+        cmd = sk_sub.add_parser(name, help=text)
+        cmd.add_argument("--dir", type=Path, help="skills directory (default: ~/.claude/skills)")
+        if name != "status":
+            cmd.add_argument("--yes", action="store_true", help="don't ask before writing")
+        if name == "install":
+            cmd.add_argument(
+                "--force", action="store_true", help="replace skill files not written by cardak"
+            )
     res = sub.add_parser("resources", help="the background service that sends resource alerts")
     res_sub = res.add_subparsers(dest="resources_command", required=True)
     res_inst = res_sub.add_parser("install", help="install and start the alert service")
@@ -125,6 +140,58 @@ def _hooks_hint() -> str | None:
     if exe is None and claude.status(settings, "cardak hook") != "missing":
         return None  # installed from some other path; nothing to compare it with
     return HOOKS_HINT
+
+
+def _skills_hint() -> str | None:
+    """The deck's hint when /checkpoint isn't installed."""
+    from cardak.claude import skills
+
+    return skills.hint(skills.default_dir())
+
+
+SKILL_STATUS_TEXT = {
+    "installed": "installed",
+    "outdated": "outdated (run `cardak skills install`)",
+    "missing": "not installed",
+    "foreign": "not cardak's",
+}
+
+
+def _skills(command: str, dir_arg: Path | None, yes: bool, force: bool) -> int:
+    from cardak.claude import skills
+
+    dir = dir_arg or skills.default_dir()
+    states = {name: skills.status(dir, name) for name in skills.NAMES}
+    lines = [f"{n}: {SKILL_STATUS_TEXT[s]}: {dir / n / skills.FILE}" for n, s in states.items()]
+    if command == "status":
+        print("\n".join(lines))
+        return 0
+    install = command == "install"
+    todo = [s for s in states.values() if (s != "installed" if install else s != "missing")]
+    if install and "foreign" in todo and not force:
+        foreign = [str(dir / n / skills.FILE) for n, s in states.items() if s == "foreign"]
+        print(f"cardak: not written by cardak (use --force): {', '.join(foreign)}", file=sys.stderr)
+        return 1
+    if not install:
+        todo = [s for s in todo if s != "foreign"]
+    if not todo:
+        print(f"cardak skills already {'installed' if install else 'absent'}: {dir}")
+        return 0
+    print("\n".join(lines))
+    verb = "Write" if install else "Remove"
+    if not yes and input(f"{verb} {len(todo)} file(s) under {dir}? [y/N] ").strip().lower() not in (
+        "y",
+        "yes",
+    ):
+        print("Nothing written.")
+        return 0
+    try:
+        done = skills.install(dir, force) if install else skills.uninstall(dir)
+    except (skills.SkillsError, OSError) as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    print("\n".join(f"{'wrote' if install else 'removed'} {p}" for p in done))
+    return 0
 
 
 HOOK_STATUS_TEXT = {
@@ -378,13 +445,16 @@ def main(argv: list[str] | None = None) -> int:
         return _summarize(args.session_id, args.wait_since)
     if args.command == "hooks":
         return _hooks(args.hooks_command, args.settings, getattr(args, "yes", False))
-    if args.command in ("resources", "wezterm", "themes"):
+    if args.command in ("skills", "resources", "wezterm", "themes"):
         return _setup(args)
     return _deck(args.config)
 
 
 def _setup(args: argparse.Namespace) -> int:
-    """The commands that install or generate files: resources, wezterm, themes."""
+    """The commands that install or generate files: skills, resources, wezterm, themes."""
+    if args.command == "skills":
+        yes, force = getattr(args, "yes", False), getattr(args, "force", False)
+        return _skills(args.skills_command, args.dir, yes, force)
     if args.command == "resources":
         if args.resources_command == "uninstall":
             return _resources_uninstall()
