@@ -4,6 +4,7 @@ Every hook call is its own short process, so writers coordinate through SQLite: 
 a busy timeout, and `BEGIN IMMEDIATE` around each read-modify-write.
 """
 
+import contextlib
 import json
 import sqlite3
 import time
@@ -136,6 +137,10 @@ class DayPeak:
     cpu_peak: float
 
 
+class _Gone(Exception):
+    """The session's row went away inside a transaction; the update rolls back."""
+
+
 class StoreError(Exception):
     pass
 
@@ -234,7 +239,9 @@ class Store:
             raise
         return extra
 
-    def mark_seen(self, session_id: str, now: float) -> None:
+    def mark_seen(self, session_id: str, now: float, wait_since: float | None = None) -> None:
+        """Mark the wait seen; with wait_since, only if it is still that wait (a hook may have
+        moved the session into a newer one since the deck read it)."""
         try:
             if self._get(session_id) is None:
                 return
@@ -242,10 +249,14 @@ class Store:
             raise StoreError(str(e)) from e
 
         def seen(old: SessionState | None) -> tuple[SessionState, None]:
-            assert old is not None  # rows are only deleted by prune, for ended sessions
+            if old is None:
+                raise _Gone  # a hook pruned it since the check above
+            if wait_since is not None and old.status_since != wait_since:
+                return old, None
             return mark_seen(old, now), None
 
-        self.update(session_id, seen)
+        with contextlib.suppress(_Gone):
+            self.update(session_id, seen)
 
     def live_sessions(self) -> list[SessionState]:
         try:

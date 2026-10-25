@@ -242,7 +242,7 @@ class FakeStore:
         error: str | None = None,
     ) -> None:
         self.states = {s.session_id: s for s in states}
-        self.seen: list[tuple[str, float]] = []
+        self.seen: list[tuple[str, float, float | None]] = []
         self.broken = broken
         self.summaries = summaries or {}
         self.spend = spend
@@ -269,8 +269,8 @@ class FakeStore:
     def get(self, session_id: str) -> SessionState | None:
         return self.states.get(session_id)
 
-    def mark_seen(self, session_id: str, now: float) -> None:
-        self.seen.append((session_id, now))
+    def mark_seen(self, session_id: str, now: float, wait_since: float | None = None) -> None:
+        self.seen.append((session_id, now, wait_since))
         self.states[session_id] = mark_seen(self.states[session_id], now)
 
 
@@ -309,7 +309,7 @@ def test_poll_shows_agents(tmp_path: Path) -> None:
 def test_poll_marks_seen_by_focus(tmp_path: Path) -> None:
     store = FakeStore(WAITING)
     snap = agent_source(tmp_path, store, history=[FocusChange(1, 100.2)]).poll()
-    assert store.seen == [("w", 102.0)]
+    assert store.seen == [("w", 102.0, 100.0)]  # the wait the deck saw
     assert snap.n_waiting == 0  # re-read after marking
 
 
@@ -324,7 +324,7 @@ def test_mark_seen_pane(tmp_path: Path) -> None:
     working = SessionState("k", pane_id=1, status="working")
     store = FakeStore(WAITING, other, working)
     agent_source(tmp_path, store).mark_seen_pane(1)
-    assert store.seen == [("w", 102.0)]
+    assert store.seen == [("w", 102.0, 100.0)]
 
 
 def test_session_lookup(tmp_path: Path) -> None:

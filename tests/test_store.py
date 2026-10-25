@@ -100,6 +100,17 @@ def test_mark_seen(tmp_path: Path) -> None:
     assert store.get("missing") is None
 
 
+def test_mark_seen_skips_a_newer_wait(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    put(store, SessionState("a", status="waiting", kind="finished", status_since=10.0))
+    store.mark_seen("a", 20.0, wait_since=5.0)  # the deck saw an older wait
+    state = store.get("a")
+    assert state is not None and state.status == "waiting" and state.seen_at is None
+    store.mark_seen("a", 20.0, wait_since=10.0)
+    state = store.get("a")
+    assert state is not None and state.status == "idle" and state.seen_at == 20.0
+
+
 def test_record_event_and_prune(tmp_path: Path) -> None:
     store = Store(tmp_path / "db")
     now = 100 * DAY
@@ -387,3 +398,20 @@ def test_prune_drops_old_minutes(tmp_path: Path) -> None:
     assert [h[1] for h in store.history_hours(WEB, 0.0)] == [3]
     assert [d.ram_peak for d in store.history_days(-1.0)] == [3]  # daily peaks pruned too
     assert store.latest_crash(-1.0) is None
+
+
+def test_mark_seen_row_pruned_mid_way(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = Store(tmp_path / "db")
+    put(store, SessionState("a", status="waiting", kind="finished", status_since=1.0))
+    real_get = store._get  # noqa: SLF001
+    calls = []
+
+    def gone_on_second(session_id: str) -> SessionState | None:
+        calls.append(session_id)
+        return real_get(session_id) if len(calls) == 1 else None
+
+    monkeypatch.setattr(store, "_get", gone_on_second)
+    store.mark_seen("a", 9.0)  # no exception
+    monkeypatch.undo()
+    state = store.get("a")
+    assert state is not None and state.status == "waiting"
