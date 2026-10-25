@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.9.0 — 2026-10-25
+
 ### Added
 - `/checkpoint` and `/where-were-we` for Claude Code: one writes down where the work stands (goal, what got done, decisions, what's waiting on you, the next step) in the repo's `.cardak/handoff.md`, kept out of git; the other briefs you from it, git and your open issues and PRs when you come back. Run `cardak skills install` once. (#64)
 - `c` in the deck sends `/checkpoint` to the selected Claude session after asking, only while it's at its prompt. (#64)
