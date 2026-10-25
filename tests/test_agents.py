@@ -360,3 +360,47 @@ def test_ask_sets_current_tool() -> None:
     )
     assert state.current_tool == "AskUserQuestion"
     assert state.reason == "Do you prefer tea or coffee?"
+
+
+def test_compact_keeps_working() -> None:
+    before, _ = run(
+        ev("UserPromptSubmit", prompt="go"), ev("PreToolUse", tool_name="Bash", tool_input=BASH)
+    )
+    after, pings = run(ev("SessionStart", source="compact"), start=before)
+    assert (after.status, after.status_since, after.current_tool) == (
+        before.status, before.status_since, before.current_tool,
+    )  # fmt: skip
+    assert after.status == "working" and pings == []
+
+
+def test_compact_keeps_waiting_and_no_ping() -> None:
+    before, _ = run(ev("Stop", last_assistant_message="Done."))
+    after, pings = run(ev("SessionStart", source="compact"), start=before)
+    assert (after.status, after.kind, after.status_since) == (
+        "waiting",
+        "finished",
+        before.status_since,
+    )
+    assert pings == []
+
+
+@pytest.mark.parametrize("source", ["startup", "resume", "clear"])
+def test_other_starts_still_idle(source: str) -> None:
+    before, _ = run(ev("PreToolUse", tool_name="Bash", tool_input=BASH))
+    after, _ = run(ev("SessionStart", source=source), start=before)
+    assert after.status == "idle" and after.current_tool is None
+
+
+def test_kind_change_in_wait_pings_quietly() -> None:
+    first, pings = run(ev("PermissionRequest", tool_name="Bash", tool_input=BASH))
+    assert [p.quiet for p in pings] == [False]
+    event = ev("Notification", notification_type="elicitation_dialog", message="Fill in")
+    after, ping = apply(first, event, 7, 150.0)
+    assert (after.kind, after.status_since) == ("question", 150.0)
+    assert ping is not None and (ping.kind, ping.quiet) == ("question", True)
+
+
+def test_same_kind_in_wait_no_ping() -> None:
+    first, _ = run(ev("Stop", last_assistant_message="Done."))
+    _, pings = run(ev("Stop", last_assistant_message="Done again."), start=first)
+    assert pings == []

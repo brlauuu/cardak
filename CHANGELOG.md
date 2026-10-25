@@ -9,6 +9,14 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Fixed
+- A Claude session compacting its context no longer shows as idle while it's still working, or drops out of "Waiting on you". (#36)
+- Looking at a waiting session no longer marks a newer wait from the same session as seen. (#37)
+- Sessions that crashed without ending are cleared after 7 days, so a reused pane no longer picks up an old session's status. (#38)
+- Enter in the `i` panel jumps to the pane for every session, not only those started in a WezTerm pane cardak could see. (#41)
+- `cardak hook` notes in `hook.log` when Claude Code sends something it can't read or doesn't know. (#46)
+- When a waiting session switches to a different kind of ask, its summary is rewritten for the new ask. (#56)
+
 ## 0.9.0 — 2026-10-25
 
 ### Added

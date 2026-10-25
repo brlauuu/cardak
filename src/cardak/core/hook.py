@@ -15,8 +15,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
-from cardak.collectors.hooks import parse
-from cardak.core.agents import Ping, apply
+from cardak.collectors.hooks import HookEvent, parse
+from cardak.core.agents import HANDLERS, IGNORED_EVENTS, Ping, apply
 from cardak.core.config import (
     Config,
     ConfigError,
@@ -70,6 +70,24 @@ def run(
     event = parse(text)
     if event is None:
         return
+    _record(event, text, env, now, store=store, config_file=config_file, focus_file=focus_file,
+            key_file=key_file, spawn=spawn)  # fmt: skip
+
+
+def _record(
+    event: HookEvent,
+    text: str,
+    env: Mapping[str, str],
+    now: float,
+    *,
+    store: Store,
+    config_file: Path,
+    focus_file: Path,
+    key_file: Path,
+    spawn: Spawn | None = None,
+) -> None:
+    if event.name not in HANDLERS and event.name not in IGNORED_EVENTS:
+        log_problem(env, f"ignored: unknown event {event.name}")  # Claude Code added one
     pane = _pane(env)
     store.record_event(event.session_id, event.name, text[:MAX_PAYLOAD], now)
     ping = store.update(event.session_id, lambda old: apply(old, event, pane, now))
@@ -94,7 +112,8 @@ def _ping(
     from cardak.core.alerts import alert, spawn_detached
 
     spawn = spawn or spawn_detached
-    alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn)
+    if not ping.quiet:
+        alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn)
     if config.summary.enabled and key_file.exists():
         spawn(summarize_argv(ping.session_id, now))  # `now` is the new wait's status_since
 
@@ -114,9 +133,14 @@ def main(stdin: TextIO, env: Mapping[str, str] | None = None) -> int:
     env = os.environ if env is None else env
     try:
         text = stdin.read()
+        event = parse(text)
+        if event is None:  # before opening the store: garbage doesn't create the database
+            log_problem(env, f"ignored: unparseable payload ({len(text)} bytes): {text[:200]!r}")
+            return 0
         store = Store(db_path(env))
         try:
-            run(
+            _record(
+                event,
                 text,
                 env,
                 time.time(),

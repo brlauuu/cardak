@@ -35,7 +35,7 @@ class AgentStore(Protocol):
 
     def get(self, session_id: str) -> SessionState | None: ...
 
-    def mark_seen(self, session_id: str, now: float) -> None: ...
+    def mark_seen(self, session_id: str, now: float, wait_since: float | None = None) -> None: ...
 
     def summaries_for(self, waits: Iterable[tuple[str, float]]) -> dict[str, str]: ...
 
@@ -170,7 +170,7 @@ class LiveSource:
             history, now = self._focus_history(), self._clock()
             seen = [s for s in live if seen_by_focus(s, history, now)]
             for s in seen:
-                self._store.mark_seen(s.session_id, now)
+                self._store.mark_seen(s.session_id, now, s.status_since)
             if seen:
                 live = self._store.live_sessions()
         except StoreError as e:
@@ -229,7 +229,7 @@ class LiveSource:
             try:
                 for s in self._store.live_sessions():
                     if s.pane_id == pane_id and s.status == "waiting":
-                        self._store.mark_seen(s.session_id, now)
+                        self._store.mark_seen(s.session_id, now, s.status_since)
             except StoreError as e:
                 self._store_warning = f"agent status unavailable: {e}"
 

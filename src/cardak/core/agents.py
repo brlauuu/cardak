@@ -64,6 +64,7 @@ class Ping:
     cwd: Path | None
     kind: WaitKind
     reason: str
+    quiet: bool = False  # the same wait changed kind: a new summary, no second notification
 
 
 @dataclass(frozen=True)
@@ -142,6 +143,8 @@ Handler = Callable[[SessionState, HookEvent, float], SessionState]
 
 def _on_session_start(s: SessionState, e: HookEvent, now: float) -> SessionState:
     # `--resume` keeps the session id, so a session that ended can start again
+    if e.source == "compact":  # auto-compaction, mid-turn or mid-wait: nothing has changed
+        return replace(s, ended_at=None)
     return _set_status(replace(s, ended_at=None, current_tool=None), "idle", None, None, now)
 
 
@@ -217,6 +220,9 @@ HANDLERS: dict[str, Handler] = {
     "Stop": _on_stop,
     "SessionEnd": _on_session_end,
 }
+# Not registered by `cardak hooks install`, but seen when every event is recorded: not worth a
+# log line. Any other unhandled name means Claude Code renamed or added one we're registered for.
+IGNORED_EVENTS = frozenset({"SubagentStop"})
 
 
 def apply(
@@ -232,14 +238,12 @@ def apply(
         cwd=event.cwd or new.cwd,
         transcript_path=event.transcript_path or new.transcript_path,
     )
-    ping = None
-    if (
-        new.status == "waiting"
-        and new.kind is not None
-        and (state is None or old.status != "waiting")
-    ):
-        ping = Ping(new.session_id, new.pane_id, new.cwd, new.kind, new.reason or "")
-    return new, ping
+    if new.status != "waiting" or new.kind is None:
+        return new, None
+    entered = state is None or old.status != "waiting"
+    if not entered and new.kind == old.kind:
+        return new, None
+    return new, Ping(new.session_id, new.pane_id, new.cwd, new.kind, new.reason or "", not entered)
 
 
 def mark_seen(state: SessionState, now: float) -> SessionState:

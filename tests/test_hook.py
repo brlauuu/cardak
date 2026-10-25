@@ -125,7 +125,7 @@ def test_hook_exception_is_logged(
     def broken(*_a: object, **_k: object) -> None:
         raise StoreError("disk on fire")
 
-    monkeypatch.setattr(hook, "run", broken)
+    monkeypatch.setattr(hook, "_record", broken)
     env = env_for(tmp_path)
     assert main(io.StringIO(text("stop-finished")), env) == 0
     assert capsys.readouterr() == ("", "")
@@ -209,3 +209,47 @@ def test_summarize_argv_ignores_the_working_directory(tmp_path: Path) -> None:
     )  # fmt: skip
     assert result.returncode == 0, result.stderr
     assert not marker.exists()
+
+
+def hook_log(tmp_path: Path) -> str:
+    log = tmp_path / "state" / "cardak" / "hook.log"
+    return log.read_text() if log.exists() else ""
+
+
+def test_garbage_creates_no_db_and_logs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(io.StringIO("nope"), env_for(tmp_path)) == 0
+    assert not (tmp_path / "state" / "cardak" / "cardak.db").exists()
+    assert "ignored: unparseable payload (4 bytes): 'nope'" in hook_log(tmp_path)
+    assert capsys.readouterr() == ("", "")
+
+
+def test_empty_stdin_logs(tmp_path: Path) -> None:
+    assert main(io.StringIO(""), env_for(tmp_path)) == 0
+    assert "ignored: unparseable payload (0 bytes): ''" in hook_log(tmp_path)
+
+
+def test_unknown_event_logged_and_recorded(tmp_path: Path) -> None:
+    payload = json.dumps({"hook_event_name": "BrandNewEvent", "session_id": "s1"})
+    assert main(io.StringIO(payload), env_for(tmp_path)) == 0
+    assert "ignored: unknown event BrandNewEvent" in hook_log(tmp_path)
+    assert Store(tmp_path / "state" / "cardak" / "cardak.db").event_count() == 1
+
+
+def test_subagent_stop_not_logged(tmp_path: Path) -> None:
+    payload = json.dumps({"hook_event_name": "SubagentStop", "session_id": "s1"})
+    assert main(io.StringIO(payload), env_for(tmp_path)) == 0
+    assert hook_log(tmp_path) == ""
+
+
+def test_quiet_ping_spawns_summary_only(tmp_path: Path, paths: dict[str, Path]) -> None:
+    store = Store(tmp_path / "db")
+    paths["key_file"].write_text("k")
+    first = call(store, paths, "permission_request", now=100.0)
+    assert [argv[0] for argv in first][0] == "notify-send"
+    second = call(
+        store, paths, "notification-permission_prompt", now=101.0,
+        notification_type="elicitation_dialog", message="Fill in the form",
+    )  # fmt: skip
+    [state] = store.live_sessions()
+    assert len(second) == 1 and second[0][4:6] == ["summarize", state.session_id]
+    assert float(second[0][6]) == state.status_since == 101.0
