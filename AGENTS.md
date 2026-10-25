@@ -201,6 +201,10 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   keystroke. Measured 2026-10-25 in a headless `wezterm-mux-server` (scratch `XDG_RUNTIME_DIR`;
   Unix socket paths have a length limit, so keep it short): the pane reads exactly the bytes
   sent. Without `--no-paste`, Claude Code's bracketed paste would take it as pasted text.
+  Verified end to end the same day against Claude Code 2.1.309 in that mux (scratch git repo, the
+  skill as a project skill, `--setting-sources project`): the command submitted, the skill ran
+  `date` and git, wrote `.cardak/.gitignore` and an entry the recap parses, and committed nothing.
+  A fresh folder first shows Claude Code's trust prompt with "No, exit" highlighted.
 - Allowed only at the input box (`core/checkpoint.refusal`): not working, not at a permission
   prompt, and not while any menu or dialog is open. Every wait except a finished turn leaves
   `current_tool` set (the `AskUserQuestion` marker on its `PreToolUse` or `PermissionRequest`, the
