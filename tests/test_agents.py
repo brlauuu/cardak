@@ -360,3 +360,32 @@ def test_ask_sets_current_tool() -> None:
     )
     assert state.current_tool == "AskUserQuestion"
     assert state.reason == "Do you prefer tea or coffee?"
+
+
+def test_compact_keeps_working() -> None:
+    before, _ = run(
+        ev("UserPromptSubmit", prompt="go"), ev("PreToolUse", tool_name="Bash", tool_input=BASH)
+    )
+    after, pings = run(ev("SessionStart", source="compact"), start=before)
+    assert (after.status, after.status_since, after.current_tool) == (
+        before.status, before.status_since, before.current_tool,
+    )  # fmt: skip
+    assert after.status == "working" and pings == []
+
+
+def test_compact_keeps_waiting_and_no_ping() -> None:
+    before, _ = run(ev("Stop", last_assistant_message="Done."))
+    after, pings = run(ev("SessionStart", source="compact"), start=before)
+    assert (after.status, after.kind, after.status_since) == (
+        "waiting",
+        "finished",
+        before.status_since,
+    )
+    assert pings == []
+
+
+@pytest.mark.parametrize("source", ["startup", "resume", "clear"])
+def test_other_starts_still_idle(source: str) -> None:
+    before, _ = run(ev("PreToolUse", tool_name="Bash", tool_input=BASH))
+    after, _ = run(ev("SessionStart", source=source), start=before)
+    assert after.status == "idle" and after.current_tool is None

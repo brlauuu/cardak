@@ -142,6 +142,8 @@ Handler = Callable[[SessionState, HookEvent, float], SessionState]
 
 def _on_session_start(s: SessionState, e: HookEvent, now: float) -> SessionState:
     # `--resume` keeps the session id, so a session that ended can start again
+    if e.source == "compact":  # auto-compaction, mid-turn or mid-wait: nothing has changed
+        return replace(s, ended_at=None)
     return _set_status(replace(s, ended_at=None, current_tool=None), "idle", None, None, now)
 
 
