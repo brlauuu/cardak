@@ -488,3 +488,38 @@ def test_skills_hint_none_when_installed(tmp_path: Path, monkeypatch: pytest.Mon
     main(["skills", "install", "--yes"])
     assert (tmp_path / ".claude" / "skills" / "checkpoint" / "SKILL.md").exists()
     assert _skills_hint() is None
+
+
+def test_install_dir_is_remembered_and_used(
+    xdg: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cardak.cli import _lua_dir
+
+    custom = xdg / "dotfiles" / "wezterm"
+    assert main(["wezterm", "install", "--dir", str(custom)]) == 0
+    assert _lua_dir() == custom.resolve()
+    cfg = xdg / "config/cardak/projects.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text('[[project]]\nname = "a"\npath = "/a"\ntheme = "Nord"\n')
+    capsys.readouterr()
+    assert main(["themes", "apply"]) == 0
+    out = capsys.readouterr().out
+    assert (custom / "cardak_projects.lua").exists()  # next to the module it belongs to
+    assert "run `cardak wezterm install`" not in out
+    seen: list[DeckApp] = []
+    monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))
+    monkeypatch.setattr("cardak.wezterm.schemes.read_cached_schemes", lambda cache_dir: None)
+    assert main(["--config", str(cfg)]) == 0
+    nav = seen[0].navigator
+    assert isinstance(nav, Navigator) and nav.lua_installed()  # no install hint on jumps
+    assert seen[0].theme_status is not None and seen[0].theme_status() is None
+
+
+def test_removed_custom_dir_falls_back_to_default(xdg: Path) -> None:
+    from cardak.cli import _lua_dir
+    from cardak.wezterm.install import default_dir
+
+    custom = xdg / "gone"
+    main(["wezterm", "install", "--dir", str(custom)])
+    (custom / "cardak.lua").unlink()
+    assert _lua_dir() == default_dir()

@@ -501,3 +501,10 @@ def test_summaries_failure_message(tmp_path: Path) -> None:
     snap = agent_source(tmp_path, store, key_file=key(tmp_path)).poll()
     assert any(w.startswith("waiting summaries unavailable:") for w in snap.config_warnings)
     assert not any("agent status unavailable" in w for w in snap.config_warnings)
+
+
+def test_no_summary_info_without_key(tmp_path: Path) -> None:
+    store = FakeStore(WAITING, spend=1.0)
+    source = agent_source(tmp_path, store, key_file=tmp_path / "anthropic_key")  # not there
+    assert source.summary_info(WAITING) is None
+    assert source.poll().summary_capped is False

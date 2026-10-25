@@ -121,3 +121,21 @@ def test_previewer() -> None:
     assert not Previewer(rec.write, in_wezterm=False).preview(Path("/r"), "Nord")
     assert not Previewer(Recorder(fail_write="x").write, in_wezterm=True).preview(Path("/r"), "N")
     assert Previewer.live({"WEZTERM_PANE": "1"}).in_wezterm
+
+
+def test_hint_once_under_concurrent_jumps() -> None:
+    import threading
+    import time as _time
+
+    def slow_missing() -> bool:
+        _time.sleep(0.05)  # both jumps check at the same time
+        return False
+
+    nav = Navigator(lambda pane: None, lambda data: None, True, slow_missing)
+    results: list = []
+    threads = [threading.Thread(target=lambda p=p: results.append(nav.jump(p))) for p in (1, 2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sum(r.hint for r in results) == 1

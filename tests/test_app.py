@@ -1127,3 +1127,16 @@ async def test_jump_from_waiting_lands_on_the_project_row() -> None:
         cursor = app.deck_tree.cursor_node
         assert cursor is not None and cursor.data is not None
         assert node_id(cursor.data) == "p:7"  # not row 0 (#39)
+
+
+async def test_cap_notice_rearms() -> None:
+    capped = replace(SNAP, summary_capped=True, summary_limit=5.0)
+    source = StubSource(capped, SNAP, capped)
+    app = DeckApp(source, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        for _ in range(2):
+            app.action_refresh()
+            await settle(app, pilot)
+        notices = [str(n.message) for n in app._notifications if "Summary limit" in str(n.message)]  # noqa: SLF001
+        assert len(notices) == 2  # a new month that hits the cap again says so again (#55)

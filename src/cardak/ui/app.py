@@ -371,7 +371,9 @@ class DeckApp(App[None]):
             banner.update(escape("\n".join(snap.config_warnings)))
         banner.display = bool(snap.config_error or snap.config_warnings)
         banner.set_class(snap.config_error is None and bool(snap.config_warnings), "warning")
-        if snap.summary_capped and not self._cap_noticed:
+        if not snap.summary_capped:
+            self._cap_noticed = False  # a new month: the next cap is news again (#55)
+        elif not self._cap_noticed:
             self._cap_noticed = True
             self.notify(
                 escape(
