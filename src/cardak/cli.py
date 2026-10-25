@@ -162,29 +162,47 @@ def _skills(command: str, dir_arg: Path | None, yes: bool, force: bool) -> int:
 
     dir = dir_arg or skills.default_dir()
     states = {name: skills.status(dir, name) for name in skills.NAMES}
-    lines = [f"{n}: {SKILL_STATUS_TEXT[s]}: {dir / n / skills.FILE}" for n, s in states.items()]
+    report = "\n".join(
+        f"{n}: {SKILL_STATUS_TEXT[s]}: {dir / n / skills.FILE}" for n, s in states.items()
+    )
     if command == "status":
-        print("\n".join(lines))
+        print(report)
         return 0
     install = command == "install"
-    todo = [s for s in states.values() if (s != "installed" if install else s != "missing")]
-    if install and "foreign" in todo and not force:
-        foreign = [str(dir / n / skills.FILE) for n, s in states.items() if s == "foreign"]
-        print(f"cardak: not written by cardak (use --force): {', '.join(foreign)}", file=sys.stderr)
+    if install and not force and (foreign := _named(dir, states, ("foreign",))):
+        print(f"cardak: not written by cardak (use --force): {foreign}", file=sys.stderr)
         return 1
-    if not install:
-        todo = [s for s in todo if s != "foreign"]
+    todo = _todo(states, install)
     if not todo:
         print(f"cardak skills already {'installed' if install else 'absent'}: {dir}")
         return 0
-    print("\n".join(lines))
+    print(report)
     verb = "Write" if install else "Remove"
-    if not yes and input(f"{verb} {len(todo)} file(s) under {dir}? [y/N] ").strip().lower() not in (
-        "y",
-        "yes",
-    ):
+    if not yes and not _ask(f"{verb} {todo} file(s) under {dir}? [y/N] "):
         print("Nothing written.")
         return 0
+    return _skills_apply(dir, install, force)
+
+
+def _todo(states: dict[str, str], install: bool) -> int:
+    """Install writes all but the up-to-date ones; uninstall removes only cardak's own."""
+    if install:
+        return sum(s != "installed" for s in states.values())
+    return sum(s in ("installed", "outdated") for s in states.values())
+
+
+def _named(dir: Path, states: dict[str, str], wanted: tuple[str, ...]) -> str:
+    """The skill files whose status is one of wanted, comma-separated."""
+    return ", ".join(str(dir / n / "SKILL.md") for n, s in states.items() if s in wanted)
+
+
+def _ask(prompt: str) -> bool:
+    return input(prompt).strip().lower() in ("y", "yes")
+
+
+def _skills_apply(dir: Path, install: bool, force: bool) -> int:
+    from cardak.claude import skills
+
     try:
         done = skills.install(dir, force) if install else skills.uninstall(dir)
     except (skills.SkillsError, OSError) as e:

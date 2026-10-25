@@ -94,7 +94,6 @@ Start simple: in M1 the collectors can run *inside* the Textual app. M4 needed n
 theme = "Tokyo Night"
 cpu_alert_pct = 300        # summed across the pane's process tree (cores × 100)
 rss_alert_gb  = 8
-notes_file = ".cardak/handoff.md"   # relative to project root
 
 [[project]]
 name  = "webshop"
@@ -133,10 +132,10 @@ Detail view (`i`): what kind of input is needed, the ask, the user's last prompt
 
 Implemented as **Claude Code skills** first, so they work without the deck:
 
-- `/checkpoint` appends a dated entry to `<project>/.cardak/handoff.md` covering the goal, what got done, decisions made, what's blocked on the user, the next concrete step, and branch / issue / PR links.
+- `/checkpoint` appends a dated entry to `.cardak/handoff.md` at the git top level (each worktree keeps its own; the path is fixed, so there is no `notes_file` setting) covering the goal, what got done, decisions made, what's blocked on the user, the next concrete step, and branch / issue / PR links. `.cardak/.gitignore` (`*`) keeps it out of git.
 - `/where-were-we` reads `handoff.md`, plus `git log` and `git status` since the last entry, plus open issues (via `gh`), and gives a short briefing.
 
-The deck adds two buttons per project: **Checkpoint** sends `/checkpoint` into the selected agent pane via `wezterm cli send-text`. **Recap** shows the latest handoff entry inline, or spawns a fresh Claude pane running `/where-were-we`.
+`cardak skills install` puts both in `~/.claude/skills/`. The deck adds two keys (M6 design: `docs/superpowers/specs/2026-10-24-m6-checkpoint-recap-design.md`): **Checkpoint** (`c`) sends `/checkpoint` into the selected agent pane via `wezterm cli send-text`, after asking and only while the agent is at its prompt. **Recap** (`r`) shows the latest handoff entry for a project or pane (across its worktrees) and what changed in git since; it reads only local files and git, and starts nothing.
 
 ## 10. UI sketch (TUI)
 
@@ -194,8 +193,8 @@ Design exploration (browser and TUI variants) can be done separately with Claude
 - [x] Event log view; survives the terminal crashing because the daemon runs outside WezTerm.
 
 **M6: Checkpoint & recap.**
-- [ ] Two skills (usable standalone).
-- [ ] Buttons in the deck.
+- [x] Two skills (usable standalone).
+- [x] Buttons in the deck.
 
 **M7: Browser.**
 - [ ] `cardak web` via textual-serve, bound to 127.0.0.1.
