@@ -4,6 +4,7 @@ Both run detached, so `cardak hook` returns at once; a missing tool is skipped s
 """
 
 import contextlib
+import html
 import random
 import shutil
 import subprocess
@@ -68,19 +69,24 @@ def check(settings: NotifySettings, bundled: Mapping[str, Path]) -> list[str]:
 
 
 def notification_argv(project: str, ping: Ping) -> list[str]:
-    body = " ".join(f"{KIND_LABELS[ping.kind]}: {ping.reason}".split())
-    if len(body) > MAX_BODY:
-        body = body[: MAX_BODY - 1] + "…"
-    return ["notify-send", "-a", "cardak", f"{project} · claude", body]
+    body = _cut(" ".join(f"{KIND_LABELS[ping.kind]}: {ping.reason}".split()), MAX_BODY)
+    return ["notify-send", "-a", "cardak", f"{project} · claude", _markup_safe(body)]
 
 
 def _cut(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _markup_safe(body: str) -> str:
+    """The body is rendered as (a subset of) HTML by KDE and others; the summary is plain text.
+    Escaped after cutting, so a cut never splits an entity."""
+    return html.escape(body, quote=False)
+
+
 def resource_argv(level: str, title: str, body: str) -> list[str]:
     urgency = "critical" if level == "critical" else "normal"  # critical stays until dismissed
-    return ["notify-send", "-a", "cardak", "-u", urgency, title, _cut(body, 2 * MAX_BODY)]
+    body = _markup_safe(_cut(body, 2 * MAX_BODY))
+    return ["notify-send", "-a", "cardak", "-u", urgency, title, body]
 
 
 def player_argv(sound: Path, which: Which = shutil.which) -> list[str] | None:

@@ -233,3 +233,31 @@ def test_focus_is_harmless_without_a_state_dir(
 
 def test_module_version_3() -> None:
     assert MODULE.splitlines()[1] == "-- cardak-module: 3"
+
+
+def record_opens(wez: Wez) -> Any:
+    wez.lua.execute(
+        "opened = {}; local real_open = io.open\n"
+        "io.open = function(name, mode)\n"
+        "  table.insert(opened, name); return real_open(name, mode)\n"
+        "end"
+    )
+    return wez.g.opened
+
+
+def test_focus_tmp_is_per_process(state: Path) -> None:
+    wez = Wez(data())
+    wez.lua.execute("fake.procinfo = { pid = function() return 4242 end }")
+    opened = record_opens(wez)
+    focus(wez, wez.window(1, "/r"), True, 1000)
+    assert str(state) + ".tmp.4242" in list(opened.values())
+    assert state.read_text().splitlines() == [FOCUS_HEADER, "10 1000"]
+    assert not Path(str(state) + ".tmp.4242").exists()
+
+
+def test_focus_tmp_without_procinfo(state: Path) -> None:
+    wez = Wez(data())
+    opened = record_opens(wez)
+    focus(wez, wez.window(1, "/r"), True, 1000)
+    assert str(state) + ".tmp" in list(opened.values())
+    assert state.read_text().splitlines() == [FOCUS_HEADER, "10 1000"]

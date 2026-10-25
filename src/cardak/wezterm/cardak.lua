@@ -118,8 +118,15 @@ local function now_ms()
   return os.time() * 1000
 end
 
+-- Each GUI process writes through its own tmp file, so two GUIs never write one half-finished
+-- file; the history itself is shared, last writer wins.
+local function tmp_name()
+  local ok, pid = pcall(function() return wezterm.procinfo.pid() end)
+  return focus_file .. '.tmp' .. ((ok and pid) and ('.' .. pid) or '')
+end
+
 local function write_focus_history()
-  local tmp = focus_file .. '.tmp'
+  local tmp = tmp_name()
   local f = io.open(tmp, 'w')
   if not f then return end -- no state dir yet: cardak creates it on first use
   f:write(FOCUS_HEADER, '\n', table.concat(focus_history, '\n'), '\n')

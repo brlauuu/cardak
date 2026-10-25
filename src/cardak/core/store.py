@@ -17,6 +17,12 @@ from cardak.core.agents import SessionState, mark_seen
 from cardak.core.config import state_dir
 
 SCHEMA_VERSION = 4
+# The oldest schema whose code can still use this database, kept in PRAGMA application_id so
+# that an older cardak (from this one on) opens a newer file instead of refusing it. Only a
+# new table is safe for older code. Any change to an existing table, a new column included,
+# must raise this: older code reads rows with `SessionState(**row)`, inserts positionally and
+# replaces whole rows.
+MIN_READER = 1
 KEEP_SECONDS = 7 * 86_400
 RESOURCE_KEEP_SECONDS = 30 * 86_400
 SUMMARY_KEEP_SECONDS = 62 * 86_400  # longer than a month: the spend cap counts them
@@ -185,15 +191,27 @@ class Store:
             )
             self._con.row_factory = sqlite3.Row
             version = self._con.execute("PRAGMA user_version").fetchone()[0]
-            if version > SCHEMA_VERSION:
+            if version > SCHEMA_VERSION and not self._readable():
                 self._con.close()
                 raise StoreError(f"{path} is from a newer cardak (schema {version})")
             self._con.execute("PRAGMA journal_mode = WAL")
             if version < SCHEMA_VERSION:
                 self._con.executescript(_SCHEMA)
+                # the reader floor first: no moment where a raised schema shows the old floor
+                self._con.execute(f"PRAGMA application_id = {MIN_READER}")
                 self._con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            elif version == SCHEMA_VERSION and self._min_reader() != MIN_READER:
+                # only when it differs: an open must not need the write lock (hooks, read-only)
+                self._con.execute(f"PRAGMA application_id = {MIN_READER}")
         except (OSError, sqlite3.Error) as e:
             raise StoreError(f"cannot open {path}: {e}") from e
+
+    def _min_reader(self) -> int:
+        return self._con.execute("PRAGMA application_id").fetchone()[0]
+
+    def _readable(self) -> bool:
+        """A newer database that says this schema's code can still use it (0: says nothing)."""
+        return 1 <= self._min_reader() <= SCHEMA_VERSION
 
     def close(self) -> None:
         self._con.close()

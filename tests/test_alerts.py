@@ -151,3 +151,20 @@ def test_resource_alert_follows_notify_settings() -> None:
         rng=random.Random(0), which=which,
     )  # fmt: skip
     assert [argv[0] for argv in spawned] == ["/usr/bin/pw-play"]
+
+
+def test_notification_body_is_escaped() -> None:
+    ping = Ping("s1", 7, None, "permission", "Bash: cat <in >out && x")
+    expected = "Approve a tool: Bash: cat &lt;in &gt;out &amp;&amp; x"
+    assert notification_argv("x", ping)[-1] == expected
+
+
+def test_resource_body_is_escaped() -> None:
+    argv = resource_argv("warning", "t <b>", "pytest <3 & co")
+    assert argv[-2:] == ["t <b>", "pytest &lt;3 &amp; co"]  # the summary is plain text
+
+
+def test_cut_then_escaped() -> None:
+    reason = "a" * 100 + " & " + "b" * 20  # the label is 15 chars: the & lands just before the cut
+    body = notification_argv("x", Ping("s1", 7, None, "finished", reason))[-1]
+    assert body.endswith("…") and "&am…" not in body and "&amp;" in body

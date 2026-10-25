@@ -157,12 +157,28 @@ def backup_path(path: Path, now: datetime) -> Path:
 def save_settings(path: Path, data: Settings, now: datetime) -> Path | None:
     """Write data (atomic, through a symlink, mode kept); return the backup of the old file."""
     target = path.resolve()
-    backup = None
+    backup, indent = None, 2
     if target.exists():
+        indent = _indent(target.read_text(encoding="utf-8"))
         backup = backup_path(path, now)
         shutil.copy2(target, backup)
-    write_atomic(target, json.dumps(data, indent=2, ensure_ascii=False) + "\n", 0o600)
+    text = json.dumps(data, indent=indent, ensure_ascii=False) + "\n"
+    write_atomic(target, text, 0o600)
     return backup
+
+
+def _indent(text: str) -> int | str:
+    """The file's own indent (spaces or a tab), so a rewrite changes only cardak's entries.
+
+    Claude Code writes 2 spaces, which round-trips byte for byte; hand formatting such as an
+    inline array is expanded, its content kept."""
+    for line in text.splitlines()[1:]:
+        if line.startswith("\t"):
+            return "\t"
+        spaces = len(line) - len(line.lstrip(" "))
+        if spaces:
+            return spaces
+    return 2
 
 
 def write_atomic(target: Path, text: str, new_mode: int) -> None:

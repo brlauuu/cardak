@@ -9,6 +9,7 @@ import pytest
 from cardak.core.agents import SessionState
 from cardak.core.config import state_dir
 from cardak.core.store import (
+    MIN_READER,
     SCHEMA_VERSION,
     DayPeak,
     MinuteRow,
@@ -155,14 +156,42 @@ def test_concurrent_update_waits(tmp_path: Path) -> None:
     assert {s.session_id for s in second.live_sessions()} == {"s1", "s2"}
 
 
-def test_newer_schema_is_refused(tmp_path: Path) -> None:
-    path = tmp_path / "db"
+def newer(path: Path, min_reader: int) -> None:
+    """Make path look written by a newer cardak that says which readers can still use it."""
     Store(path).close()
     con = sqlite3.connect(path)
-    con.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+    con.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 5}")
+    con.execute(f"PRAGMA application_id = {min_reader}")
     con.close()
-    with pytest.raises(StoreError):
-        Store(path)
+
+
+def test_newer_db_without_min_reader_refused(tmp_path: Path) -> None:
+    newer(tmp_path / "db", 0)  # as every cardak up to 0.9.0 left it
+    with pytest.raises(StoreError, match="from a newer cardak"):
+        Store(tmp_path / "db")
+
+
+def test_newer_db_needing_newer_reader_refused(tmp_path: Path) -> None:
+    newer(tmp_path / "db", SCHEMA_VERSION + 1)
+    with pytest.raises(StoreError, match="from a newer cardak"):
+        Store(tmp_path / "db")
+
+
+def test_newer_compatible_db_opens_untouched(tmp_path: Path) -> None:
+    newer(tmp_path / "db", 1)
+    store = Store(tmp_path / "db")
+    put(store, SessionState("a", status="idle"))
+    assert store.get("a") is not None
+    store.close()
+    con = sqlite3.connect(tmp_path / "db")
+    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION + 5  # not lowered
+    assert con.execute("PRAGMA application_id").fetchone()[0] == 1  # not rewritten
+
+
+def test_new_store_records_min_reader(tmp_path: Path) -> None:
+    Store(tmp_path / "db").close()
+    con = sqlite3.connect(tmp_path / "db")
+    assert con.execute("PRAGMA application_id").fetchone()[0] == MIN_READER == 1
 
 
 def test_unopenable_path_raises_store_error(tmp_path: Path) -> None:
@@ -440,3 +469,28 @@ def test_stale_session_comes_back_on_its_next_event(tmp_path: Path) -> None:
     store.update("s", lambda old: apply(old, event, 3, now + 1))
     state = store.get("s")
     assert state is not None and state.status == "waiting" and state.started_at == now + 1
+
+
+def test_opening_a_current_db_needs_no_write_lock(tmp_path: Path) -> None:
+    Store(tmp_path / "db").close()
+    holder = sqlite3.connect(tmp_path / "db", isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")  # another hook or the daemon is mid-write
+    try:
+        start = time.monotonic()
+        Store(tmp_path / "db").close()  # used to wait out the busy timeout and fail
+        assert time.monotonic() - start < 1.0
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+
+
+def test_read_only_current_db_opens(tmp_path: Path) -> None:
+    path = tmp_path / "db"
+    store = Store(path)
+    put(store, SessionState("a"))
+    store.close()
+    path.chmod(0o444)
+    try:
+        assert Store(path).get("a") is not None
+    finally:
+        path.chmod(0o644)
