@@ -351,3 +351,12 @@ def test_resumed_session_is_live_again() -> None:
     state, _ = run(ev("SessionStart"), ev("SessionEnd", reason="prompt_input_exit"),
                    ev("SessionStart", source="resume"))  # fmt: skip
     assert state.ended_at is None
+
+
+def test_ask_sets_current_tool() -> None:
+    state, _ = run(
+        ev("PreToolUse", tool_name="Bash", tool_input=BASH),
+        ev("PreToolUse", tool_name="AskUserQuestion", tool_input=ASK),
+    )
+    assert state.current_tool == "AskUserQuestion"
+    assert state.reason == "Do you prefer tea or coffee?"

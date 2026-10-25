@@ -157,7 +157,8 @@ def _on_prompt(s: SessionState, e: HookEvent, now: float) -> SessionState:
 def _on_pre_tool(s: SessionState, e: HookEvent, now: float) -> SessionState:
     tool = e.tool_name or ""
     s = replace(s, permission_requested=False)
-    if tool == ASK_TOOL:
+    if tool == ASK_TOOL:  # current_tool marks the open menu, so the deck won't type into it
+        s = replace(s, current_tool=ASK_TOOL)
         return _set_status(s, "waiting", "question", tool_summary(tool, e.tool_input), now)
     s = replace(s, current_tool=tool_summary(tool, e.tool_input))
     return _set_status(s, "working", None, None, now)

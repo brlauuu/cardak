@@ -157,3 +157,11 @@ def activate_pane(
     """Select the pane and its tab. Does not raise the window (measured in M0)."""
     env = os.environ if env is None else env
     _run_cli(["activate-pane", "--pane-id", str(pane_id)], env, runner)
+
+
+def send_text(
+    pane_id: int, text: str, env: Mapping[str, str] | None = None, runner: Runner = subprocess.run
+) -> None:
+    """Type text into the pane as keystrokes (`--no-paste`: a trailing \\r is Enter)."""
+    env = os.environ if env is None else env
+    _run_cli(["send-text", "--pane-id", str(pane_id), "--no-paste", text], env, runner)
