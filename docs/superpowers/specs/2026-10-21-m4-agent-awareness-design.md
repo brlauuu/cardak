@@ -92,7 +92,7 @@ The final-`?` rule is a heuristic and will sometimes be wrong; that's accepted.
 | `PreToolUse` | `working`; store the current tool and a short summary of its input. For `AskUserQuestion`, go to `waiting`/`question` with the question text instead. |
 | `PostToolUse`, `PostToolUseFailure` | `working`. Count the tool (edit / read / command / other) and add edited file paths to the turn's file list. |
 | `PermissionRequest` | `waiting`/`permission`, with the tool name and input summary as the reason. |
-| `Notification` | `permission_prompt`: a fallback for `PermissionRequest`. It acts only if no `PermissionRequest` arrived since the last `PreToolUse`, whatever the current status, so one prompt never pings twice. Elicitation and `agent_needs_input`: `waiting`/`question` with `message`. `idle_prompt` and anything else: store `message`, no status change. |
+| `Notification` | `permission_prompt`: a fallback for `PermissionRequest`. It acts only if no `PermissionRequest` arrived since the last `PreToolUse`, whatever the current status, so one prompt never pings twice. Elicitation and `agent_needs_input`: `waiting`/`question` with `message`. `idle_prompt` and anything else: no status change (the payload, `message` included, stays in `events`; #45). |
 | `Stop` | `waiting`, with kind `question` or `finished`. Store `last_assistant_message`. |
 | `SubagentStop` | Ignored: the main session is still working. |
 | `SessionEnd` | Mark the row ended. The deck stops showing it. |
