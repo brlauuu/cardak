@@ -1056,3 +1056,21 @@ async def test_c_session_gone_on_enter() -> None:
         await pilot.pause()
         assert sends.calls == []
         assert "That session has ended or moved; nothing sent." in notices(app)
+
+
+async def test_i_enter_jumps_for_a_session_matched_by_process() -> None:
+    snap = waiting_snap(agent_row(7, "waiting", "finished"))
+    source = StubSource(snap)
+    # joined to its pane by the claude pid, not WEZTERM_PANE: the session knows no pane
+    source.sessions["s7"] = SessionState("s7", pane_id=None, status="waiting", kind="finished")
+    nav = StubNavigator()
+    app = DeckApp(source, navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])
+        await pilot.press("i")
+        await pilot.pause()
+        assert isinstance(app.screen, DetailScreen)
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == [7]

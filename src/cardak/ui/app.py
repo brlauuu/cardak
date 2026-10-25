@@ -447,7 +447,8 @@ class DeckApp(App[None]):
             if pane_id is not None:
                 self.jump(pane_id)
 
-        self.push_screen(DetailScreen(state, project, self.source.summary_info(state)), done)
+        info = self.source.summary_info(state)
+        self.push_screen(DetailScreen(state, project, info, row.pane_id), done)
 
     def action_checkpoint(self) -> None:
         node = self.deck_tree.cursor_node

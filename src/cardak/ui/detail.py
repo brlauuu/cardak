@@ -104,9 +104,16 @@ class DetailScreen(Screen[int | None]):
         Binding("escape", "back", "Back"),
     ]
 
-    def __init__(self, state: SessionState, project: str, info: SummaryInfo | None = None) -> None:
+    def __init__(
+        self,
+        state: SessionState,
+        project: str,
+        info: SummaryInfo | None = None,
+        pane_id: int | None = None,  # the row's pane: a session matched by pid knows none
+    ) -> None:
         super().__init__()
         self.state = state
+        self.pane_id = pane_id
         self.project = project
         self.info = info
 
@@ -117,7 +124,7 @@ class DetailScreen(Screen[int | None]):
         yield Footer()
 
     def action_jump(self) -> None:
-        self.dismiss(self.state.pane_id)
+        self.dismiss(self.pane_id if self.pane_id is not None else self.state.pane_id)
 
     def action_back(self) -> None:
         self.dismiss(None)
