@@ -64,6 +64,7 @@ class Ping:
     cwd: Path | None
     kind: WaitKind
     reason: str
+    quiet: bool = False  # the same wait changed kind: a new summary, no second notification
 
 
 @dataclass(frozen=True)
@@ -236,14 +237,12 @@ def apply(
         cwd=event.cwd or new.cwd,
         transcript_path=event.transcript_path or new.transcript_path,
     )
-    ping = None
-    if (
-        new.status == "waiting"
-        and new.kind is not None
-        and (state is None or old.status != "waiting")
-    ):
-        ping = Ping(new.session_id, new.pane_id, new.cwd, new.kind, new.reason or "")
-    return new, ping
+    if new.status != "waiting" or new.kind is None:
+        return new, None
+    entered = state is None or old.status != "waiting"
+    if not entered and new.kind == old.kind:
+        return new, None
+    return new, Ping(new.session_id, new.pane_id, new.cwd, new.kind, new.reason or "", not entered)
 
 
 def mark_seen(state: SessionState, now: float) -> SessionState:

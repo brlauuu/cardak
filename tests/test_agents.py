@@ -389,3 +389,18 @@ def test_other_starts_still_idle(source: str) -> None:
     before, _ = run(ev("PreToolUse", tool_name="Bash", tool_input=BASH))
     after, _ = run(ev("SessionStart", source=source), start=before)
     assert after.status == "idle" and after.current_tool is None
+
+
+def test_kind_change_in_wait_pings_quietly() -> None:
+    first, pings = run(ev("PermissionRequest", tool_name="Bash", tool_input=BASH))
+    assert [p.quiet for p in pings] == [False]
+    event = ev("Notification", notification_type="elicitation_dialog", message="Fill in")
+    after, ping = apply(first, event, 7, 150.0)
+    assert (after.kind, after.status_since) == ("question", 150.0)
+    assert ping is not None and (ping.kind, ping.quiet) == ("question", True)
+
+
+def test_same_kind_in_wait_no_ping() -> None:
+    first, _ = run(ev("Stop", last_assistant_message="Done."))
+    _, pings = run(ev("Stop", last_assistant_message="Done again."), start=first)
+    assert pings == []

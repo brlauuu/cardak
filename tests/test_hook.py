@@ -239,3 +239,17 @@ def test_subagent_stop_not_logged(tmp_path: Path) -> None:
     payload = json.dumps({"hook_event_name": "SubagentStop", "session_id": "s1"})
     assert main(io.StringIO(payload), env_for(tmp_path)) == 0
     assert hook_log(tmp_path) == ""
+
+
+def test_quiet_ping_spawns_summary_only(tmp_path: Path, paths: dict[str, Path]) -> None:
+    store = Store(tmp_path / "db")
+    paths["key_file"].write_text("k")
+    first = call(store, paths, "permission_request", now=100.0)
+    assert [argv[0] for argv in first][0] == "notify-send"
+    second = call(
+        store, paths, "notification-permission_prompt", now=101.0,
+        notification_type="elicitation_dialog", message="Fill in the form",
+    )  # fmt: skip
+    [state] = store.live_sessions()
+    assert len(second) == 1 and second[0][4:6] == ["summarize", state.session_id]
+    assert float(second[0][6]) == state.status_since == 101.0

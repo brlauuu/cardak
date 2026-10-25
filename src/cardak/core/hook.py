@@ -112,7 +112,8 @@ def _ping(
     from cardak.core.alerts import alert, spawn_detached
 
     spawn = spawn or spawn_detached
-    alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn)
+    if not ping.quiet:
+        alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn)
     if config.summary.enabled and key_file.exists():
         spawn(summarize_argv(ping.session_id, now))  # `now` is the new wait's status_since
 
