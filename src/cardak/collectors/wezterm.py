@@ -110,9 +110,16 @@ def find_socket(env: Mapping[str, str] | None = None) -> Path | None:
     if not runtime:
         return None
     directory = Path(runtime) / "wezterm"
-    live = list(_live_gui_socks(directory).values())
-    if live:
-        return max(live, key=lambda sock: sock.stat().st_mtime)
+    newest: tuple[float, Path] | None = None
+    for sock in _live_gui_socks(directory).values():
+        try:
+            mtime = sock.stat().st_mtime
+        except FileNotFoundError:
+            continue  # its GUI exited after the listing
+        if newest is None or mtime > newest[0]:
+            newest = (mtime, sock)
+    if newest is not None:
+        return newest[1]
     mux = directory / "sock"
     return mux if mux.exists() else None
 
