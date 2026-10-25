@@ -346,6 +346,9 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   Accepted: `cli._skills` at 13 (status, refuse foreign, nothing to do, ask, apply: one guard
   each, like `_resources_install`) and `skills.status` as a hotspot (4 × 5: install, uninstall,
   hint and the CLI all ask it; it reads one file and classifies it).
+- **Bug batch 3 (deck glitches)** split `find_socket` (`_newest`) and `_cursor_target`
+  (`_where_it_was`). Accepted: the coordinators `cli._lua_dir` (3 × 6: the recorded dir, its
+  check, the default) and `DeckApp._empty_label` (3 × 6: one label per empty state).
 - **M5 part 1 (live numbers)** split `docker._container` (14), `accounting._attach_builds` /
   `_attach_containers` and `config._resources`. Accepted after that: `_pane_procs` at
   complexity 10, and the coordinators `LiveSource._resources` (3 × 6) and `widgets.usage`

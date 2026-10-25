@@ -125,16 +125,18 @@ def node_id(data: NodeData | None) -> str | None:
     return f"{'w' if data.group.kind == 'waiting' else 'p'}:{data.row.pane_id}"
 
 
+def _where_it_was(nodes: dict[str, TreeNode[NodeData]], selected: str) -> TreeNode[NodeData] | None:
+    if selected not in nodes and selected[:2] in ("w:", "r:"):
+        selected = "p:" + selected[2:]  # it left "Waiting on you": its row in the project (#39)
+    return nodes.get(selected)
+
+
 def _cursor_target(
     nodes: dict[str, TreeNode[NodeData]], selected: str | None, focus_pane: int | None
 ) -> TreeNode[NodeData] | None:
     """Where the cursor goes after a rebuild: the best match while searching, else where it was."""
     if focus_pane is None:
-        if not selected:
-            return None
-        if selected not in nodes and selected[:2] in ("w:", "r:"):
-            selected = "p:" + selected[2:]  # it left "Waiting on you": its row in the project
-        return nodes.get(selected)
+        return _where_it_was(nodes, selected) if selected else None
     leaf = next(
         (n for n in nodes.values() if n.data and n.data.row and n.data.row.pane_id == focus_pane),
         None,
