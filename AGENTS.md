@@ -140,12 +140,20 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   It parses the payload, applies `core/agents.apply` inside a SQLite `BEGIN IMMEDIATE`
   transaction, and on a transition **into** waiting spawns `notify-send` and a sound
   detached. **It always exits 0 and prints nothing**: stdout can reach the conversation
-  and exit code 2 on `PreToolUse` blocks the tool. Failures go to `hook.log`.
-- There is no daemon yet: hook processes and the deck share `cardak.db` (WAL, 2 s busy
-  timeout). The deck decides "seen" (jump, or ≥ 1 s of focus from the focus history) and
-  writes `seen_at`; hooks never do.
+  and exit code 2 on `PreToolUse` blocks the tool. Failures go to `hook.log`, and so do
+  payloads it ignores: unparseable stdin (parsed before the store opens, so garbage creates no
+  database) and event names outside `HANDLERS` and `IGNORED_EVENTS` (#46). A kind change inside
+  one wait is a quiet ping: a new summary for the new `status_since`, no second notification (#56).
+- Hook processes and the deck share `cardak.db` (WAL, 2 s busy timeout). The deck decides
+  "seen" (jump, or ≥ 1 s of focus from the focus history) and writes `seen_at`; hooks never do.
+  `Store.mark_seen` gets the `status_since` the deck saw and does nothing if the session has
+  moved into a newer wait since (#37).
+- `SessionStart` with `source: compact` (auto-compaction, mid-turn) changes nothing (#36). Live
+  rows with no event for 7 days are pruned with the ended ones (#38); a killed `claude` sends
+  no `SessionEnd`, and after a restart its pane id goes to another pane.
 - Tests never touch the real state dir: `tests/conftest.py` points `XDG_STATE_HOME` at a
-  temp dir for every test.
+  temp dir for every test. A manual `cardak hook` run must set `XDG_STATE_HOME` and
+  `CARDAK_CONFIG` to scratch paths too.
 
 ## Claude Code hooks (measured in M4, Claude Code 2.1.306)
 - Fixtures: `tests/fixtures/hooks/` (recorded with `spikes/04_record_hooks.py` and
