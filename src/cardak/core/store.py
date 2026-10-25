@@ -17,6 +17,11 @@ from cardak.core.agents import SessionState, mark_seen
 from cardak.core.config import state_dir
 
 SCHEMA_VERSION = 4
+# The oldest schema whose code can still use this database, kept in PRAGMA application_id so
+# that an older cardak (from this one on) opens a newer file instead of refusing it. Every
+# schema so far only adds tables; a migration that changes or drops something older code reads
+# must raise this.
+MIN_READER = 1
 KEEP_SECONDS = 7 * 86_400
 RESOURCE_KEEP_SECONDS = 30 * 86_400
 SUMMARY_KEEP_SECONDS = 62 * 86_400  # longer than a month: the spend cap counts them
@@ -185,15 +190,22 @@ class Store:
             )
             self._con.row_factory = sqlite3.Row
             version = self._con.execute("PRAGMA user_version").fetchone()[0]
-            if version > SCHEMA_VERSION:
+            if version > SCHEMA_VERSION and not self._readable():
                 self._con.close()
                 raise StoreError(f"{path} is from a newer cardak (schema {version})")
             self._con.execute("PRAGMA journal_mode = WAL")
             if version < SCHEMA_VERSION:
                 self._con.executescript(_SCHEMA)
                 self._con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            if version <= SCHEMA_VERSION:
+                self._con.execute(f"PRAGMA application_id = {MIN_READER}")
         except (OSError, sqlite3.Error) as e:
             raise StoreError(f"cannot open {path}: {e}") from e
+
+    def _readable(self) -> bool:
+        """A newer database that says this schema's code can still use it (0: says nothing)."""
+        min_reader = self._con.execute("PRAGMA application_id").fetchone()[0]
+        return 1 <= min_reader <= SCHEMA_VERSION
 
     def close(self) -> None:
         self._con.close()
