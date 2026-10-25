@@ -16,6 +16,10 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - Enter in the `i` panel jumps to the pane for every session, not only those started in a WezTerm pane cardak could see. (#41)
 - `cardak hook` notes in `hook.log` when Claude Code sends something it can't read or doesn't know. (#46)
 - When a waiting session switches to a different kind of ask, its summary is rewritten for the new ask. (#56)
+- Notifications show text like `cat <in >out && x` as written; KDE used to read it as HTML and garble or drop it. (#42)
+- `cardak hooks install` keeps `settings.json`'s indent; a file Claude Code wrote comes back byte for byte apart from cardak's entries. (#44)
+- Two WezTerm windows from separate processes no longer write the focus history through the same temporary file. Re-run `cardak wezterm install` to get it. (#43)
+- From this version on, going back to an older cardak keeps agent status working as long as the database's newer parts don't matter to it, instead of refusing the whole file. Versions up to 0.9.0 still refuse a newer file. (#54)
 
 ## 0.9.0 — 2026-10-25
 
