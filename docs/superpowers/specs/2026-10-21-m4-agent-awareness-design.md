@@ -87,7 +87,7 @@ The final-`?` rule is a heuristic and will sometimes be wrong; that's accepted.
 
 | Event | Effect |
 |---|---|
-| `SessionStart` | Create or refresh the row; status `idle`. Store `cwd`, `transcript_path`, `source`. |
+| `SessionStart` | Create or refresh the row; status `idle`, except `source: compact` (auto-compaction, mid-turn), which changes nothing (#36). Store `cwd`, `transcript_path`; `source` stays in `events`. |
 | `UserPromptSubmit` | `working`. Store `prompt` as `last_prompt`, reset the turn counters and file list. |
 | `PreToolUse` | `working`; store the current tool and a short summary of its input. For `AskUserQuestion`, go to `waiting`/`question` with the question text instead. |
 | `PostToolUse`, `PostToolUseFailure` | `working`. Count the tool (edit / read / command / other) and add edited file paths to the turn's file list. |

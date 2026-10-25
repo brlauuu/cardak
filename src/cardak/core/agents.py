@@ -220,7 +220,8 @@ HANDLERS: dict[str, Handler] = {
     "Stop": _on_stop,
     "SessionEnd": _on_session_end,
 }
-# Registered but deliberately unhandled (an internal agent finishing); anything else is new.
+# Not registered by `cardak hooks install`, but seen when every event is recorded: not worth a
+# log line. Any other unhandled name means Claude Code renamed or added one we're registered for.
 IGNORED_EVENTS = frozenset({"SubagentStop"})
 
 
