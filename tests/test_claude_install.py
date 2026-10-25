@@ -252,3 +252,34 @@ def test_hooks_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert _hooks_hint() is None
     settings.write_text("{broken")
     assert _hooks_hint() == HOOKS_HINT
+
+
+def test_claude_written_settings_round_trip_bytes(tmp_path: Path) -> None:
+    # Claude Code writes settings.json as JSON.stringify(…, null, 2): install + uninstall
+    # gives back the same bytes
+    original = (FIXTURES / "claude_written.json").read_text()
+    path = tmp_path / "settings.json"
+    path.write_text(original)
+    save_settings(path, with_hooks(load_settings(path), "/x/cardak hook"), NOW)
+    assert "/x/cardak hook" in path.read_text()
+    save_settings(path, without_hooks(load_settings(path)), NOW)
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize("indent", ["    ", "\t"])
+def test_four_space_and_tab_indent_kept(tmp_path: Path, indent: str) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(f'{{\n{indent}"model": "opus"\n}}\n')
+    save_settings(path, with_hooks(load_settings(path), "/x/cardak hook"), NOW)
+    lines = path.read_text().splitlines()
+    assert lines[1] == f'{indent}"model": "opus",'
+    assert lines[2].startswith(f'{indent}"hooks"') and lines[3].startswith(indent * 2)
+
+
+def test_inline_arrays_are_expanded(tmp_path: Path) -> None:
+    # what is not kept: hand formatting. The content is.
+    path = tmp_path / "settings.json"
+    path.write_text('{\n  "permissions": {"allow": ["Read"]}\n}\n')
+    save_settings(path, load_settings(path), NOW)
+    expanded = '{\n  "permissions": {\n    "allow": [\n      "Read"\n    ]\n  }\n}\n'
+    assert path.read_text() == expanded

@@ -1,0 +1,30 @@
+{
+  "model": "opus",
+  "env": {
+    "GREETING": "café ☕"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest:*)",
+      "Read"
+    ],
+    "deny": []
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/bin/notify-me stop"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/bin/status",
+    "padding": 0
+  }
+}

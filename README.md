@@ -45,7 +45,9 @@ cardak hooks install
 ```
 
 This adds cardak's hooks to `~/.claude/settings.json`. It shows what it will add, backs the
-file up next to itself, and asks before writing. Your own hooks are left as they are.
+file up next to itself, and asks before writing. Your own hooks are left as they are, and so is
+the rest of the file's content and its indent; only hand formatting such as an array kept on one
+line is spread over several.
 `cardak hooks status` checks it, and `cardak hooks uninstall` removes only cardak's entries.
 Sessions started before the install report nothing. Claude Code also holds hooks back in a
 folder until you accept its "trust this folder" prompt.
