@@ -475,6 +475,7 @@ def _summarize(session_id: str, wait_since: str) -> int:
 
 
 def _deck(config_arg: str | None) -> int:
+    from cardak.collectors import wezterm
     from cardak.core.focus import focus_path, read_history
     from cardak.core.navigate import Navigator, Previewer
     from cardak.core.source import LiveSource
@@ -514,6 +515,8 @@ def _deck(config_arg: str | None) -> int:
         hooks_status=_hooks_hint,
         resources_status=_resources_hint,
         log=log,
+        send=lambda pane_id, text: wezterm.send_text(pane_id, text),
+        skills_status=_skills_hint,
     ).run()
     for db in (agents, log):
         if db is not None:
