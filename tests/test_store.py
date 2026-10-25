@@ -415,3 +415,28 @@ def test_mark_seen_row_pruned_mid_way(tmp_path: Path, monkeypatch: pytest.Monkey
     monkeypatch.undo()
     state = store.get("a")
     assert state is not None and state.status == "waiting"
+
+
+def test_prune_drops_stale_live_sessions(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db")
+    now = 100 * DAY
+    put(store, SessionState("crashed", status="working", updated_at=now - 8 * DAY))
+    put(store, SessionState("quiet", status="idle", updated_at=now - 6 * DAY))
+    store.prune(now)
+    assert store.get("crashed") is None
+    assert store.get("quiet") is not None
+    assert [s.session_id for s in store.live_sessions()] == ["quiet"]
+
+
+def test_stale_session_comes_back_on_its_next_event(tmp_path: Path) -> None:
+    from cardak.collectors.hooks import HookEvent
+    from cardak.core.agents import apply
+
+    store = Store(tmp_path / "db")
+    now = 100 * DAY
+    put(store, SessionState("s", status="working", pane_id=3, updated_at=now - 8 * DAY))
+    store.prune(now)
+    event = HookEvent(name="Stop", session_id="s", last_assistant_message="Done.")
+    store.update("s", lambda old: apply(old, event, 3, now + 1))
+    state = store.get("s")
+    assert state is not None and state.status == "waiting" and state.started_at == now + 1

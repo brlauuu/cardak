@@ -462,6 +462,10 @@ class Store:
             self._con.execute(
                 "DELETE FROM agent_sessions WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,)
             )
+            # killed without a SessionEnd: after a restart its pane id goes to someone else
+            self._con.execute(
+                "DELETE FROM agent_sessions WHERE ended_at IS NULL AND updated_at < ?", (cutoff,)
+            )
             self._con.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
             self._con.execute(
                 "DELETE FROM summaries WHERE created_at < ?", (now - SUMMARY_KEEP_SECONDS,)
