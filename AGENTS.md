@@ -109,7 +109,7 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   | `~/.config/cardak/anthropic_key` | the user (cardak only reads it, in `cardak summarize`; refused with group/other bits) | the Anthropic API key for waiting summaries |
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
   | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days) |
-  | `~/.local/state/cardak/focus` | `cardak.lua` (module 3) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>` |
+  | `~/.local/state/cardak/focus` | `cardak.lua` (module 3), via `focus.tmp.<gui pid>` (`wezterm.procinfo.pid()`, checked on 20240203) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>`; several GUIs share it, last writer wins (#43) |
   | `~/.local/state/cardak/daemon.lock` | `cardak daemon` | empty; locked while a daemon runs, so a second one exits |
   | `~/.config/systemd/user/cardak.service` | `cardak resources install` / `uninstall`, after asking (or `--yes`) | runs `cardak daemon`; first line `# cardak: generated` |
   | `~/.local/state/cardak/hook.log` | `cardak hook`, `cardak summarize` | tracebacks; restarted past 1 MB |
