@@ -469,3 +469,28 @@ def test_stale_session_comes_back_on_its_next_event(tmp_path: Path) -> None:
     store.update("s", lambda old: apply(old, event, 3, now + 1))
     state = store.get("s")
     assert state is not None and state.status == "waiting" and state.started_at == now + 1
+
+
+def test_opening_a_current_db_needs_no_write_lock(tmp_path: Path) -> None:
+    Store(tmp_path / "db").close()
+    holder = sqlite3.connect(tmp_path / "db", isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")  # another hook or the daemon is mid-write
+    try:
+        start = time.monotonic()
+        Store(tmp_path / "db").close()  # used to wait out the busy timeout and fail
+        assert time.monotonic() - start < 1.0
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+
+
+def test_read_only_current_db_opens(tmp_path: Path) -> None:
+    path = tmp_path / "db"
+    store = Store(path)
+    put(store, SessionState("a"))
+    store.close()
+    path.chmod(0o444)
+    try:
+        assert Store(path).get("a") is not None
+    finally:
+        path.chmod(0o644)
