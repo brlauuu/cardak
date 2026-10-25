@@ -11,6 +11,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.content import Content
 from textual.markup import escape
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Label, Static, Tree
@@ -36,6 +37,7 @@ from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
     docker_label,
     group_label,
+    internal_label,
     machine_label,
     mcp_label,
     no_match_label,
@@ -217,6 +219,12 @@ class DeckApp(App[None]):
          "recap"}
     )  # fmt: skip
 
+    def format_title(self, title: str, sub_title: str) -> Content:
+        """The header, with the `·` the rest of the deck uses (Textual's default is `—`)."""
+        if not sub_title:
+            return Content(title)
+        return Content.assemble(Content(title), (" · ", "dim"), Content(sub_title).stylize("dim"))
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         return not (action in self.DECK_ACTIONS and len(self.screen_stack) > 1)
 
@@ -340,7 +348,7 @@ class DeckApp(App[None]):
         try:
             snap = self.source.poll()
         except Exception as e:  # a collector bug must not take the deck down
-            snap = DeckSnapshot(error=f"internal error: {e!r}")
+            snap = DeckSnapshot(error=repr(e), internal=True)
         self.call_from_thread(self.apply_snapshot, snap)
 
     def apply_snapshot(self, snap: DeckSnapshot) -> None:
@@ -353,7 +361,7 @@ class DeckApp(App[None]):
         machine.display = snap.machine_view is not None
         banner = self.query_one("#banner", Static)
         if snap.config_error:
-            banner.update(escape(f"projects.toml: {snap.config_error}"))
+            banner.update(escape(snap.config_error))  # ConfigError names the file itself
         else:
             banner.update(escape("\n".join(snap.config_warnings)))
         banner.display = bool(snap.config_error or snap.config_warnings)
@@ -420,7 +428,7 @@ class DeckApp(App[None]):
     def _empty_label(self, snap: DeckSnapshot, empty_query: str | None) -> Text | None:
         """What the tree shows instead of groups, if anything."""
         if snap.error:
-            return unreachable_label(snap.error)
+            return internal_label(snap.error) if snap.internal else unreachable_label(snap.error)
         if not snap.groups and empty_query:
             return no_match_label(empty_query)
         if not snap.groups and self.waiting_only:

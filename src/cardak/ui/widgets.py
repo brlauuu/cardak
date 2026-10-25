@@ -174,7 +174,11 @@ def waiting_label(r: PaneRow, now: float | None = None) -> Text:
 
 
 def unreachable_label(reason: str) -> Text:
-    return Text(f"WezTerm not reachable: {reason} — retrying", style="bold red")
+    return Text(f"WezTerm not reachable: {reason} · retrying", style="bold red")
+
+
+def internal_label(reason: str) -> Text:
+    return Text(f"cardak hit an internal error: {reason} · retrying", style="bold red")
 
 
 def nothing_waiting_label() -> Text:

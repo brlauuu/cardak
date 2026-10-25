@@ -154,14 +154,15 @@ async def test_unreachable_message() -> None:
     app = DeckApp(StubSource(DeckSnapshot(error="no WezTerm GUI socket found")), interval=3600)
     async with app.run_test() as pilot:
         await settle(app, pilot)
-        assert labels(app) == ["WezTerm not reachable: no WezTerm GUI socket found — retrying"]
+        assert labels(app) == ["WezTerm not reachable: no WezTerm GUI socket found · retrying"]
 
 
 async def test_poll_exception_shows_internal_error() -> None:
     app = DeckApp(BrokenSource(SNAP), interval=3600)
     async with app.run_test() as pilot:
         await settle(app, pilot)
-        assert "internal error: RuntimeError('boom')" in labels(app)[0]
+        assert labels(app)[0] == "cardak hit an internal error: RuntimeError('boom') · retrying"
+        assert "WezTerm" not in labels(app)[0]  # not blamed on WezTerm (#12)
         assert app.is_running
 
 
@@ -1074,3 +1075,20 @@ async def test_i_enter_jumps_for_a_session_matched_by_process() -> None:
         await pilot.press("enter")
         await settle(app, pilot)
         assert nav.jumps == [7]
+
+
+async def test_config_error_banner_names_the_file_once() -> None:
+    broken = replace(SNAP, config_error="projects.toml line 2: Invalid value")
+    app = DeckApp(StubSource(broken), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        banner = str(app.query_one("#banner", Static).render())
+        assert banner == "projects.toml line 2: Invalid value"
+
+
+def test_header_separator_is_a_dot() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    assert (
+        app.format_title("cardak", "3 projects · 7 panes").plain == "cardak · 3 projects · 7 panes"
+    )
+    assert app.format_title("cardak", "").plain == "cardak"

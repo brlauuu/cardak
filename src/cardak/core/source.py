@@ -198,7 +198,7 @@ class LiveSource:
             spend = store.spend_since(start)
             error = store.latest_error_since(start)
         except StoreError as e:
-            self._store_warning = f"agent status unavailable: {e}"
+            self._summary_warning = f"waiting summaries unavailable: {e}"
             return {}, False
         if error:
             self._summary_warning = (
