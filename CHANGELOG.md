@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.9.1 — 2026-10-25
+
 ### Fixed
 - A Claude session compacting its context no longer shows as idle while it's still working, or drops out of "Waiting on you". (#36)
 - Looking at a waiting session no longer marks a newer wait from the same session as seen. (#37)
