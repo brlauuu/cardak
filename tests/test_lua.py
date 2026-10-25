@@ -238,7 +238,9 @@ def test_module_version_3() -> None:
 def record_opens(wez: Wez) -> Any:
     wez.lua.execute(
         "opened = {}; local real_open = io.open\n"
-        "io.open = function(name, mode) table.insert(opened, name); return real_open(name, mode) end"
+        "io.open = function(name, mode)\n"
+        "  table.insert(opened, name); return real_open(name, mode)\n"
+        "end"
     )
     return wez.g.opened
 
