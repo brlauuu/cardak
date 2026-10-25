@@ -412,3 +412,79 @@ def test_resources_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     (tmp_path / "systemd/user").mkdir(parents=True)
     (tmp_path / "systemd/user/cardak.service").write_text("# cardak: generated\n")
     assert _resources_hint() is None
+
+
+def test_skills_install_asks_and_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert main(["skills", "install", "--dir", str(tmp_path)]) == 0
+    assert (tmp_path / "checkpoint" / "SKILL.md").exists()
+    assert (tmp_path / "where-were-we" / "SKILL.md").exists()
+    out = capsys.readouterr().out
+    assert f"checkpoint: not installed: {tmp_path / 'checkpoint' / 'SKILL.md'}" in out
+    assert main(["skills", "install", "--dir", str(tmp_path)]) == 0
+    assert f"cardak skills already installed: {tmp_path}" in capsys.readouterr().out
+
+
+def test_skills_install_no_answer_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    prompts: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "")
+    assert main(["skills", "install", "--dir", str(tmp_path)]) == 0
+    assert prompts == [f"Write 2 file(s) under {tmp_path}? [y/N] "]
+    assert not (tmp_path / "checkpoint").exists()
+    assert "Nothing written." in capsys.readouterr().out
+
+
+def test_skills_install_yes_does_not_ask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("asked"))
+    assert main(["skills", "install", "--yes", "--dir", str(tmp_path)]) == 0
+    assert (tmp_path / "checkpoint" / "SKILL.md").exists()
+
+
+def test_skills_install_foreign_exit_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mine = tmp_path / "checkpoint" / "SKILL.md"
+    mine.parent.mkdir()
+    mine.write_text("mine")
+    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("asked"))
+    assert main(["skills", "install", "--dir", str(tmp_path)]) == 1
+    assert "not written by cardak" in capsys.readouterr().err
+    assert main(["skills", "install", "--yes", "--force", "--dir", str(tmp_path)]) == 0
+    assert mine.read_text() != "mine"
+
+
+def test_skills_status_lines(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    main(["skills", "install", "--yes", "--dir", str(tmp_path)])
+    capsys.readouterr()
+    other = tmp_path / "where-were-we" / "SKILL.md"
+    other.write_text("mine")
+    assert main(["skills", "status", "--dir", str(tmp_path)]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"checkpoint: installed: {tmp_path / 'checkpoint' / 'SKILL.md'}",
+        f"where-were-we: not cardak's: {other}",
+    ]
+
+
+def test_skills_uninstall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(["skills", "install", "--yes", "--dir", str(tmp_path)])
+    monkeypatch.setattr("builtins.input", lambda prompt: "yes")
+    assert main(["skills", "uninstall", "--dir", str(tmp_path)]) == 0
+    assert not (tmp_path / "checkpoint").exists()
+    assert main(["skills", "uninstall", "--yes", "--dir", str(tmp_path)]) == 0
+    assert "cardak skills already absent" in capsys.readouterr().out
+
+
+def test_skills_hint_none_when_installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.cli import _skills_hint
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert _skills_hint() is not None
+    main(["skills", "install", "--yes"])
+    assert (tmp_path / ".claude" / "skills" / "checkpoint" / "SKILL.md").exists()
+    assert _skills_hint() is None

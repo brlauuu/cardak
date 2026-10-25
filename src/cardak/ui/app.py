@@ -17,6 +17,7 @@ from textual.widgets import Footer, Header, Input, Label, Static, Tree
 from textual.widgets.tree import TreeNode
 from textual.worker import Worker
 
+from cardak.core import checkpoint, recap
 from cardak.core.agents import SessionState
 from cardak.core.config import ConfigError
 from cardak.core.eventlog import sentences
@@ -26,9 +27,11 @@ from cardak.core.snapshot import DeckSnapshot, DockerLine, Group, PaneRow
 from cardak.core.store import DayPeak, ResourceEvent, StoreError
 from cardak.core.summary import SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
+from cardak.ui.confirm import ConfirmScreen
 from cardak.ui.detail import DetailScreen
 from cardak.ui.events import EventLogScreen
 from cardak.ui.history import HistoryScreen
+from cardak.ui.recap import RecapScreen
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
     docker_label,
@@ -45,6 +48,7 @@ from cardak.ui.widgets import (
 )
 
 LOG_DAYS = 30
+SENT_WITH_IT = "Anything already typed in that pane's input is sent with it."
 
 
 @dataclass(frozen=True)
@@ -200,14 +204,17 @@ class DeckApp(App[None]):
         Binding("escape", "clear_find", "Clear find", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
-        Binding("r", "refresh", "Refresh"),
+        Binding("c", "checkpoint", "Checkpoint"),
+        Binding("r", "recap", "Recap"),
+        Binding("R", "refresh", "Refresh", show=False),
         Binding("q", "quit", "Quit"),
     ]
 
     # Keys that act on the tree: off (and out of the footer) while another screen is on top.
     DECK_ACTIONS = frozenset(
         {"add_project", "theme", "waiting_only", "detail", "find", "refresh", "cursor_down",
-         "cursor_up", "clear_find", "event_log", "dismiss_crash", "history"}
+         "cursor_up", "clear_find", "event_log", "dismiss_crash", "history", "checkpoint",
+         "recap"}
     )  # fmt: skip
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
@@ -225,6 +232,8 @@ class DeckApp(App[None]):
         hooks_status: Callable[[], str | None] | None = None,
         resources_status: Callable[[], str | None] | None = None,
         log: ResourceLog | None = None,
+        send: Callable[[int, str], None] | None = None,
+        skills_status: Callable[[], str | None] | None = None,
     ) -> None:
         super().__init__()
         self.source = source
@@ -235,6 +244,8 @@ class DeckApp(App[None]):
         self.theme_status = theme_status  # how to enable themes, when they aren't yet
         self.hooks_status = hooks_status  # how to enable agent status, when it isn't yet
         self.resources_status = resources_status  # how to enable alerts, when they aren't yet
+        self.send = send  # types into a pane: only /checkpoint, only after asking
+        self.skills_status = skills_status  # how to install /checkpoint, when it isn't
         self.resource_log = log  # its own cardak.db connection: events, crash banner, history
         self._crash: ResourceEvent | None = None
         self._cap_noticed = False  # the summary-limit notice shows once per run
@@ -437,6 +448,58 @@ class DeckApp(App[None]):
                 self.jump(pane_id)
 
         self.push_screen(DetailScreen(state, project, self.source.summary_info(state)), done)
+
+    def action_checkpoint(self) -> None:
+        node = self.deck_tree.cursor_node
+        send = self.send
+        if send is None or node is None or node.data is None:
+            return
+        if self.skills_status is not None and (hint := self.skills_status()):
+            self.notify(escape(hint), severity="warning")
+            return
+        found = checkpoint.target(node.data.group, node.data.row)
+        if isinstance(found, str):
+            self.notify(escape(found), severity="warning")
+            return
+        row = found
+        project = row.agent.project if row.agent else node.data.group.name
+        session_id = row.agent.session_id if row.agent else ""
+
+        def done(yes: bool | None) -> None:
+            if not yes:
+                return
+            # the dialog can stay open while Claude moves on: decide again on what's stored now
+            if reason := checkpoint.recheck(self.source.session(session_id), row.pane_id):
+                self.notify(escape(reason), severity="warning")
+                return
+            self.run_worker(
+                lambda: self._send(send, row.pane_id), thread=True, group="send",
+                exit_on_error=False,
+            )  # fmt: skip
+
+        question = f"Send /checkpoint to pane {row.pane_id} · {project} · {row.label}?"
+        self.push_screen(ConfirmScreen(question, SENT_WITH_IT), done)
+
+    def _send(self, send: Callable[[int, str], None], pane_id: int) -> None:
+        try:
+            send(pane_id, checkpoint.TEXT)
+            time.sleep(checkpoint.ENTER_DELAY_S)
+            send(pane_id, checkpoint.ENTER)
+        except Exception as e:  # a WezTerm failure (or any bug) is a notice, not a crash
+            self.call_from_thread(self.notify, escape(f"Couldn't send: {e}"), severity="error")
+            return
+        self.call_from_thread(self.notify, f"Sent /checkpoint to pane {pane_id}.")
+        self.call_from_thread(self.action_refresh)
+
+    def action_recap(self) -> None:
+        node = self.deck_tree.cursor_node
+        if node is None or node.data is None:
+            return
+        dirs = recap.dirs_for(node.data.group, node.data.row)
+        if isinstance(dirs, str):
+            self.notify(dirs, severity="warning")
+            return
+        self.push_screen(RecapScreen(node.data.group.name, dirs, time.time()))
 
     def action_waiting_only(self) -> None:
         self.waiting_only = not self.waiting_only

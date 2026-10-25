@@ -161,18 +161,23 @@ def save_settings(path: Path, data: Settings, now: datetime) -> Path | None:
     if target.exists():
         backup = backup_path(path, now)
         shutil.copy2(target, backup)
+    write_atomic(target, json.dumps(data, indent=2, ensure_ascii=False) + "\n", 0o600)
+    return backup
+
+
+def write_atomic(target: Path, text: str, new_mode: int) -> None:
+    """Replace target via a temp file beside it; keep its mode (a new file gets new_mode)."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    mode = target.stat().st_mode & 0o777 if target.exists() else 0o600
+    mode = target.stat().st_mode & 0o777 if target.exists() else new_mode
     fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+            f.write(text)
         os.chmod(tmp, mode)
         os.replace(tmp, target)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
-    return backup
 
 
 def find_executable(argv0: str, which: Callable[[str], str | None] | None = None) -> Path | None:

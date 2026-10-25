@@ -14,6 +14,7 @@ from cardak.collectors.wezterm import (
     list_panes,
     parse_cwd,
     parse_panes,
+    send_text,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -158,6 +159,16 @@ def test_list_panes_without_socket(tmp_path: Path) -> None:
 def test_list_panes_errors(env: dict[str, str], runner: FakeRunner, reason: str) -> None:
     with pytest.raises(WeztermUnavailable, match=reason):
         list_panes(env, runner=runner)
+
+
+def test_send_text_args(env: dict[str, str]) -> None:
+    runner = FakeRunner(stdout="")
+    send_text(12, "/checkpoint\r", env, runner=runner)
+    cmd, _ = runner.calls[0]
+    assert list(cmd) == [
+        "wezterm", "cli", "--no-auto-start", "send-text", "--pane-id", "12", "--no-paste",
+        "/checkpoint\r",
+    ]  # fmt: skip
 
 
 def test_activate_pane_runs_cli(env: dict[str, str]) -> None:

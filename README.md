@@ -196,6 +196,32 @@ With the service running, cardak keeps 30 days of each project's usage:
   The details come from the system journal, which you can read if you're in the `adm` or
   `systemd-journal` group. Any other way a window closes is one quiet line in the event log.
 
+## Checkpoint and recap
+
+```sh
+cardak skills install
+```
+
+This adds two Claude Code commands to `~/.claude/skills/` (it asks first, and never replaces a
+skill of that name you wrote yourself; `cardak skills status` and `uninstall` too):
+
+- `/checkpoint` has Claude write down where the work stands: the goal, what got done, decisions,
+  what's waiting on you, the next step, and branch / issue / PR links. It appends a dated entry
+  to `.cardak/handoff.md` at the top of the repo (each git worktree keeps its own), and keeps that
+  folder out of git with its own `.gitignore`. It never commits. `/checkpoint before the
+  refactor` adds your note.
+- `/where-were-we` reads the latest entry, what changed in git since, and your open issues and
+  pull requests (with `gh`), and gives a short briefing.
+
+Both work without the deck. In the deck:
+
+- `c` on a Claude pane (or a project with one) sends `/checkpoint` to it, after asking. Only
+  while Claude is at its prompt: not while it's working, waiting for a permission, or showing a
+  question. Anything you've half-typed in that pane goes along with it.
+- `r` shows the latest checkpoint for a project or pane and what changed since: commits, the
+  branch, and uncommitted files. With several worktrees, the others are listed below it. It
+  reads only local files and git. (Refresh moved to `R`.)
+
 ## Development
 
 See `AGENTS.md` for conventions and `PLAN.md` for the roadmap.
