@@ -7,7 +7,9 @@ import pytest
 def isolated_state(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> Path:
-    """Keep every test away from the real ~/.local/state/cardak (the agent database)."""
+    """Keep every test away from the real ~/.local/state/cardak (the agent database) and the
+    real ~/.config (the Anthropic key a ping would hand to a spawned `cardak summarize`)."""
     state = tmp_path_factory.mktemp("state")
     monkeypatch.setenv("XDG_STATE_HOME", str(state))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("config")))
     return state
