@@ -37,7 +37,8 @@ def filter_snapshot(snap: DeckSnapshot, query: str) -> FilterResult:
                 best, best_score = row.pane_id, score
         if kept:
             groups.append(replace(group, panes=tuple(kept)))
-    n = sum(len(g.panes) for g in groups if g.kind != "waiting")
+    # a waiting pane is listed twice (waiting group and project); in `w` mode only once
+    n = len({r.pane_id for g in groups for r in g.panes})
     return FilterResult(replace(snap, groups=tuple(groups), n_panes=n), best, n)
 
 

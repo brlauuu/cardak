@@ -107,3 +107,13 @@ def test_find_counts_exclude_waiting_group() -> None:
     assert result.n_matches == 1
     assert result.snapshot.n_panes == 1
     assert [g.kind for g in result.snapshot.groups] == ["waiting", "config"]
+
+
+def test_match_count_in_waiting_only_mode() -> None:
+    snap = DeckSnapshot(
+        groups=(waiting_group(row(2, label="claude")),
+                group("config", "web", row(1), row(2, label="claude"))),
+        n_panes=2, n_waiting=1,
+    )  # fmt: skip
+    result = filter_snapshot(waiting_only(snap), "claude")
+    assert result.n_matches == 1  # the waiting row is the match in `w` mode (#40)

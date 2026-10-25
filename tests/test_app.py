@@ -1092,3 +1092,38 @@ def test_header_separator_is_a_dot() -> None:
         app.format_title("cardak", "3 projects · 7 panes").plain == "cardak · 3 projects · 7 panes"
     )
     assert app.format_title("cardak", "").plain == "cardak"
+
+
+async def test_poll_right_after_a_keystroke_keeps_the_best_match() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        await pilot.pause()
+        # a keystroke and a poll in the same frame (#16)
+        app.find_query = "cardak"
+        app._render(follow_best=True)  # noqa: SLF001
+        app.apply_snapshot(replace(SNAP, config_warnings=("new poll",)))
+        await pilot.pause()
+        await pilot.pause()
+        cursor = app.deck_tree.cursor_node
+        assert cursor is not None and cursor.data is not None and cursor.data.row is not None
+        assert cursor.data.row.pane_id == app._best  # noqa: SLF001
+
+
+async def test_jump_from_waiting_lands_on_the_project_row() -> None:
+    before = waiting_snap(agent_row(7, "waiting", "finished"), others=(row(2),))
+    # seen: it left the waiting group; pane 2 now comes first, so no line number lines up
+    after = waiting_snap(others=(row(2), row(3), agent_row(7, "idle")))
+    nav = StubNavigator()
+    app = DeckApp(StubSource(before, after), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])  # w:7
+        await pilot.press("enter")
+        await settle(app, pilot)
+        await pilot.pause()
+        assert nav.jumps == [7]
+        cursor = app.deck_tree.cursor_node
+        assert cursor is not None and cursor.data is not None
+        assert node_id(cursor.data) == "p:7"  # not row 0 (#39)

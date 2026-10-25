@@ -130,7 +130,11 @@ def _cursor_target(
 ) -> TreeNode[NodeData] | None:
     """Where the cursor goes after a rebuild: the best match while searching, else where it was."""
     if focus_pane is None:
-        return nodes.get(selected) if selected else None
+        if not selected:
+            return None
+        if selected not in nodes and selected[:2] in ("w:", "r:"):
+            selected = "p:" + selected[2:]  # it left "Waiting on you": its row in the project
+        return nodes.get(selected)
     leaf = next(
         (n for n in nodes.values() if n.data and n.data.row and n.data.row.pane_id == focus_pane),
         None,
@@ -263,6 +267,7 @@ class DeckApp(App[None]):
         self.snapshot: DeckSnapshot | None = None
         self.find_query = ""
         self._best: int | None = None
+        self._follow_pending = False  # a move to the best match is queued for after refresh
         self._collapsed: set[str] = set()
         self._poll_worker: Worker[None] | None = None
 
@@ -381,6 +386,9 @@ class DeckApp(App[None]):
         raw = self.raw
         if raw is None:
             return
+        # a poll in the same frame as a keystroke must not undo the move to the best match
+        follow_best = follow_best or self._follow_pending
+        self._follow_pending = follow_best
         shown = waiting_only(raw) if self.waiting_only else raw
         result = filter_snapshot(shown, self.find_query)
         self.snapshot = result.snapshot
@@ -420,10 +428,14 @@ class DeckApp(App[None]):
         target = _cursor_target(nodes, selected, focus_pane)
         if target is not None:
             # New nodes get their line numbers on the next refresh; moving now lands on line 0.
-            self.call_after_refresh(tree.move_cursor, target)
+            self.call_after_refresh(self._move_cursor, target)
         else:
             # clear() leaves the cursor on no line, so the first key would only "find" row 0.
             self.call_after_refresh(self._cursor_to_first_row)
+
+    def _move_cursor(self, target: TreeNode[NodeData]) -> None:
+        self._follow_pending = False
+        self.deck_tree.move_cursor(target)
 
     def _empty_label(self, snap: DeckSnapshot, empty_query: str | None) -> Text | None:
         """What the tree shows instead of groups, if anything."""
@@ -515,6 +527,7 @@ class DeckApp(App[None]):
         self._render(follow_best=False)
 
     def _cursor_to_first_row(self) -> None:
+        self._follow_pending = False
         tree = self.deck_tree
         if tree.cursor_line < 0 and tree.root.children:
             tree.cursor_line = 0
