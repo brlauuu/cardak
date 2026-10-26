@@ -85,16 +85,17 @@ async def test_preview_is_debounced() -> None:
         assert rec.calls == [(PATH, "Tokyo Night")]
 
 
-async def test_enter_saves_and_clears_preview() -> None:
+async def test_enter_saves_without_clearing_first() -> None:
     host, rec = picker()
     async with host.run_test() as pilot:
         await ready(host, pilot)
         await pilot.press("down")
         await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
         assert host.result == "Tokyo Night"
-        assert rec.calls[-1] == (PATH, "")
+        # no "" first: the save's config reload replaces the preview, so nothing flashes (#22)
+        assert rec.calls == [(PATH, "Tokyo Night")]
 
 
 async def test_escape_clears_preview_and_saves_nothing() -> None:

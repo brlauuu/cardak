@@ -165,7 +165,11 @@ class ThemePickerScreen(ModalScreen[str | None]):
             self._choose(event.value.strip())
 
     def _choose(self, name: str) -> None:
-        self._clear_preview()
+        # No "" first: saving reloads the config, which replaces any preview with the saved
+        # scheme. Clearing now would flash the old colors (#22). The deck clears it when the
+        # save writes nothing.
+        if self._timer is not None:
+            self._timer.stop()
         self.dismiss(name)
 
     def action_cancel(self) -> None:

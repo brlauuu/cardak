@@ -663,6 +663,10 @@ class DeckApp(App[None]):
             self.schemes.set(schemes)
         return schemes
 
+    def _clear_preview(self, path: Path) -> None:
+        if self.previewer is not None:
+            self.previewer.preview(path, "")
+
     def action_theme(self) -> None:
         node = self.deck_tree.cursor_node
         group = node.data.group if node is not None and node.data is not None else None
@@ -672,14 +676,19 @@ class DeckApp(App[None]):
         if not self.source.can_add:
             self.notify("Fix projects.toml before changing themes.", severity="error")
             return
-        name, path = group.name, group.key
+        name, path, current = group.name, group.key, group.theme
 
         def done(scheme: str | None) -> None:
             if not scheme:
                 return
+            if scheme == current:  # nothing to write, so no reload replaces the preview
+                self._clear_preview(path)
+                self.notify(escape(f"{name}: {scheme}"))
+                return
             try:
                 self.source.set_theme(path, scheme, name)
             except ConfigError as e:
+                self._clear_preview(path)
                 self.notify(escape(str(e)), severity="error")
                 return
             self.notify(escape(f"{name}: {scheme}"))

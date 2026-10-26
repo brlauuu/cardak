@@ -1140,3 +1140,50 @@ async def test_cap_notice_rearms() -> None:
             await settle(app, pilot)
         notices = [str(n.message) for n in app._notifications if "Summary limit" in str(n.message)]  # noqa: SLF001
         assert len(notices) == 2  # a new month that hits the cap again says so again (#55)
+
+
+class PreviewRecorder:
+    in_wezterm = True
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Path, str]] = []
+
+    def preview(self, project_path: Path, scheme: str) -> bool:
+        self.calls.append((project_path, scheme))
+        return True
+
+
+class FailingThemeSource(StubSource):
+    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None:
+        raise ConfigError(Path("projects.toml"), "is read-only")
+
+
+async def choose_nord(app: DeckApp, pilot: Pilot[None], row: int) -> None:
+    await settle(app, pilot)
+    app.deck_tree.move_cursor(app.deck_tree.root.children[row])
+    await pilot.press("t")
+    await settle(app, pilot)
+    await pilot.press("enter")
+    await settle(app, pilot)
+
+
+async def test_failed_save_clears_the_preview() -> None:
+    rec = PreviewRecorder()
+    app = DeckApp(
+        FailingThemeSource(SNAP), interval=3600, schemes=SchemeStore(THEMES), previewer=rec
+    )
+    async with app.run_test() as pilot:
+        await choose_nord(app, pilot, 1)
+        assert rec.calls[-1] == (Path("/repos/cardak"), "")  # no reload is coming to clear it
+
+
+async def test_saving_the_current_scheme_clears_the_preview() -> None:
+    themed = replace(
+        SNAP, groups=(SNAP.groups[0], replace(SNAP.groups[1], theme="Nord"), SNAP.groups[2])
+    )
+    rec = PreviewRecorder()
+    source = StubSource(themed)
+    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES), previewer=rec)
+    async with app.run_test() as pilot:
+        await choose_nord(app, pilot, 1)
+        assert rec.calls[-1] == (Path("/repos/cardak"), "")  # unchanged config: no reload
