@@ -10,6 +10,12 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 ## Unreleased
 
 ### Fixed
+- Saving a scheme in the theme picker no longer flashes the old colors first. (#22)
+- Two projects with the same path get the same scheme in WezTerm as in the deck (the first one listed), and the deck says which one is ignored. (#23)
+- An empty scheme cache is checked again instead of leaving the picker empty. (#24)
+- Opening the theme picker while the deck is still listing schemes no longer runs the listing twice, and tints get their colors right after the picker's listing. (#25)
+- `cardak themes zsh` prints the files it couldn't write, as `cardak themes apply` does. (#27)
+- A project whose path has a tab or newline is left out of the tints file instead of breaking it, with a warning. (#28)
 - A bug in cardak shows as "cardak hit an internal error", not as WezTerm being unreachable. (#12)
 - The config error banner names `projects.toml` once. (#13)
 - A WezTerm window closing at the wrong moment no longer shows one poll as an internal error. (#15)
