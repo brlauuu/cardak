@@ -10,6 +10,7 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 ## Unreleased
 
 ### Fixed
+- A project configured through a symlink is recognised whichever way the pane got there, for grouping, WezTerm themes and the zsh tint. (#14)
 - Saving a scheme in the theme picker no longer flashes the old colors first. (#22)
 - Two projects with the same path get the same scheme in WezTerm as in the deck (the first one listed), and the deck says which one is ignored. (#23)
 - An empty scheme cache is checked again instead of leaving the picker empty. (#24)
