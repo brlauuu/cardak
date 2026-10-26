@@ -73,6 +73,13 @@ def _first_per_path(config: Config) -> tuple[list[Project], list[str]]:
     return list(kept.values()), problems
 
 
+def _real(path: Path) -> str:
+    try:
+        return str(path.resolve())
+    except (OSError, RuntimeError):
+        return str(path)
+
+
 def _tintable(p: Project) -> bool:
     """tints is `path<TAB>color` per line: a tab or newline in the path would break it (#28)."""
     return not any(c in str(p.path) for c in "\t\n\r")
@@ -102,7 +109,9 @@ def render_projects_lua(config: Config, known: Collection[str] | None) -> tuple[
         if known is not None and p.theme not in known:
             problems.append(f'unknown scheme "{p.theme}" for {p.name}')
             continue
-        lines.append(f"    {{ path = {lua_str(str(p.path))}, scheme = {lua_str(p.theme)} }},")
+        # a symlinked project under its real path too: WezTerm may see either (#14)
+        for path in dict.fromkeys((str(p.path), _real(p.path))):
+            lines.append(f"    {{ path = {lua_str(path)}, scheme = {lua_str(p.theme)} }},")
     lines += ["  },", "}"]
     return "\n".join(lines) + "\n", problems
 
@@ -111,7 +120,7 @@ def render_tints(config: Config, schemes: Mapping[str, Scheme]) -> str:
     lines = [f"{ZSH_MARKER} from projects.toml; edits are overwritten."]
     for p in _first_per_path(config)[0]:
         if _tintable(p) and (color := project_tint(p, schemes)):
-            lines.append(f"{p.path}\t{color}")
+            lines += [f"{path}\t{color}" for path in dict.fromkeys((str(p.path), _real(p.path)))]
     return "\n".join(lines) + "\n"
 
 

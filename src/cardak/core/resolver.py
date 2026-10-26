@@ -39,22 +39,48 @@ def run_git(cwd: Path) -> Path | None:
     return Path(top) if out.returncode == 0 and top else None
 
 
+def real_path(path: Path) -> Path:
+    """path with symlinks resolved; as given when it can't be (missing, a loop, no access)."""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return path
+
+
 class ProjectResolver:
     def __init__(self, config: Config, git: GitLookup = run_git) -> None:
-        indexed = list(enumerate(config.projects))
+        # Each project under its configured path and, if it's a symlink, the real one too: a
+        # pane's cwd can come from /proc (resolved) or OSC 7 (the shell's logical path) (#14).
+        entries = [
+            (match, order, project)
+            for order, project in enumerate(config.projects)
+            for match in dict.fromkeys((project.path, real_path(project.path)))
+        ]
         # Longest path first so a nested project wins over its parent.
-        self._projects = sorted(indexed, key=lambda item: len(item[1].path.parts), reverse=True)
+        self._projects = sorted(entries, key=lambda e: len(e[0].parts), reverse=True)
         self._git = git
         self._git_cache: dict[Path, Path | None] = {}
+        self._real_cache: dict[Path, Path] = {}
+
+    def _configured(self, cwd: Path) -> Resolved | None:
+        for match, order, project in self._projects:
+            if cwd.is_relative_to(match):
+                return Resolved(
+                    "config", project.path, project.name, project.accent, order, project.theme
+                )
+        return None
 
     def resolve(self, cwd: Path | None) -> Resolved:
         if cwd is None:
             return OTHER
-        for order, project in self._projects:
-            if cwd.is_relative_to(project.path):
-                return Resolved(
-                    "config", project.path, project.name, project.accent, order, project.theme
-                )
+        found = self._configured(cwd)
+        if found is None:
+            if cwd not in self._real_cache:
+                self._real_cache[cwd] = real_path(cwd)
+            if (real := self._real_cache[cwd]) != cwd:
+                found = self._configured(real)
+        if found is not None:
+            return found
         if cwd not in self._git_cache:
             self._git_cache[cwd] = self._git(cwd)
         root = self._git_cache[cwd]
