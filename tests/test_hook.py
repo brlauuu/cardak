@@ -264,3 +264,14 @@ def test_env_for_hides_the_real_key(tmp_path: Path) -> None:
     from cardak.core.config import anthropic_key_path
 
     assert anthropic_key_path(env_for(tmp_path)).is_relative_to(tmp_path)
+
+
+def test_project_name_follows_symlinks(tmp_path: Path) -> None:
+    real = tmp_path / "disk" / "web"
+    (real / "src").mkdir(parents=True)
+    link = tmp_path / "web"
+    link.symlink_to(real)
+    config = Config(projects=(Project(name="webshop", path=link),))
+    assert project_name(real / "src", config) == "webshop"  # Claude Code reports the real cwd
+    config = Config(projects=(Project(name="webshop", path=real),))
+    assert project_name(link / "src", config) == "webshop"

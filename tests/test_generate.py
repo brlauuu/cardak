@@ -198,3 +198,40 @@ def test_write_generated_reports_tint_problems(tmp_path: Path) -> None:
     config = Config(projects=(Project(name="tab", path=Path("/r/a\tb"), theme="Nord"),))
     result = write_generated(tmp_path / "wezterm", tmp_path / "cardak", config, SCHEMES)
     assert result.problems == ("tab: its path can't go in the tints file (tab or newline)",)
+
+
+def test_symlinked_project_path_is_themed_both_ways(tmp_path: Path) -> None:
+    real = tmp_path / "disk" / "web"
+    real.mkdir(parents=True)
+    link = tmp_path / "web"
+    link.symlink_to(real)
+    text, problems = render_projects_lua(
+        Config(projects=(Project(name="web", path=link, theme="Nord"),)), None
+    )
+    assert f"path = {lua_str(str(link))}" in text and f"path = {lua_str(str(real))}" in text
+    assert problems == []
+
+
+def test_symlinked_project_path_is_tinted_both_ways(tmp_path: Path) -> None:
+    real = tmp_path / "disk" / "web"
+    real.mkdir(parents=True)
+    link = tmp_path / "web"
+    link.symlink_to(real)
+    tints = render_tints(Config(projects=(Project(name="web", path=link, theme="Nord"),)), SCHEMES)
+    assert tints.splitlines()[1:] == [f"{link}\t#3c2f4c", f"{real}\t#3c2f4c"]
+
+
+def test_two_projects_with_the_same_real_directory_are_duplicates(tmp_path: Path) -> None:
+    real = tmp_path / "disk" / "web"
+    real.mkdir(parents=True)
+    link = tmp_path / "web"
+    link.symlink_to(real)
+    config = Config(
+        projects=(
+            Project(name="A", path=link, theme="Nord"),
+            Project(name="B", path=real, theme="Dracula"),
+        )
+    )
+    text, problems = render_projects_lua(config, None)
+    assert "Dracula" not in text  # one scheme per directory: WezTerm can't pick at random
+    assert problems == [f"duplicate path {real}: B is ignored, A is used"]

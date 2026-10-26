@@ -23,6 +23,7 @@ from cardak.core.config import (
     anthropic_key_path,
     config_path,
     load,
+    real_path,
     state_dir,
 )
 from cardak.core.focus import focus_path, focused_pane, read_history
@@ -38,9 +39,14 @@ MAX_PAYLOAD = 20_000  # a tool's output can be huge; the event log keeps the sta
 def project_name(cwd: Path | None, config: Config) -> str:
     if cwd is None:
         return "claude"
-    matches = [p for p in config.projects if cwd.is_relative_to(p.path)]
+    # a project and its real path, against the cwd and its real path: as the deck groups (#14)
+    roots = [(p, root) for p in config.projects for root in {p.path, real_path(p.path)}]
+    matches = [(p, root) for p, root in roots if cwd.is_relative_to(root)]
+    if not matches:
+        real = real_path(cwd)
+        matches = [(p, root) for p, root in roots if real.is_relative_to(root)]
     if matches:
-        return max(matches, key=lambda p: len(p.path.parts)).name
+        return max(matches, key=lambda m: len(m[1].parts))[0].name
     return cwd.name or "claude"
 
 

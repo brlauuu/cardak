@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
-from cardak.core.config import Config, Project
+from cardak.core.config import Config, Project, real_path
 from cardak.core.themes import Scheme, project_tint
 from cardak.wezterm.files import write_atomic
 from cardak.wezterm.install import MARKER
@@ -61,15 +61,17 @@ def module_version(lua_file: Path) -> int | None:
 
 
 def _first_per_path(config: Config) -> tuple[list[Project], list[str]]:
-    """One project per path, the first listed, as the deck's resolver picks it (#23)."""
+    """One project per directory, the first listed, as the deck's resolver picks it (#23).
+    Two paths that resolve to the same directory (a symlink and its target, #14) count."""
     kept: dict[Path, Project] = {}
     problems: list[str] = []
     for p in config.projects:
-        if p.path in kept:
-            first = kept[p.path].name
+        real = real_path(p.path)
+        if real in kept:
+            first = kept[real].name
             problems.append(f"duplicate path {p.path}: {p.name} is ignored, {first} is used")
         else:
-            kept[p.path] = p
+            kept[real] = p
     return list(kept.values()), problems
 
 
@@ -102,7 +104,9 @@ def render_projects_lua(config: Config, known: Collection[str] | None) -> tuple[
         if known is not None and p.theme not in known:
             problems.append(f'unknown scheme "{p.theme}" for {p.name}')
             continue
-        lines.append(f"    {{ path = {lua_str(str(p.path))}, scheme = {lua_str(p.theme)} }},")
+        # a symlinked project under its real path too: WezTerm may see either (#14)
+        for path in dict.fromkeys((str(p.path), str(real_path(p.path)))):
+            lines.append(f"    {{ path = {lua_str(path)}, scheme = {lua_str(p.theme)} }},")
     lines += ["  },", "}"]
     return "\n".join(lines) + "\n", problems
 
@@ -111,7 +115,8 @@ def render_tints(config: Config, schemes: Mapping[str, Scheme]) -> str:
     lines = [f"{ZSH_MARKER} from projects.toml; edits are overwritten."]
     for p in _first_per_path(config)[0]:
         if _tintable(p) and (color := project_tint(p, schemes)):
-            lines.append(f"{p.path}\t{color}")
+            paths = dict.fromkeys((str(p.path), str(real_path(p.path))))
+            lines += [f"{path}\t{color}" for path in paths]
     return "\n".join(lines) + "\n"
 
 

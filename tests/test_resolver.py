@@ -101,3 +101,31 @@ def test_run_git_missing_binary_or_timeout(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr(subprocess, "run", slow)
     assert run_git(Path("/")) is None
+
+
+def test_symlinked_project_matches_the_real_cwd(tmp_path: Path) -> None:
+    real = tmp_path / "disk" / "webshop"
+    (real / "src").mkdir(parents=True)
+    link = tmp_path / "webshop"
+    link.symlink_to(real)
+    r = ProjectResolver(Config(projects=(Project(name="webshop", path=link),)), git=FakeGit({}))
+    # /proc/<pid>/cwd gives the resolved path (#14); the group keeps the configured one
+    assert r.resolve(real / "src") == Resolved("config", link, "webshop")
+    assert r.resolve(link / "src").key == link
+
+
+def test_real_project_matches_a_symlinked_cwd(tmp_path: Path) -> None:
+    real = tmp_path / "disk" / "webshop"
+    real.mkdir(parents=True)
+    link = tmp_path / "webshop"
+    link.symlink_to(real)
+    git = FakeGit({})
+    r = ProjectResolver(Config(projects=(Project(name="webshop", path=real),)), git=git)
+    assert r.resolve(link).key == real  # OSC 7 reports the shell's logical path
+    assert git.calls == []
+
+
+def test_missing_project_path_is_harmless(tmp_path: Path) -> None:
+    gone = tmp_path / "gone"
+    r = ProjectResolver(Config(projects=(Project(name="gone", path=gone),)), git=FakeGit({}))
+    assert r.resolve(gone / "x").name == "gone"
