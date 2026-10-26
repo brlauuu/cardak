@@ -523,3 +523,16 @@ def test_removed_custom_dir_falls_back_to_default(xdg: Path) -> None:
     main(["wezterm", "install", "--dir", str(custom)])
     (custom / "cardak.lua").unlink()
     assert _lua_dir() == default_dir()
+
+
+def test_themes_zsh_prints_problems(xdg: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    wez = xdg / "config" / "wezterm"
+    assert main(["wezterm", "install", "--dir", str(wez)]) == 0
+    (wez / "cardak_projects.lua").write_text("-- mine\nreturn {}\n")  # not cardak's
+    cfg = xdg / "config/cardak/projects.toml"
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text('[[project]]\nname = "a"\npath = "/a"\ntheme = "Nord"\n')
+    capsys.readouterr()
+    assert main(["themes", "zsh"]) == 0
+    err = capsys.readouterr().err
+    assert "warning: " in err and "cardak_projects.lua" in err  # was silently dropped (#27)
