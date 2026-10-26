@@ -75,7 +75,7 @@ def test_pane_label() -> None:
 
 
 def test_unreachable_label() -> None:
-    assert unreachable_label("x").plain == "WezTerm not reachable: x — retrying"
+    assert unreachable_label("x").plain == "WezTerm not reachable: x · retrying"
 
 
 def test_no_match_label() -> None:

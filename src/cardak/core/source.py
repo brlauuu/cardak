@@ -183,6 +183,8 @@ class LiveSource:
         """The store to read summaries from, or None when this deck shows none."""
         if self._key_file is None or not self._config.summary.enabled:
             return None
+        if not self._key_file.exists():  # no key, no summaries: no spend line either (#52)
+            return None
         return self._store
 
     def _summaries(self, live: Sequence[SessionState]) -> tuple[dict[str, str], bool]:
@@ -198,7 +200,7 @@ class LiveSource:
             spend = store.spend_since(start)
             error = store.latest_error_since(start)
         except StoreError as e:
-            self._store_warning = f"agent status unavailable: {e}"
+            self._summary_warning = f"waiting summaries unavailable: {e}"
             return {}, False
         if error:
             self._summary_warning = (

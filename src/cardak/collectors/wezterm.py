@@ -8,7 +8,7 @@ mux server. Outside a pane, `wezterm cli` only tries the mux socket, so the GUI'
 import json
 import os
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -101,6 +101,19 @@ def gui_processes(
     return {pid: _scope(pid, proc) for pid in _live_gui_socks(Path(runtime) / "wezterm")}
 
 
+def _newest(socks: Iterable[Path]) -> Path | None:
+    """The most recently created socket; one that vanishes meanwhile is skipped (#15)."""
+    newest: tuple[float, Path] | None = None
+    for sock in socks:
+        try:
+            mtime = sock.stat().st_mtime
+        except FileNotFoundError:
+            continue  # its GUI exited after the listing
+        if newest is None or mtime > newest[0]:
+            newest = (mtime, sock)
+    return newest[1] if newest is not None else None
+
+
 def find_socket(env: Mapping[str, str] | None = None) -> Path | None:
     env = os.environ if env is None else env
     explicit = env.get("WEZTERM_UNIX_SOCKET")
@@ -110,9 +123,9 @@ def find_socket(env: Mapping[str, str] | None = None) -> Path | None:
     if not runtime:
         return None
     directory = Path(runtime) / "wezterm"
-    live = list(_live_gui_socks(directory).values())
-    if live:
-        return max(live, key=lambda sock: sock.stat().st_mtime)
+    newest = _newest(_live_gui_socks(directory).values())
+    if newest is not None:
+        return newest
     mux = directory / "sock"
     return mux if mux.exists() else None
 

@@ -206,3 +206,19 @@ def test_gui_processes_maps_scopes(tmp_path: Path) -> None:
     (proc / str(pid) / "cgroup").write_text("0::/user.slice/user-1000.slice/session-2.scope/x\n")
     assert gui_processes(env, proc) == {pid: None}
     assert gui_processes({}, proc) == {}
+
+
+def test_vanished_gui_sock_is_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    d = _runtime(tmp_path)
+    gone, live = d / f"gui-sock-{os.getppid()}", d / f"gui-sock-{os.getpid()}"
+    gone.touch()
+    live.touch()
+    real_stat = Path.stat
+
+    def stat(self: Path, **kwargs: object) -> os.stat_result:
+        if self == gone:  # its GUI exited between the listing and the stat (#15)
+            raise FileNotFoundError(str(self))
+        return real_stat(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "stat", stat)
+    assert find_socket({"XDG_RUNTIME_DIR": str(tmp_path)}) == live

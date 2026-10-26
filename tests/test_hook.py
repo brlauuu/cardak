@@ -104,7 +104,12 @@ def test_project_name() -> None:
 def env_for(tmp_path: Path) -> dict[str, str]:
     config = tmp_path / "projects.toml"
     config.write_text('[notify]\ndesktop = false\nsound = "off"\n')
-    return {"XDG_STATE_HOME": str(tmp_path / "state"), "CARDAK_CONFIG": str(config), **ENV}
+    return {
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),  # never the real key file
+        "CARDAK_CONFIG": str(config),
+        **ENV,
+    }
 
 
 def test_main_is_silent_and_records(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -253,3 +258,9 @@ def test_quiet_ping_spawns_summary_only(tmp_path: Path, paths: dict[str, Path]) 
     [state] = store.live_sessions()
     assert len(second) == 1 and second[0][4:6] == ["summarize", state.session_id]
     assert float(second[0][6]) == state.status_since == 101.0
+
+
+def test_env_for_hides_the_real_key(tmp_path: Path) -> None:
+    from cardak.core.config import anthropic_key_path
+
+    assert anthropic_key_path(env_for(tmp_path)).is_relative_to(tmp_path)

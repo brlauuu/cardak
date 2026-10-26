@@ -110,6 +110,7 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
   | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days). `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
   | `~/.local/state/cardak/focus` | `cardak.lua` (module 3), via `focus.tmp.<gui pid>` (`wezterm.procinfo.pid()`, checked on 20240203) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>`; several GUIs share it, last writer wins (#43) |
+  | `~/.local/state/cardak/wezterm_dir` | `cardak wezterm install [--dir]` | the directory `cardak.lua` was installed to; the deck, `themes apply` and `themes zsh` use it while `cardak.lua` is there, else `~/.config/wezterm` (#19) |
   | `~/.local/state/cardak/daemon.lock` | `cardak daemon` | empty; locked while a daemon runs, so a second one exits |
   | `~/.config/systemd/user/cardak.service` | `cardak resources install` / `uninstall`, after asking (or `--yes`) | runs `cardak daemon`; first line `# cardak: generated` |
   | `~/.local/state/cardak/hook.log` | `cardak hook`, `cardak summarize` | tracebacks; restarted past 1 MB |
@@ -151,9 +152,11 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 - `SessionStart` with `source: compact` (auto-compaction, mid-turn) changes nothing (#36). Live
   rows with no event for 7 days are pruned with the ended ones (#38); a killed `claude` sends
   no `SessionEnd`, and after a restart its pane id goes to another pane.
-- Tests never touch the real state dir: `tests/conftest.py` points `XDG_STATE_HOME` at a
-  temp dir for every test. A manual `cardak hook` run must set `XDG_STATE_HOME` and
-  `CARDAK_CONFIG` to scratch paths too.
+- Tests never touch the real state or config dirs: `tests/conftest.py` points `XDG_STATE_HOME`
+  and `XDG_CONFIG_HOME` at temp dirs for every test (`tests/test_isolation.py` checks it). A
+  test that builds its own env passes both too: a ping with the real key reachable spawns a
+  detached `cardak summarize`. A manual `cardak hook` run must set `XDG_STATE_HOME`,
+  `XDG_CONFIG_HOME` and `CARDAK_CONFIG` to scratch paths.
 
 ## Claude Code hooks (measured in M4, Claude Code 2.1.306)
 - Fixtures: `tests/fixtures/hooks/` (recorded with `spikes/04_record_hooks.py` and
@@ -343,6 +346,9 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   Accepted: `cli._skills` at 13 (status, refuse foreign, nothing to do, ask, apply: one guard
   each, like `_resources_install`) and `skills.status` as a hotspot (4 × 5: install, uninstall,
   hint and the CLI all ask it; it reads one file and classifies it).
+- **Bug batch 3 (deck glitches)** split `find_socket` (`_newest`) and `_cursor_target`
+  (`_where_it_was`). Accepted: the coordinators `cli._lua_dir` (3 × 6: the recorded dir, its
+  check, the default) and `DeckApp._empty_label` (3 × 6: one label per empty state).
 - **M5 part 1 (live numbers)** split `docker._container` (14), `accounting._attach_builds` /
   `_attach_containers` and `config._resources`. Accepted after that: `_pane_procs` at
   complexity 10, and the coordinators `LiveSource._resources` (3 × 6) and `widgets.usage`

@@ -19,6 +19,7 @@ from cardak.core.config import (
     config_dir,
     config_path,
     load,
+    state_dir,
 )
 
 if TYPE_CHECKING:
@@ -367,9 +368,36 @@ def _wezterm_install(dest: Path | None, force: bool) -> int:
     except InstallError as e:
         print(f"cardak: {e}", file=sys.stderr)
         return 1
+    _remember_lua_dir(dest_dir)
     print(f"{result.status} {result.path}\n")
     print(snippet(dest_dir), end="")
     return 0
+
+
+LUA_DIR_FILE = "wezterm_dir"
+
+
+def _remember_lua_dir(path: Path) -> None:
+    """Where `cardak wezterm install` put cardak.lua: the deck and `themes` follow it (#19)."""
+    record = state_dir() / LUA_DIR_FILE
+    try:
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(f"{path}\n", encoding="utf-8")
+    except OSError as e:
+        print(f"cardak: couldn't note the install dir in {record}: {e}", file=sys.stderr)
+
+
+def _lua_dir() -> Path:
+    """cardak.lua's directory: the one it was last installed to, while it's there."""
+    from cardak.wezterm.install import default_dir
+
+    try:
+        recorded = Path((state_dir() / LUA_DIR_FILE).read_text(encoding="utf-8").strip())
+    except (OSError, UnicodeDecodeError):
+        return default_dir()
+    if recorded.is_absolute() and (recorded / "cardak.lua").exists():
+        return recorded
+    return default_dir()
 
 
 def _module_message(version: int | None) -> str | None:
@@ -402,7 +430,6 @@ def _theme_writer(
 
 def _themes_apply(config_arg: str | None) -> int:
     from cardak.wezterm.generate import write_generated
-    from cardak.wezterm.install import default_dir
     from cardak.wezterm.schemes import SchemesUnavailable, default_cache_dir, load_schemes
 
     path = config_path(config_arg)
@@ -416,7 +443,7 @@ def _themes_apply(config_arg: str | None) -> int:
     except SchemesUnavailable as e:
         print(f"cardak: scheme names not checked: {e}", file=sys.stderr)
         schemes = None
-    result = write_generated(default_dir(), config_dir(), config, schemes)
+    result = write_generated(_lua_dir(), config_dir(), config, schemes)
     for written in result.written:
         print(f"wrote {written}")
     if not result.written:
@@ -430,7 +457,6 @@ def _themes_apply(config_arg: str | None) -> int:
 
 def _themes_zsh(config_arg: str | None, force: bool) -> int:
     from cardak.wezterm.generate import GenerateError, install_tint_hook, write_generated
-    from cardak.wezterm.install import default_dir
     from cardak.wezterm.schemes import default_cache_dir, read_cached_schemes
 
     try:
@@ -444,7 +470,7 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
     except GenerateError as e:
         print(f"cardak: {e}", file=sys.stderr)
         return 1
-    write_generated(default_dir(), cardak_dir, config, read_cached_schemes(default_cache_dir()))
+    write_generated(_lua_dir(), cardak_dir, config, read_cached_schemes(default_cache_dir()))
     print(f"installed {hook}\n\nAdd this line to your ~/.zshrc:\n\nsource {hook}\n")
     return 0
 
@@ -501,10 +527,10 @@ def _deck(config_arg: str | None) -> int:
     from cardak.core.themes import SchemeStore
     from cardak.ui.app import DeckApp
     from cardak.wezterm.generate import module_version
-    from cardak.wezterm.install import default_dir
     from cardak.wezterm.schemes import default_cache_dir, load_schemes, read_cached_schemes
 
     cache_dir = default_cache_dir()
+    lua_dir = _lua_dir()
     store = SchemeStore(read_cached_schemes(cache_dir))
     try:
         agents: Store | None = Store(db_path())
@@ -517,7 +543,7 @@ def _deck(config_arg: str | None) -> int:
         log = None
     source = LiveSource(
         config_path(config_arg),
-        on_config=_theme_writer(default_dir(), config_dir(), store),
+        on_config=_theme_writer(lua_dir, config_dir(), store),
         schemes=store.get,
         store=agents,
         focus_history=lambda: read_history(focus_path()),
@@ -525,11 +551,11 @@ def _deck(config_arg: str | None) -> int:
     )
     DeckApp(
         source,
-        navigator=Navigator.live(default_dir() / "cardak.lua"),
+        navigator=Navigator.live(lua_dir / "cardak.lua"),
         previewer=Previewer.live(),
         schemes=store,
         load_schemes=lambda: load_schemes(cache_dir),
-        theme_status=lambda: _module_message(module_version(default_dir() / "cardak.lua")),
+        theme_status=lambda: _module_message(module_version(lua_dir / "cardak.lua")),
         hooks_status=_hooks_hint,
         resources_status=_resources_hint,
         log=log,

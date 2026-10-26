@@ -148,3 +148,20 @@ def test_read_cgroup_leaves_out_inactive_page_cache(tmp_path: Path) -> None:
     assert read_cgroup(d) == (2**30, 1)  # as `docker stats` counts it
     (d / "memory.stat").write_text(f"inactive_file {4 * 2**30}\n")
     assert read_cgroup(d) == (0, 1)
+
+
+def test_unreachable_docker_closes_its_socket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    closed: list[bool] = []
+    real_socket = socket.socket
+
+    class Tracked(real_socket):  # type: ignore[misc, valid-type]
+        def close(self) -> None:
+            closed.append(True)
+            super().close()
+
+    monkeypatch.setattr(socket, "socket", Tracked)
+    with pytest.raises(DockerUnavailable):
+        list_containers(tmp_path / "docker.sock")
+    assert closed  # not left for the garbage collector

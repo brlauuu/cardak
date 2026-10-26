@@ -89,6 +89,7 @@ class DeckSnapshot:
     groups: tuple[Group, ...] = ()
     n_panes: int = 0
     error: str | None = None
+    internal: bool = False  # error is a bug in cardak, not WezTerm being unreachable
     config_error: str | None = None
     config_warnings: tuple[str, ...] = ()
     n_waiting: int = 0

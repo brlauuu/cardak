@@ -11,6 +11,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.content import Content
 from textual.markup import escape
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Label, Static, Tree
@@ -36,6 +37,7 @@ from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
     docker_label,
     group_label,
+    internal_label,
     machine_label,
     mcp_label,
     no_match_label,
@@ -123,12 +125,18 @@ def node_id(data: NodeData | None) -> str | None:
     return f"{'w' if data.group.kind == 'waiting' else 'p'}:{data.row.pane_id}"
 
 
+def _where_it_was(nodes: dict[str, TreeNode[NodeData]], selected: str) -> TreeNode[NodeData] | None:
+    if selected not in nodes and selected[:2] in ("w:", "r:"):
+        selected = "p:" + selected[2:]  # it left "Waiting on you": its row in the project (#39)
+    return nodes.get(selected)
+
+
 def _cursor_target(
     nodes: dict[str, TreeNode[NodeData]], selected: str | None, focus_pane: int | None
 ) -> TreeNode[NodeData] | None:
     """Where the cursor goes after a rebuild: the best match while searching, else where it was."""
     if focus_pane is None:
-        return nodes.get(selected) if selected else None
+        return _where_it_was(nodes, selected) if selected else None
     leaf = next(
         (n for n in nodes.values() if n.data and n.data.row and n.data.row.pane_id == focus_pane),
         None,
@@ -217,6 +225,12 @@ class DeckApp(App[None]):
          "recap"}
     )  # fmt: skip
 
+    def format_title(self, title: str, sub_title: str) -> Content:
+        """The header, with the `·` the rest of the deck uses (Textual's default is `—`)."""
+        if not sub_title:
+            return Content(title)
+        return Content.assemble(Content(title), (" · ", "dim"), Content(sub_title).stylize("dim"))
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         return not (action in self.DECK_ACTIONS and len(self.screen_stack) > 1)
 
@@ -255,6 +269,7 @@ class DeckApp(App[None]):
         self.snapshot: DeckSnapshot | None = None
         self.find_query = ""
         self._best: int | None = None
+        self._follow_pending = False  # a move to the best match is queued for after refresh
         self._collapsed: set[str] = set()
         self._poll_worker: Worker[None] | None = None
 
@@ -340,7 +355,7 @@ class DeckApp(App[None]):
         try:
             snap = self.source.poll()
         except Exception as e:  # a collector bug must not take the deck down
-            snap = DeckSnapshot(error=f"internal error: {e!r}")
+            snap = DeckSnapshot(error=repr(e), internal=True)
         self.call_from_thread(self.apply_snapshot, snap)
 
     def apply_snapshot(self, snap: DeckSnapshot) -> None:
@@ -353,12 +368,14 @@ class DeckApp(App[None]):
         machine.display = snap.machine_view is not None
         banner = self.query_one("#banner", Static)
         if snap.config_error:
-            banner.update(escape(f"projects.toml: {snap.config_error}"))
+            banner.update(escape(snap.config_error))  # ConfigError names the file itself
         else:
             banner.update(escape("\n".join(snap.config_warnings)))
         banner.display = bool(snap.config_error or snap.config_warnings)
         banner.set_class(snap.config_error is None and bool(snap.config_warnings), "warning")
-        if snap.summary_capped and not self._cap_noticed:
+        if not snap.summary_capped:
+            self._cap_noticed = False  # a new month: the next cap is news again (#55)
+        elif not self._cap_noticed:
             self._cap_noticed = True
             self.notify(
                 escape(
@@ -373,6 +390,9 @@ class DeckApp(App[None]):
         raw = self.raw
         if raw is None:
             return
+        # a poll in the same frame as a keystroke must not undo the move to the best match
+        follow_best = follow_best or self._follow_pending
+        self._follow_pending = follow_best
         shown = waiting_only(raw) if self.waiting_only else raw
         result = filter_snapshot(shown, self.find_query)
         self.snapshot = result.snapshot
@@ -412,15 +432,19 @@ class DeckApp(App[None]):
         target = _cursor_target(nodes, selected, focus_pane)
         if target is not None:
             # New nodes get their line numbers on the next refresh; moving now lands on line 0.
-            self.call_after_refresh(tree.move_cursor, target)
+            self.call_after_refresh(self._move_cursor, target)
         else:
             # clear() leaves the cursor on no line, so the first key would only "find" row 0.
             self.call_after_refresh(self._cursor_to_first_row)
 
+    def _move_cursor(self, target: TreeNode[NodeData]) -> None:
+        self._follow_pending = False
+        self.deck_tree.move_cursor(target)
+
     def _empty_label(self, snap: DeckSnapshot, empty_query: str | None) -> Text | None:
         """What the tree shows instead of groups, if anything."""
         if snap.error:
-            return unreachable_label(snap.error)
+            return internal_label(snap.error) if snap.internal else unreachable_label(snap.error)
         if not snap.groups and empty_query:
             return no_match_label(empty_query)
         if not snap.groups and self.waiting_only:
@@ -507,6 +531,7 @@ class DeckApp(App[None]):
         self._render(follow_best=False)
 
     def _cursor_to_first_row(self) -> None:
+        self._follow_pending = False
         tree = self.deck_tree
         if tree.cursor_line < 0 and tree.root.children:
             tree.cursor_line = 0
