@@ -114,3 +114,19 @@ def test_probe_failures(tmp_path: Path, runner: FakeWezterm, reason: str) -> Non
 def test_default_cache_dir(tmp_path: Path) -> None:
     assert default_cache_dir({"XDG_CACHE_HOME": "/c"}) == Path("/c/cardak")
     assert default_cache_dir({"HOME": str(tmp_path)}) == tmp_path / ".cache/cardak"
+
+
+def empty_cache(tmp_path: Path) -> None:
+    (tmp_path / "schemes-20240203-110809-5046fc22.json").write_text("{}")
+
+
+def test_empty_cache_is_probed_again(tmp_path: Path) -> None:
+    empty_cache(tmp_path)
+    runner = FakeWezterm()
+    assert list(load_schemes(tmp_path, runner)) == ["Nord"]
+    assert len(runner.calls) == 2  # version + a fresh probe (#24)
+
+
+def test_empty_cache_is_not_trusted_by_read(tmp_path: Path) -> None:
+    empty_cache(tmp_path)
+    assert read_cached_schemes(tmp_path, FakeWezterm()) is None

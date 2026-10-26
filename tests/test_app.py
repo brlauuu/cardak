@@ -1187,3 +1187,32 @@ async def test_saving_the_current_scheme_clears_the_preview() -> None:
     async with app.run_test() as pilot:
         await choose_nord(app, pilot, 1)
         assert rec.calls[-1] == (Path("/repos/cardak"), "")  # unchanged config: no reload
+
+
+async def test_picker_load_regenerates() -> None:
+    source = StubSource(SNAP)
+    store = SchemeStore()
+    app = DeckApp(source, interval=3600, schemes=store, load_schemes=lambda: THEMES)
+    app.call_from_thread = lambda *a, **k: None  # type: ignore[method-assign]  # no running app
+    app._schemes_for_picker()  # noqa: SLF001  # the picker's worker, before startup's load
+    assert store.get() == THEMES and source.regenerated == 1  # tints get derived colors (#25)
+
+
+def test_one_probe_for_startup_and_picker() -> None:
+    import threading
+
+    calls: list[int] = []
+
+    def slow_probe() -> dict:
+        calls.append(1)
+        time.sleep(0.1)
+        return THEMES
+
+    app = DeckApp(StubSource(SNAP), interval=3600, schemes=SchemeStore(), load_schemes=slow_probe)
+    app.call_from_thread = lambda *a, **k: None  # type: ignore[method-assign]  # no running app
+    startup = threading.Thread(target=app._load_schemes)  # noqa: SLF001
+    startup.start()
+    time.sleep(0.02)  # the picker opens while the startup probe runs
+    assert app._schemes_for_picker() == THEMES  # noqa: SLF001
+    startup.join()
+    assert len(calls) == 1

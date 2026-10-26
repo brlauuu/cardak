@@ -1,5 +1,6 @@
 """The deck: a live tree of WezTerm panes grouped by project."""
 
+import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -272,6 +273,7 @@ class DeckApp(App[None]):
         self._follow_pending = False  # a move to the best match is queued for after refresh
         self._collapsed: set[str] = set()
         self._poll_worker: Worker[None] | None = None
+        self._scheme_lock = threading.Lock()  # one probe at a time
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -647,20 +649,27 @@ class DeckApp(App[None]):
         if self.load_schemes is None or self.schemes is None:
             return
         try:
-            self.schemes.set(self.load_schemes())
+            self._ensure_schemes()
         except Exception:  # the picker retries and shows the reason; accents just stay unset
             return
-        self.source.regenerate()
-        self.call_from_thread(self.action_refresh)
 
     def _schemes_for_picker(self) -> Mapping[str, Scheme]:
-        if self.schemes is not None and self.schemes.get():
-            return self.schemes.get()
-        if self.load_schemes is None:
+        if self.load_schemes is None and not (self.schemes is not None and self.schemes.get()):
             raise RuntimeError("scheme list not available")
-        schemes = self.load_schemes()
-        if self.schemes is not None:
-            self.schemes.set(schemes)
+        return self._ensure_schemes()
+
+    def _ensure_schemes(self) -> Mapping[str, Scheme]:
+        """The scheme list, probing once (startup and the picker share it, #25). After a probe,
+        the theme files are regenerated so their tints get the derived colors."""
+        with self._scheme_lock:
+            if self.schemes is not None and (known := self.schemes.get()):
+                return known
+            assert self.load_schemes is not None
+            schemes = self.load_schemes()
+            if self.schemes is not None:
+                self.schemes.set(schemes)
+        self.source.regenerate()
+        self.call_from_thread(self.action_refresh)
         return schemes
 
     def _clear_preview(self, path: Path) -> None:
