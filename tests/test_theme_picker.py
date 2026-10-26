@@ -148,3 +148,32 @@ async def test_no_note_when_preview_works() -> None:
     async with host.run_test() as pilot:
         await ready(host, pilot)
         assert host.picker.query_one("#preview-note", Static).display is False
+
+
+async def test_fast_enter_after_a_preview_shows_the_saved_scheme() -> None:
+    # A previewed, then B chosen within the debounce: A must not stay on the window, since
+    # after the reload cardak.lua leaves alone a scheme its table doesn't know (#22)
+    host, rec = picker()
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("down")  # Tokyo Night
+        await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
+        await pilot.press("up")  # back to Nord, then Enter before the debounce
+        await pilot.press("enter")
+        await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
+        assert host.result == "Nord"
+        assert rec.calls == [(PATH, "Tokyo Night"), (PATH, "Nord")]
+
+
+async def test_unknown_typed_name_after_a_preview_clears_it() -> None:
+    host, rec = picker()
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("down")
+        await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
+        await pilot.press(*"zzz")  # no match: Enter takes the typed name
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert host.result == "zzz"
+        assert rec.calls[-1] == (PATH, "")  # it will never reach cardak.lua's table
