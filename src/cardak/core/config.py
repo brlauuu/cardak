@@ -73,6 +73,14 @@ class ConfigError(Exception):
         super().__init__(f"{where}: {message}")
 
 
+def real_path(path: Path) -> Path:
+    """path with symlinks resolved; as given when it can't be (missing, a loop, no access)."""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return path
+
+
 def config_dir(env: Mapping[str, str] | None = None) -> Path:
     env = os.environ if env is None else env
     if env.get("XDG_CONFIG_HOME"):

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from cardak.core.config import Config
+from cardak.core.config import Config, real_path
 
 Kind = Literal["config", "git", "other"]
 GitLookup = Callable[[Path], Path | None]
@@ -37,14 +37,6 @@ def run_git(cwd: Path) -> Path | None:
         return None
     top = out.stdout.strip()
     return Path(top) if out.returncode == 0 and top else None
-
-
-def real_path(path: Path) -> Path:
-    """path with symlinks resolved; as given when it can't be (missing, a loop, no access)."""
-    try:
-        return path.resolve()
-    except (OSError, RuntimeError):
-        return path
 
 
 class ProjectResolver:
