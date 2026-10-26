@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.9.2 — 2026-10-26
+
 ### Fixed
 - A project configured through a symlink is recognised whichever way the pane got there, for grouping, WezTerm themes and the zsh tint. (#14)
 - Saving a scheme in the theme picker no longer flashes the old colors first. (#22)
