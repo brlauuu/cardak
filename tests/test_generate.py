@@ -155,3 +155,46 @@ def test_tint_hook_stays_out_of_command_substitution(tmp_path: Path) -> None:
     script = f'source {hook} >/dev/null; x=$(cd {str(proj)!r}; pwd); print -r -- "X=$x"'
     out = subprocess.run(["zsh", "-f", "-c", script], env=env, capture_output=True, check=True)
     assert out.stdout == f"X={proj}\n".encode()
+
+
+DUPES = Config(
+    projects=(
+        Project(name="first", path=Path("/r/web"), theme="Nord"),
+        Project(name="second", path=Path("/r/web"), theme="Dracula"),
+    )
+)
+
+
+def test_duplicate_paths_first_wins_and_is_reported() -> None:
+    text, problems = render_projects_lua(DUPES, None)
+    assert "[[Nord]]" in text and "Dracula" not in text  # the deck's resolver uses the first too
+    assert problems == ["duplicate path /r/web: second is ignored, first is used"]
+    assert render_tints(DUPES, SCHEMES).splitlines()[1:] == ["/r/web\t#3c2f4c"]
+
+
+def test_duplicate_paths_first_without_theme_wins() -> None:
+    config = Config(
+        projects=(
+            Project(name="plain", path=Path("/r/web")),
+            Project(name="themed", path=Path("/r/web"), theme="Nord"),
+        )
+    )
+    text, _ = render_projects_lua(config, None)
+    assert "Nord" not in text and render_tints(config, SCHEMES).splitlines()[1:] == []
+
+
+def test_tints_skip_paths_with_tab_or_newline() -> None:
+    config = Config(
+        projects=(
+            Project(name="tab", path=Path("/r/a\tb"), theme="Nord"),
+            Project(name="nl", path=Path("/r/a\nb"), theme="Nord"),
+            Project(name="web", path=Path("/r/web"), theme="Nord"),
+        )
+    )
+    assert render_tints(config, SCHEMES).splitlines()[1:] == ["/r/web\t#3c2f4c"]
+
+
+def test_write_generated_reports_tint_problems(tmp_path: Path) -> None:
+    config = Config(projects=(Project(name="tab", path=Path("/r/a\tb"), theme="Nord"),))
+    result = write_generated(tmp_path / "wezterm", tmp_path / "cardak", config, SCHEMES)
+    assert result.problems == ("tab: its path can't go in the tints file (tab or newline)",)

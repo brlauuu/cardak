@@ -88,9 +88,10 @@ def read_cached_schemes(
 ) -> dict[str, Scheme] | None:
     """The cached list for the installed WezTerm, without ever running the probe."""
     try:
-        return parse_schemes(json.loads(_cache_file(cache_dir, runner).read_text()))
+        cached = parse_schemes(json.loads(_cache_file(cache_dir, runner).read_text()))
     except (OSError, ValueError, SchemesUnavailable):
         return None
+    return cached or None  # an empty list is no list: the picker would stay empty (#24)
 
 
 def _probe(runner: Runner) -> object:
@@ -126,7 +127,8 @@ def _probe(runner: Runner) -> object:
 def load_schemes(cache_dir: Path, runner: Runner = subprocess.run) -> dict[str, Scheme]:
     cache = _cache_file(cache_dir, runner)
     try:
-        return parse_schemes(json.loads(cache.read_text()))
+        if cached := parse_schemes(json.loads(cache.read_text())):
+            return cached
     except (OSError, ValueError, SchemesUnavailable):
         pass
     data = _probe(runner)

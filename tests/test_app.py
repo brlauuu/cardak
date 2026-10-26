@@ -1140,3 +1140,79 @@ async def test_cap_notice_rearms() -> None:
             await settle(app, pilot)
         notices = [str(n.message) for n in app._notifications if "Summary limit" in str(n.message)]  # noqa: SLF001
         assert len(notices) == 2  # a new month that hits the cap again says so again (#55)
+
+
+class PreviewRecorder:
+    in_wezterm = True
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Path, str]] = []
+
+    def preview(self, project_path: Path, scheme: str) -> bool:
+        self.calls.append((project_path, scheme))
+        return True
+
+
+class FailingThemeSource(StubSource):
+    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None:
+        raise ConfigError(Path("projects.toml"), "is read-only")
+
+
+async def choose_nord(app: DeckApp, pilot: Pilot[None], row: int) -> None:
+    await settle(app, pilot)
+    app.deck_tree.move_cursor(app.deck_tree.root.children[row])
+    await pilot.press("t")
+    await settle(app, pilot)
+    await pilot.press("enter")
+    await settle(app, pilot)
+
+
+async def test_failed_save_clears_the_preview() -> None:
+    rec = PreviewRecorder()
+    app = DeckApp(
+        FailingThemeSource(SNAP), interval=3600, schemes=SchemeStore(THEMES), previewer=rec
+    )
+    async with app.run_test() as pilot:
+        await choose_nord(app, pilot, 1)
+        assert rec.calls[-1] == (Path("/repos/cardak"), "")  # no reload is coming to clear it
+
+
+async def test_saving_the_current_scheme_clears_the_preview() -> None:
+    themed = replace(
+        SNAP, groups=(SNAP.groups[0], replace(SNAP.groups[1], theme="Nord"), SNAP.groups[2])
+    )
+    rec = PreviewRecorder()
+    source = StubSource(themed)
+    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES), previewer=rec)
+    async with app.run_test() as pilot:
+        await choose_nord(app, pilot, 1)
+        assert rec.calls[-1] == (Path("/repos/cardak"), "")  # unchanged config: no reload
+
+
+async def test_picker_load_regenerates() -> None:
+    source = StubSource(SNAP)
+    store = SchemeStore()
+    app = DeckApp(source, interval=3600, schemes=store, load_schemes=lambda: THEMES)
+    app.call_from_thread = lambda *a, **k: None  # type: ignore[method-assign]  # no running app
+    app._schemes_for_picker()  # noqa: SLF001  # the picker's worker, before startup's load
+    assert store.get() == THEMES and source.regenerated == 1  # tints get derived colors (#25)
+
+
+def test_one_probe_for_startup_and_picker() -> None:
+    import threading
+
+    calls: list[int] = []
+
+    def slow_probe() -> dict:
+        calls.append(1)
+        time.sleep(0.1)
+        return THEMES
+
+    app = DeckApp(StubSource(SNAP), interval=3600, schemes=SchemeStore(), load_schemes=slow_probe)
+    app.call_from_thread = lambda *a, **k: None  # type: ignore[method-assign]  # no running app
+    startup = threading.Thread(target=app._load_schemes)  # noqa: SLF001
+    startup.start()
+    time.sleep(0.02)  # the picker opens while the startup probe runs
+    assert app._schemes_for_picker() == THEMES  # noqa: SLF001
+    startup.join()
+    assert len(calls) == 1

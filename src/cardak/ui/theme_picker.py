@@ -68,6 +68,7 @@ class ThemePickerScreen(ModalScreen[str | None]):
         self._schemes: Mapping[str, Scheme] = {}
         self._timer: Timer | None = None
         self._previewed = False
+        self._last_previewed: str | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker"):
@@ -142,6 +143,7 @@ class ThemePickerScreen(ModalScreen[str | None]):
     def _preview(self, name: str) -> None:
         if self._previewer is not None and self._previewer.preview(self._path, name):
             self._previewed = True
+            self._last_previewed = name
 
     def _clear_preview(self) -> None:
         if self._timer is not None:
@@ -165,7 +167,15 @@ class ThemePickerScreen(ModalScreen[str | None]):
             self._choose(event.value.strip())
 
     def _choose(self, name: str) -> None:
-        self._clear_preview()
+        # Never "" before a save: clearing shows the old colors until the reload (#22). Show
+        # the scheme being saved instead: after the reload cardak.lua keeps only schemes its
+        # table knows, so a leftover preview of another one would stay on the window. A name
+        # the list doesn't know never reaches that table, so that preview is cleared. The deck
+        # clears it too when the save writes nothing.
+        if self._timer is not None:
+            self._timer.stop()
+        if self._previewed and self._last_previewed != name and self._previewer is not None:
+            self._previewer.preview(self._path, name if name in self._schemes else "")
         self.dismiss(name)
 
     def action_cancel(self) -> None:

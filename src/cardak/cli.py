@@ -470,7 +470,10 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
     except GenerateError as e:
         print(f"cardak: {e}", file=sys.stderr)
         return 1
-    write_generated(_lua_dir(), cardak_dir, config, read_cached_schemes(default_cache_dir()))
+    schemes = read_cached_schemes(default_cache_dir())
+    result = write_generated(_lua_dir(), cardak_dir, config, schemes)
+    for problem in result.problems:
+        print(f"warning: {problem}", file=sys.stderr)
     print(f"installed {hook}\n\nAdd this line to your ~/.zshrc:\n\nsource {hook}\n")
     return 0
 
