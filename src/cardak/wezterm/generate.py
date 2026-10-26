@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
-from cardak.core.config import Config
+from cardak.core.config import Config, Project
 from cardak.core.themes import Scheme, project_tint
 from cardak.wezterm.files import write_atomic
 from cardak.wezterm.install import MARKER
@@ -60,8 +60,34 @@ def module_version(lua_file: Path) -> int | None:
     return 1
 
 
-def render_projects_lua(config: Config, known: Collection[str] | None) -> tuple[str, list[str]]:
+def _first_per_path(config: Config) -> tuple[list[Project], list[str]]:
+    """One project per path, the first listed, as the deck's resolver picks it (#23)."""
+    kept: dict[Path, Project] = {}
     problems: list[str] = []
+    for p in config.projects:
+        if p.path in kept:
+            first = kept[p.path].name
+            problems.append(f"duplicate path {p.path}: {p.name} is ignored, {first} is used")
+        else:
+            kept[p.path] = p
+    return list(kept.values()), problems
+
+
+def _tintable(p: Project) -> bool:
+    """tints is `path<TAB>color` per line: a tab or newline in the path would break it (#28)."""
+    return not any(c in str(p.path) for c in "\t\n\r")
+
+
+def tint_problems(config: Config) -> list[str]:
+    return [
+        f"{p.name}: its path can't go in the tints file (tab or newline)"
+        for p in _first_per_path(config)[0]
+        if not _tintable(p)
+    ]
+
+
+def render_projects_lua(config: Config, known: Collection[str] | None) -> tuple[str, list[str]]:
+    projects, problems = _first_per_path(config)
     lines = [f"{MARKER} by cardak from projects.toml; edits are overwritten.", "return {"]
     default = config.defaults.get("theme")
     if isinstance(default, str):
@@ -70,7 +96,7 @@ def render_projects_lua(config: Config, known: Collection[str] | None) -> tuple[
         else:
             lines.append(f"  default = {lua_str(default)},")
     lines.append("  projects = {")
-    for p in config.projects:
+    for p in projects:
         if p.theme is None:
             continue
         if known is not None and p.theme not in known:
@@ -83,8 +109,8 @@ def render_projects_lua(config: Config, known: Collection[str] | None) -> tuple[
 
 def render_tints(config: Config, schemes: Mapping[str, Scheme]) -> str:
     lines = [f"{ZSH_MARKER} from projects.toml; edits are overwritten."]
-    for p in config.projects:
-        if color := project_tint(p, schemes):
+    for p in _first_per_path(config)[0]:
+        if _tintable(p) and (color := project_tint(p, schemes)):
             lines.append(f"{p.path}\t{color}")
     return "\n".join(lines) + "\n"
 
@@ -120,6 +146,7 @@ def write_generated(
         problems += found
         jobs.append((wezterm_dir / PROJECTS_FILE, text, MARKER))
     jobs.append((cardak_dir / TINTS_FILE, render_tints(config, schemes or {}), ZSH_MARKER))
+    problems += tint_problems(config)
     for path, text, marker in jobs:
         try:
             if _write_if_changed(path, text, marker):
