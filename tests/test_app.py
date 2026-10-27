@@ -786,7 +786,19 @@ async def test_machine_header() -> None:
         assert not header.display
         app.action_refresh()
         await settle(app, pilot)
-        assert header.display and "RAM 22.0 / 32.0G" in str(header.render())
+        assert header.display and "RAM 22.0 / 32.0G (69%)" in str(header.render())
+
+
+async def test_rows_show_their_share_of_the_machine() -> None:
+    m = MachineSample(32 * GIB, 10 * GIB, 0, 0, 38.0, 16)
+    snap = replace(resource_snap(8 * GIB), machine=m)
+    app = DeckApp(StubSource(resource_snap(8 * GIB), snap), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        assert "(25%)" not in str(all_nodes(app)[3].label)  # no machine sample yet
+        app.action_refresh()
+        await settle(app, pilot)
+        assert "RAM 8.0G (25%)" in str(all_nodes(app)[3].label)
 
 
 async def test_waiting_pane_with_mcp_has_unique_ids() -> None:

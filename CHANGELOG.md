@@ -9,6 +9,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+- Every RAM figure now shows its share of the machine's RAM in brackets, in the deck and on the phone view: `RAM 13.9G (32%)` for a project or pane, `RAM 20.8 / 42.9G (48%)` for the whole machine. (#73)
+
 ## 0.10.0 — 2026-10-27
 
 ### Added

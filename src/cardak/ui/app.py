@@ -168,25 +168,28 @@ class AddProjectScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
-def _leaves(group: Group, now: float) -> list[tuple[Text, Node]]:
-    """A group's lines: one per pane, plus a reason line under each waiting pane in a project."""
+def _leaves(group: Group, now: float, total: int | None) -> list[tuple[Text, Node]]:
+    """A group's lines: one per pane, plus a reason line under each waiting pane in a project.
+
+    `total` is the machine's RAM, for each line's share of it (None: no machine sample).
+    """
     if group.kind == "waiting":
         return [(waiting_label(row, now), Node(group, row, "pane")) for row in group.panes]
     lines: list[tuple[Text, Node]] = []
     for row in group.panes:
-        lines.append((pane_label(row, now), Node(group, row, "pane")))
+        lines.append((pane_label(row, now, total), Node(group, row, "pane")))
         if row.mcp_rss > 0:
-            lines.append((mcp_label(row), Node(group, row, "mcp")))
+            lines.append((mcp_label(row, total), Node(group, row, "mcp")))
         if row.agent and row.agent.status == "waiting":
             lines.append((reason_label(row), Node(group, row, "reason")))
-    return lines + _resource_lines(group)
+    return lines + _resource_lines(group, total)
 
 
-def _resource_lines(group: Group) -> list[tuple[Text, Node]]:
+def _resource_lines(group: Group, total: int | None) -> list[tuple[Text, Node]]:
     """Docker work and, under Other, what runs outside WezTerm."""
-    lines = [(docker_label(d), Node(group, role="docker", line=d)) for d in group.docker]
+    lines = [(docker_label(d, total), Node(group, role="docker", line=d)) for d in group.docker]
     if group.outside_rss is not None:
-        lines.append((outside_label(group), Node(group, role="outside")))
+        lines.append((outside_label(group, total), Node(group, role="outside")))
     return lines
 
 
@@ -423,13 +426,16 @@ class DeckApp(App[None]):
             tree.root.add_leaf(message)
             return
         now = time.time()
+        total = snap.machine.mem_total if snap.machine else None
         nodes: dict[str, TreeNode[NodeData]] = {}
         for group in snap.groups:
             data = Node(group)
             gid = node_id(data) or ""
-            node = tree.root.add(group_label(group), data=data, expand=gid not in self._collapsed)
+            node = tree.root.add(
+                group_label(group, total), data=data, expand=gid not in self._collapsed
+            )
             nodes[gid] = node
-            for label, leaf_data in _leaves(group, now):
+            for label, leaf_data in _leaves(group, now, total):
                 nodes[node_id(leaf_data) or ""] = node.add_leaf(label, data=leaf_data)
         target = _cursor_target(nodes, selected, focus_pane)
         if target is not None:
