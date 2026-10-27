@@ -197,11 +197,14 @@ Design exploration (browser and TUI variants) can be done separately with Claude
 - [x] Buttons in the deck.
 
 **M7: Browser.**
-- [ ] `cardak web` via textual-serve, bound to 127.0.0.1.
+- [x] A read-only page for a phone or tablet on the home network, served by `cardak daemon`
+  behind a key (`cardak web setup`). It replaced textual-serve on 127.0.0.1: a terminal streamed
+  into a phone's browser reads badly, and loopback can't reach a phone. Design:
+  `docs/superpowers/specs/2026-10-27-m7-web-view-design.md`.
 
 ## 12. Risks
 
-- **Window focus.** Resolved for X11 in M0 (see Key decisions). Still open: Wayland (KWin scripting over D-Bus is the likely route), and the browser front-end, which needs the EWMH fallback because focus sits in the browser.
+- **Window focus.** Resolved for X11 in M0 (see Key decisions). Still open: Wayland (KWin scripting over D-Bus is the likely route), and a browser front-end that jumps, which would need the EWMH fallback because focus sits in the browser (M7's page is read-only and doesn't jump).
 - **Socket discovery outside WezTerm.** A systemd daemon has no `WEZTERM_UNIX_SOCKET`, and after a GUI restart the `gui-sock-<pid>` name changes. The daemon must re-resolve it on every connection failure, and never let `wezterm cli` auto-spawn a mux server.
 - **cwd accuracy.** It depends on OSC 7. Fallback is `/proc/<pid>/cwd` of the foreground process.
 - **Claude Code internals** (session files, transcript format) are not a stable API. Keep parsing isolated in one module, and prefer hooks. M0: `sessions/<pid>.json` appears only after the first prompt, and a session banner said "Transcript saving is off", so the detail view must handle a missing transcript.

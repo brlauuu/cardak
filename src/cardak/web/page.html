@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="cardak">
 <meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:,">
 <title>cardak</title>
 <style>
 :root {
@@ -122,7 +123,9 @@ function age(seconds) {
   if (s < 86400) return Math.floor(s / 3600) + "h";
   return Math.floor(s / 86400) + "d";
 }
-function gb(bytes) { return (bytes / 2 ** 30).toFixed(1) + " GB"; }
+function gb(bytes) {
+  return bytes < 2 ** 30 ? Math.round(bytes / 2 ** 20) + " MB" : (bytes / 2 ** 30).toFixed(1) + " GB";
+}
 function pct(v) { return v === null || v === undefined ? "–" : Math.round(v) + "%"; }
 function clock(ts) {
   const d = new Date(ts * 1000);
@@ -179,11 +182,12 @@ function paneRow(p, now) {
   const head = add(el("div", "row"), dot(p.agent), el("span", "grow ellipsis", p.label),
     el("span", "muted" + (p.over ? " over" : ""), gb(p.rss + p.mcp_rss)));
   add(row, head);
-  let sub = p.cwd_display;
+  const where = p.cwd_display === "." ? "" : p.cwd_display;
+  let sub = where;
   if (p.agent) {
     const a = p.agent;
     const what = a.status === "waiting" ? (a.tag || "waiting") : a.status;
-    sub = what + " " + age(now - a.since) + " · " + p.cwd_display;
+    sub = what + " " + age(now - a.since) + (where ? " · " + where : "");
   }
   add(row, el("div", "line small ellipsis", sub));
   if (p.agent && p.agent.summary && p.agent.status === "waiting") add(row, el("div", "line", p.agent.summary));

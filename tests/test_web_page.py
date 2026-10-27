@@ -14,8 +14,9 @@ def test_page_has_no_html_injection_sinks() -> None:
 
 
 def test_page_is_self_contained() -> None:
-    for ref in ("http://", "https://", "//cdn", "<script src", "<link"):
+    for ref in ("http://", "https://", "//cdn", "<script src"):
         assert ref not in PAGE, ref
+    assert re.findall(r"<link[^>]*>", PAGE) == ['<link rel="icon" href="data:,">']
     assert PAGE.count("<script>") == 1 and PAGE.count("<style>") == 1
 
 
