@@ -1,5 +1,6 @@
 """Row labels for the deck tree."""
 
+import math
 import time
 
 from rich.color import Color, ColorParseError
@@ -30,7 +31,8 @@ def share(rss: int, total: int | None) -> str:
     if not total:
         return ""
     pct = rss / total * 100
-    return " (<1%)" if 0 < pct < 0.5 else f" ({pct:.0f}%)"
+    # half up, like the web view's Math.round (an f-string rounds 0.5 to 0)
+    return " (<1%)" if 0 < pct < 0.5 else f" ({math.floor(pct + 0.5)}%)"
 
 
 def usage(

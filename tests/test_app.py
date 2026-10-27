@@ -795,10 +795,13 @@ async def test_rows_show_their_share_of_the_machine() -> None:
     app = DeckApp(StubSource(resource_snap(8 * GIB), snap), interval=3600)
     async with app.run_test() as pilot:
         await settle(app, pilot)
-        assert "(25%)" not in str(all_nodes(app)[3].label)  # no machine sample yet
+        assert not any("%)" in str(n.label) for n in all_nodes(app))  # no machine sample yet
         app.action_refresh()
         await settle(app, pilot)
-        assert "RAM 8.0G (25%)" in str(all_nodes(app)[3].label)
+        labels = [str(n.label) for n in all_nodes(app)]
+        # project, pane, MCP, docker, Other, pane, outside WezTerm
+        assert [label.count("%)") for label in labels] == [1] * 7
+        assert "RAM 8.0G (25%)" in labels[3] and "RAM 9.0G (28%)" in labels[6]
 
 
 async def test_waiting_pane_with_mcp_has_unique_ids() -> None:

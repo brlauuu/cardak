@@ -181,6 +181,8 @@ def test_usage_shows_share_of_total_ram() -> None:
     assert usage(412 * 2**20, 1.0, total=43 * GIB).plain == "RAM 412M (1%)  CPU 1%"
     assert usage(100 * 2**20, 1.0, total=43 * GIB).plain == "RAM 100M (<1%)  CPU 1%"
     assert usage(0, None, total=43 * GIB).plain == "RAM 0M (0%)  CPU –"
+    assert usage(GIB // 2, None, total=100 * GIB).plain == "RAM 512M (1%)  CPU –"  # half up
+    assert usage(5 * GIB // 2, None, total=100 * GIB).plain == "RAM 2.5G (3%)  CPU –"
     assert usage(GIB, None, total=0).plain == "RAM 1.0G  CPU –"  # no usable total
 
 

@@ -78,7 +78,7 @@ def test_ram_shows_share_of_the_machine() -> None:
     script = "".join(_js_function(f) for f in ("gb", "share", "ram")) + (
         f"console.log(JSON.stringify([ram({int(13.9 * gib)}, {43 * gib}), "
         f"ram({100 * 2**20}, {43 * gib}), ram(0, {43 * gib}), ram({gib}, null), "
-        f"share({22 * gib}, {32 * gib})]));"
+        f"share({22 * gib}, {32 * gib}), share(1, 200), share(5, 200)]));"
     )
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert json.loads(out.stdout) == [
@@ -87,10 +87,17 @@ def test_ram_shows_share_of_the_machine() -> None:
         "0 MB (0%)",
         "1.0 GB",
         " (69%)",
+        " (1%)",
+        " (3%)",
     ]
 
 
 def test_every_ram_figure_carries_its_share() -> None:
+    # gb() stands alone only inside ram() and for the machine's total; every other figure is ram()
+    calls = [line.strip() for line in PAGE.splitlines() if "gb(" in line]
+    assert calls == [
+        "function gb(bytes) {",
+        "function ram(bytes, total) { return gb(bytes) + share(bytes, total); }",
+        'let text = "RAM " + (m.mem_used / 2 ** 30).toFixed(1) + " / " + gb(m.mem_total) +',
+    ]
     assert "share(m.mem_used, m.mem_total)" in PAGE
-    assert "gb(p.rss" not in PAGE and "gb(g.rss" not in PAGE and "gb(d.rss" not in PAGE
-    assert "projectCard(g, snap.now, snap.machine && snap.machine.mem_total)" in PAGE
