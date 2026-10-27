@@ -1,1 +1,360 @@
-<!doctype html><title>cardak</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#12141a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="cardak">
+<meta name="referrer" content="no-referrer">
+<title>cardak</title>
+<style>
+:root {
+  --bg: #12141a; --card: #1c1f27; --line: #2a2d36; --text: #d8dbe2; --muted: #8a8f9c;
+  --waiting: #f0a040; --working: #5fc070; --idle: #8a8f9c; --over: #e06c75; --link: #6aa8ff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+           max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  -webkit-text-size-adjust: 100%;
+}
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 10px; }
+header h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
+#machine { color: var(--muted); font-size: 13px; }
+#machine.warning { color: var(--waiting); }
+#machine.critical { color: var(--over); }
+#fresh { width: 100%; color: var(--muted); font-size: 12px; }
+#fresh.stale, #fresh.down { color: var(--waiting); }
+#notice { display: none; background: var(--card); border-left: 4px solid var(--waiting);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+#notice.show { display: block; }
+#warnings { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+main.dim { opacity: .5; }
+h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  margin: 14px 0 6px; font-weight: 600; }
+.card { background: var(--card); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+.wait { border-left: 4px solid var(--waiting); cursor: pointer; }
+.row { display: flex; align-items: baseline; gap: 8px; }
+.grow { flex: 1; min-width: 0; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muted { color: var(--muted); font-size: 13px; }
+.small { font-size: 12px; }
+.tag { font-size: 11px; padding: 1px 7px; border-radius: 7px; color: var(--waiting);
+  background: rgba(240, 160, 64, .18); white-space: nowrap; }
+.line { margin-top: 3px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none;
+  background: var(--line); align-self: center; }
+.proj-head { cursor: pointer; }
+.dots { display: inline-flex; gap: 3px; align-self: center; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; background: var(--idle); }
+.dot.waiting { background: var(--waiting); }
+.dot.working { background: var(--working); }
+.dot.shell { background: transparent; border: 1px solid var(--line); }
+.spark { font-family: ui-monospace, monospace; color: var(--link); font-size: 12px; letter-spacing: -1px; }
+.over { color: var(--over); }
+.panes { margin-top: 8px; border-top: 1px solid var(--line); }
+.pane { padding: 7px 0 6px; border-bottom: 1px solid var(--line); }
+.pane:last-child { border-bottom: none; }
+.pane.agent { cursor: pointer; }
+.chev { color: var(--muted); font-size: 12px; }
+.empty { color: var(--muted); padding: 8px 2px; }
+#sheet { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, .55); z-index: 10; }
+#sheet.show { display: flex; align-items: flex-end; justify-content: center; }
+#sheet .panel { background: var(--card); width: 100%; max-width: 640px; max-height: 85vh; overflow: auto;
+  border-radius: 16px 16px 0 0; padding: 14px 16px max(20px, env(safe-area-inset-bottom)); }
+#sheet h3 { margin: 0 0 4px; font-size: 16px; }
+#sheet h4 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  margin: 14px 0 4px; }
+#sheet p { margin: 2px 0; overflow-wrap: anywhere; }
+#close { float: right; background: none; border: 1px solid var(--line); color: var(--text);
+  border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; }
+@media (min-width: 820px) {
+  main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 0 20px; align-items: start; }
+  #sheet.show { align-items: center; }
+  #sheet .panel { border-radius: 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>cardak</h1>
+  <span id="machine"></span>
+  <span id="fresh">connecting…</span>
+</header>
+<div id="notice"></div>
+<div id="warnings"></div>
+<main id="main">
+  <section><h2 id="waiting-title">Waiting on you</h2><div id="waiting"></div></section>
+  <section><h2>Projects</h2><div id="projects"></div></section>
+</main>
+<div id="sheet"><div class="panel"><button id="close" type="button">Close</button><div id="sheet-body"></div></div></div>
+<script>
+"use strict";
+const POLL_MS = 3000;
+const STALE_S = 10;
+const NO_KEY = "open the link from `cardak web setup` (or scan its QR code) on this device";
+const BAD_KEY = "this link's key is no longer valid · run `cardak web setup` on the computer";
+const DOWN = "can't reach cardak · last data from ";
+const ENDED = "this session has ended";
+const KINDS = { permission: "Approve a tool", question: "Answer a question", finished: "Turn finished" };
+const $ = (id) => document.getElementById(id);
+
+let key = null, last = null, timer = null, sheetId = null, stopped = false;
+const opened = new Set();
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined && text !== null) e.textContent = String(text);
+  return e;
+}
+function add(parent, ...kids) { for (const k of kids) if (k) parent.appendChild(k); return parent; }
+function clear(e) { while (e.firstChild) e.removeChild(e.firstChild); }
+
+function age(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h";
+  return Math.floor(s / 86400) + "d";
+}
+function gb(bytes) { return (bytes / 2 ** 30).toFixed(1) + " GB"; }
+function pct(v) { return v === null || v === undefined ? "–" : Math.round(v) + "%"; }
+function clock(ts) {
+  const d = new Date(ts * 1000);
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+function dot(agent) {
+  return el("span", "dot " + (agent ? agent.status : "shell"));
+}
+
+function readKey() {
+  const m = location.hash.match(/^#k=([A-Za-z0-9_-]+)/);
+  if (m) {
+    try { localStorage.setItem("cardak-key", m[1]); } catch (e) { /* private mode */ }
+    return m[1];
+  }
+  try { return localStorage.getItem("cardak-key"); } catch (e) { return null; }
+}
+
+function notice(text) {
+  const n = $("notice");
+  n.textContent = text || "";
+  n.classList.toggle("show", Boolean(text));
+}
+
+function renderMachine(m) {
+  const box = $("machine");
+  box.className = m && m.level ? m.level : "";
+  if (!m) { box.textContent = ""; return; }
+  let text = "RAM " + (m.mem_used / 2 ** 30).toFixed(1) + " / " + gb(m.mem_total) + " · CPU " + pct(m.cpu_pct);
+  if (m.swap_full) text += " · swap full";
+  box.textContent = text;
+}
+
+function renderFresh(snap) {
+  const f = $("fresh");
+  const behind = snap.now - snap.ts;
+  f.className = behind > STALE_S ? "stale" : "";
+  f.textContent = behind > STALE_S ? "last update " + age(behind) + " ago" : "updated " + age(behind) + " ago";
+}
+
+function waitCard(w, now) {
+  const card = el("div", "card wait");
+  add(card, add(el("div", "row"),
+    el("span", "tag", w.tag || "waiting"),
+    el("b", "grow ellipsis", w.project),
+    el("span", "muted", age(now - w.since))));
+  add(card, el("div", "line", w.summary || w.reason || KINDS[w.kind] || ""));
+  card.addEventListener("click", () => openSheet(w.session_id));
+  return card;
+}
+
+function paneRow(p, now) {
+  const row = el("div", "pane" + (p.agent ? " agent" : ""));
+  const head = add(el("div", "row"), dot(p.agent), el("span", "grow ellipsis", p.label),
+    el("span", "muted" + (p.over ? " over" : ""), gb(p.rss + p.mcp_rss)));
+  add(row, head);
+  let sub = p.cwd_display;
+  if (p.agent) {
+    const a = p.agent;
+    const what = a.status === "waiting" ? (a.tag || "waiting") : a.status;
+    sub = what + " " + age(now - a.since) + " · " + p.cwd_display;
+  }
+  add(row, el("div", "line small ellipsis", sub));
+  if (p.agent && p.agent.summary && p.agent.status === "waiting") add(row, el("div", "line", p.agent.summary));
+  if (p.agent) row.addEventListener("click", (e) => { e.stopPropagation(); openSheet(p.agent.session_id); });
+  return row;
+}
+
+function projectCard(g, now) {
+  const card = el("div", "card");
+  const head = el("div", "row proj-head");
+  const sw = el("span", "swatch");
+  if (g.accent) sw.style.background = g.accent;
+  const agents = g.panes.filter((p) => p.agent);
+  const dots = el("span", "dots");
+  for (const p of agents) add(dots, dot(p.agent));
+  const isOpen = opened.has(g.name);
+  add(head, g.kind === "other" ? null : sw, el("b", "grow ellipsis", g.name), dots,
+    el("span", "spark", g.ram_spark), el("span", "muted" + (g.over ? " over" : ""), gb(g.rss)),
+    el("span", "chev", isOpen ? "▾" : "▸"));
+  add(card, head);
+  const shells = g.panes.length - agents.length;
+  const parts = [];
+  if (agents.length) parts.push(agents.length + (agents.length === 1 ? " agent" : " agents"));
+  if (shells) parts.push(shells + (shells === 1 ? " pane" : " panes"));
+  if (g.docker.length) parts.push(g.docker.length + " docker");
+  parts.push("CPU " + pct(g.cpu_pct));
+  add(card, el("div", "line small", (g.path ? g.path + " · " : "") + parts.join(" · ")));
+  if (isOpen) {
+    const list = el("div", "panes");
+    for (const p of g.panes) add(list, paneRow(p, now));
+    for (const d of g.docker) {
+      add(list, add(el("div", "pane"), add(el("div", "row"), el("span", "dot shell"),
+        el("span", "grow ellipsis", d.label), el("span", "muted", gb(d.rss)))));
+    }
+    if (!g.panes.length && !g.docker.length) add(list, el("div", "empty", "nothing running here"));
+    add(card, list);
+  }
+  head.addEventListener("click", () => {
+    if (opened.has(g.name)) opened.delete(g.name); else opened.add(g.name);
+    if (last) render(last);
+  });
+  return card;
+}
+
+function render(snap) {
+  renderMachine(snap.machine);
+  renderFresh(snap);
+  $("main").classList.remove("dim");
+  if (snap.error) {
+    notice(snap.internal ? "cardak hit an internal error: " + snap.error : "WezTerm not reachable: " + snap.error);
+  } else {
+    notice("");
+  }
+  const warn = $("warnings");
+  warn.textContent = snap.warnings.join(" · ");
+  const waiting = $("waiting");
+  clear(waiting);
+  $("waiting-title").textContent = "Waiting on you" + (snap.waiting.length ? " · " + snap.waiting.length : "");
+  if (!snap.waiting.length) add(waiting, el("div", "empty", "Nothing is waiting on you."));
+  for (const w of snap.waiting) add(waiting, waitCard(w, snap.now));
+  const projects = $("projects");
+  clear(projects);
+  for (const g of snap.projects) add(projects, projectCard(g, snap.now));
+  if (!snap.projects.length && !snap.error) add(projects, el("div", "empty", "No WezTerm panes."));
+}
+
+function down() {
+  const f = $("fresh");
+  f.className = "down";
+  f.textContent = last ? DOWN + clock(last.ts) : "can't reach cardak";
+  $("main").classList.add("dim");
+}
+
+function stop(text) {
+  stopped = true;
+  if (timer) clearInterval(timer);
+  timer = null;
+  notice(text);
+  $("fresh").textContent = "";
+}
+
+async function get(path) {
+  return fetch(path, { headers: { Authorization: "Bearer " + key }, cache: "no-store" });
+}
+
+async function poll() {
+  if (stopped || document.visibilityState !== "visible") return;
+  let r;
+  try {
+    r = await get("/api/snapshot");
+  } catch (e) {
+    down();
+    return;
+  }
+  if (r.status === 401) { stop(BAD_KEY); return; }
+  if (r.status === 503) { $("fresh").textContent = "starting…"; return; }
+  if (!r.ok) { down(); return; }
+  try {
+    last = await r.json();
+  } catch (e) {
+    down();
+    return;
+  }
+  render(last);
+  if (sheetId) loadSheet();
+}
+
+function section(body, title, ...lines) {
+  add(body, el("h4", null, title));
+  for (const l of lines) if (l) add(body, l);
+}
+
+async function loadSheet() {
+  const id = sheetId;
+  const body = $("sheet-body");
+  let r;
+  try {
+    r = await get("/api/session/" + encodeURIComponent(id));
+  } catch (e) {
+    return; // the list says the computer can't be reached
+  }
+  if (id !== sheetId) return;
+  if (r.status === 401) { closeSheet(); stop(BAD_KEY); return; }
+  clear(body);
+  if (r.status === 404) { add(body, el("p", "muted", ENDED)); return; }
+  if (!r.ok) { add(body, el("p", "muted", "couldn't load this session")); return; }
+  const s = await r.json();
+  if (id !== sheetId) return;
+  add(body, el("h3", null, s.project + " · claude"));
+  add(body, el("p", "muted", s.status + " " + age(s.now - s.since)));
+  if (s.status === "waiting") {
+    section(body, "Needs", el("p", null, (s.tag ? s.tag + " · " : "") + (KINDS[s.kind] || "Waiting")),
+      s.summary ? el("p", null, s.summary) : null, s.reason ? el("p", "muted", s.reason) : null);
+  } else {
+    section(body, "Needs", el("p", null, s.status === "working" ? "Nothing: it's working" : "Nothing"));
+  }
+  if (s.last_prompt) {
+    const when = s.last_prompt_at ? " (" + age(s.now - s.last_prompt_at) + " ago)" : "";
+    section(body, "You asked" + when, el("p", null, "“" + s.last_prompt + "”"));
+  }
+  if (s.turn !== null) {
+    const files = s.turn_files.map((f) => el("p", "muted small", "edited " + f));
+    section(body, "This turn", el("p", null, s.turn), ...files);
+  }
+}
+
+function openSheet(id) {
+  sheetId = id;
+  clear($("sheet-body"));
+  add($("sheet-body"), el("p", "muted", "loading…"));
+  $("sheet").classList.add("show");
+  loadSheet();
+}
+
+function closeSheet() {
+  sheetId = null;
+  $("sheet").classList.remove("show");
+}
+
+$("close").addEventListener("click", closeSheet);
+$("sheet").addEventListener("click", (e) => { if (e.target === $("sheet")) closeSheet(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") poll(); });
+
+key = readKey();
+if (!key) {
+  stop(NO_KEY);
+} else {
+  poll();
+  timer = setInterval(poll, POLL_MS);
+}
+</script>
+</body>
+</html>
