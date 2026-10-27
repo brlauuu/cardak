@@ -270,13 +270,6 @@ def focus_seen_at(
         if end - start >= dwell:
             return start + dwell
     return None
-
-
-def seen_by_focus(
-    state: SessionState, history: Sequence[FocusChange], now: float, dwell: float = 1.0
-) -> bool:
-    """Was the session's pane focused for `dwell` seconds since it started waiting?"""
-    return focus_seen_at(state, history, now, dwell) is not None
     for i, change in enumerate(history):
         if change.pane_id != state.pane_id:
             continue
