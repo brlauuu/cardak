@@ -211,7 +211,12 @@ def _named(dir: Path, states: dict[str, str], wanted: tuple[str, ...]) -> str:
 
 
 def _ask(prompt: str) -> bool:
-    return input(prompt).strip().lower() in ("y", "yes")
+    """Ask a yes/no question; no stdin (a `!` command, a pipe) answers no."""
+    try:
+        return input(prompt).strip().lower() in ("y", "yes")
+    except EOFError:
+        print("\ncardak: no answer on stdin; run it in a terminal, or pass --yes", file=sys.stderr)
+        return False
 
 
 def _skills_apply(dir: Path, install: bool, force: bool) -> int:
@@ -271,7 +276,7 @@ def _write_settings(path: Path, before: dict, after: dict, yes: bool, install: b
     now = datetime.now()
     if path.exists():
         print(f"A backup goes to {claude.backup_path(path, now)}")
-    if not yes and input(f"Write {path}? [y/N] ").strip().lower() not in ("y", "yes"):
+    if not yes and not _ask(f"Write {path}? [y/N] "):
         print("Nothing written.")
         return 0
     try:
@@ -295,7 +300,7 @@ def _resources_install(config_arg: str | None, yes: bool, refresh: bool, force: 
     text = unit.unit_text(exe)
     print(f"{path}:")
     print("\n".join(f"  {line}" for line in text.splitlines()))
-    if not yes and input(f"Write {path} and start it? [y/N] ").strip().lower() not in ("y", "yes"):
+    if not yes and not _ask(f"Write {path} and start it? [y/N] "):
         print("Nothing written.")
         return 0
     previous = path.read_text(encoding="utf-8") if unit.is_ours(path) else None

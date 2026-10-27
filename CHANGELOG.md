@@ -12,6 +12,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 ### Added
 - See the deck on your phone or iPad over your Wi-Fi: what's waiting on you and why, each project's panes and RAM, and what a session needs, refreshed every few seconds and clear about when the computer can't be reached. It only shows; nothing on it can act on your agents or mark a wait seen. Run `cardak web setup` once: it creates a private link and a QR code to open on each device. The background service serves it, so run `cardak resources install` if you haven't. (#80)
 
+### Fixed
+- `cardak hooks install`, `resources install`, `skills install` and `web setup` no longer crash when there's no keyboard to answer their question (a `!` command, a pipe): they write nothing and tell you to run them in a terminal or pass `--yes`. (#80)
+
 ## 0.9.2 — 2026-10-26
 
 ### Fixed

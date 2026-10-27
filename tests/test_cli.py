@@ -454,6 +454,18 @@ def test_install_asks_and_no_writes_nothing(resources_env, monkeypatch, capsys) 
     assert not (tmp_path / "cfg/systemd/user/cardak.service").exists() and fake.calls == []
 
 
+def _no_stdin(prompt: str) -> str:
+    raise EOFError
+
+
+def test_install_without_stdin_writes_nothing(resources_env, monkeypatch, capsys) -> None:
+    tmp_path, fake = resources_env
+    monkeypatch.setattr("builtins.input", _no_stdin)
+    assert main(["--config", str(tmp_path / "p.toml"), "resources", "install"]) == 0
+    assert "Nothing written" in capsys.readouterr().out
+    assert not (tmp_path / "cfg/systemd/user/cardak.service").exists() and fake.calls == []
+
+
 def test_install_refuses_a_foreign_unit(resources_env, capsys) -> None:
     tmp_path, _ = resources_env
     unit_file = tmp_path / "cfg/systemd/user/cardak.service"
@@ -688,6 +700,15 @@ def test_web_setup_declined_writes_no_config(web_setup, monkeypatch, capsys) -> 
     monkeypatch.setattr("builtins.input", lambda prompt: "n")
     assert main(["web", "setup"]) == 1
     assert cfg.read_text() == before
+
+
+def test_web_setup_without_stdin_writes_no_config(web_setup, monkeypatch, capsys) -> None:
+    cfg, _ = web_setup
+    before = cfg.read_text()
+    monkeypatch.setattr("builtins.input", _no_stdin)
+    assert main(["web", "setup"]) == 1
+    assert cfg.read_text() == before
+    assert "--yes" in capsys.readouterr().err
 
 
 def test_web_setup_restarts_active_service_with_yes(web_setup) -> None:
