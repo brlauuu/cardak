@@ -402,3 +402,39 @@ def test_a_broken_tab_record_falls_back_to_wezterms_title() -> None:
         "{ tab_title = '', active_pane = { title = 'zsh', current_working_dir = 'file:///r/web' } }"
     )
     assert tabs.g.title_of(broken, tabs.lua.table_from({}), 60) is None  # no tab_index
+
+
+def test_nested_projects_take_the_innermost_name() -> None:
+    inner = Project(name="cart", path=Path("/r/web/cart"))
+    tabs = Tabs(data(WEB, inner))
+    assert tabs.title("/r/web/cart/src") == " cart · zsh "
+    assert tabs.title("/r/web/api") == " web · zsh "
+
+
+def test_tab_title_with_a_trailing_slash(tmp_path: Path) -> None:
+    (tmp_path / "shop" / ".git").mkdir(parents=True)
+    tabs = Tabs(data(WEB))
+    assert tabs.title(f"{tmp_path}/shop/") == " shop · zsh "
+    assert tabs.title("/r/web/") == " web · zsh "
+
+
+def test_no_repository_is_looked_up_again_later(tmp_path: Path) -> None:
+    tabs = Tabs(data())
+    tabs.lua.execute("real_time = os.time; os.time = function() return CLOCK end")
+    tabs.g.CLOCK = 1000
+    assert tabs.title(str(tmp_path)) is None
+    (tmp_path / ".git").mkdir()
+    assert tabs.title(str(tmp_path)) is None  # cached for a while
+    tabs.g.CLOCK = 1031
+    assert tabs.title(str(tmp_path)) == f" {tmp_path.name} · zsh "
+
+
+def test_module_3_still_themes_from_new_data() -> None:
+    old = (Path(__file__).parent / "fixtures" / "cardak_module_3.lua").read_text()  # v0.10.0
+    wez = Wez(data(WEB, API, default="Dflt"))
+    wez.g.M = wez.lua.execute(old)
+    wez.lua.eval("M.apply({})")
+    themed, plain = wez.window(1, "/r/web"), wez.window(2, "/r/api")
+    wez.status(themed)
+    wez.status(plain)
+    assert (wez.scheme(themed), wez.scheme(plain)) == ("Nord", "Dflt")

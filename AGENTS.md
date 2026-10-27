@@ -99,7 +99,9 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   the **first** handler registered for it, so a user's own handler after `apply` is silently dead;
   `apply(config, { tab_titles = false })` opts out. Returning `nil` keeps WezTerm's title (other
   folders, a title set with `set-tab-title`). Git roots are found in Lua (a `.git` file or dir
-  up the tree, cached per directory), not by running git: the handler runs on the GUI thread.
+  up the tree, cached per directory, "none" for 30 s), not by running git: the handler runs on the
+  GUI thread. Known gaps: a hung network mount in a tab's cwd blocks that first lookup, and a cwd
+  reached through a symlink is named by its logical path (the deck resolves the real one).
 - `cwd` in `wezterm cli list` comes from OSC 7, so it follows the shell, not the foreground
   process. Fallback when it is missing: `/proc/<pid>/cwd`.
 

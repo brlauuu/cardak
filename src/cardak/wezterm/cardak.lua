@@ -92,8 +92,10 @@ end
 -- Tab titles (module 4): "<project> · <pane title>", the project as the deck names it: the
 -- configured one, else the git repository's directory. Elsewhere, and for a title the user set,
 -- WezTerm's own title. format-tab-title runs on the GUI thread at every redraw, so the git
--- lookup (a stat per directory up the tree) is cached per directory.
-local git_names, git_cached = {}, 0
+-- lookup (a stat per directory up the tree) is cached per directory; "no repository" only for
+-- GIT_RETRY_S, so a `git init` or clone in an open tab gets its name.
+local GIT_RETRY_S = 30
+local git_names, git_cached = {}, 0 -- path -> name, or the os.time() a lookup found none
 
 local function exists(path)
   local f = io.open(path, 'r') -- opens a directory too, and a worktree's .git is a file
@@ -103,9 +105,11 @@ local function exists(path)
 end
 
 local function git_name(path)
+  path = path:gsub('/+$', '')
   local cached = git_names[path]
-  if cached ~= nil then return cached or nil end
-  local found, dir = false, path
+  if type(cached) == 'string' then return cached end
+  if cached and os.time() - cached < GIT_RETRY_S then return nil end
+  local found, dir = nil, path
   while dir ~= '' do
     if exists(dir .. '/.git') then
       found = dir:match('([^/]+)$')
@@ -114,8 +118,8 @@ local function git_name(path)
     dir = dir:match('^(.*)/[^/]*$') or ''
   end
   if git_cached >= 256 then git_names, git_cached = {}, 0 end
-  git_names[path], git_cached = found, git_cached + 1
-  return found or nil
+  git_names[path], git_cached = found or os.time(), git_cached + 1
+  return found
 end
 
 local function project_name(path)
