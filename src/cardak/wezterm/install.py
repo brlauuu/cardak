@@ -77,5 +77,8 @@ def snippet(dest_dir: Path, env: Mapping[str, str] | None = None) -> str:
         "local config = wezterm.config_builder()\n"
         f"{load}require('cardak').apply(config)\n"
         "return config\n\n"
-        "WezTerm reloads its config automatically.\n"
+        "WezTerm reloads its config automatically.\n\n"
+        "cardak names each tab after its project. If your wezterm.lua has its own\n"
+        "format-tab-title handler, keep it with:\n\n"
+        f"{load}require('cardak').apply(config, {{ tab_titles = false }})\n"
     )

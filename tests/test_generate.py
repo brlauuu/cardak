@@ -45,7 +45,9 @@ def test_render_projects_lua() -> None:
         "return {\n"
         "  default = [[Nord]],\n"
         "  projects = {\n"
-        "    { path = [[/r/web]], scheme = [[Nord]] },\n"
+        "    { path = [[/r/web]], name = [[web]], scheme = [[Nord]] },\n"
+        "    { path = [[/r/api]], name = [[api]] },\n"
+        "    { path = [[/r/typo]], name = [[typo]] },\n"  # named in tab titles, but no scheme
         "  },\n"
         "}\n"
     )
@@ -70,10 +72,10 @@ def test_module_version(tmp_path: Path) -> None:
     lua.write_text(MARKER + " by `cardak wezterm install`\nlocal wezterm\n")
     assert module_version(lua) == 1
     install(tmp_path)
-    assert module_version(lua) == MODULE_VERSION == 3
+    assert module_version(lua) == MODULE_VERSION == 4
     lua.write_text("-- mine\n")
     assert module_version(lua) is None
-    assert module_text().splitlines()[1] == "-- cardak-module: 3"
+    assert module_text().splitlines()[1] == "-- cardak-module: 4"
 
 
 def test_write_generated_needs_the_module(tmp_path: Path) -> None:

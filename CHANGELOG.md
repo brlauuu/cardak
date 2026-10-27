@@ -10,6 +10,7 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 ## Unreleased
 
 ### Added
+- WezTerm tabs now lead with their project's name, `webshop · ✳ Fix the cart`, so you can tell at a glance which tab belongs to which project. A git repository that isn't in your config is named after its folder, as in the deck; other tabs and titles you set yourself stay as they were. Run `cardak wezterm install` to get it (the deck reminds you). If your `wezterm.lua` has its own tab-title handler, keep it with `require('cardak').apply(config, { tab_titles = false })`. (#31)
 - Every RAM figure now shows its share of the machine's RAM in brackets, in the deck and on the phone view: `RAM 13.9G (32%)` for a project or pane, `RAM 20.8 / 42.9G (48%)` for the whole machine. (#73)
 
 ## 0.10.0 — 2026-10-27

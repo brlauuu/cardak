@@ -18,7 +18,7 @@ def test_packaged_module_is_readable_and_registers_the_handler() -> None:
     assert text.startswith(MARKER)
     assert "user-var-changed" in text
     assert "cardak_focus" in text
-    assert "function M.apply(config)" in text
+    assert "function M.apply(config, opts)" in text and "format-tab-title" in text
 
 
 def test_fresh_install(tmp_path: Path) -> None:
@@ -121,7 +121,7 @@ def test_install_does_not_touch_wezterm_lua(tmp_path: Path) -> None:
 
 def test_module_v2_themes_windows_and_previews() -> None:
     text = module_text()
-    assert text.splitlines()[1] == "-- cardak-module: 3"
+    assert text.splitlines()[1] == "-- cardak-module: 4"
     assert "pcall(require, 'cardak_projects')" in text
     assert "'update-status'" in text
     assert "cardak_preview" in text

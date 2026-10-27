@@ -32,8 +32,11 @@ cardak wezterm install
 
 This installs `~/.config/wezterm/cardak.lua` and prints one line to add to your
 `wezterm.lua`: `require('cardak').apply(config)`. cardak never edits `wezterm.lua` itself.
-The module raises the window you jump to, applies each project's color scheme, and tells
-the deck which pane you're looking at. After upgrading cardak, run the command again when
+The module raises the window you jump to, applies each project's color scheme, names each
+tab after its project (`webshop · ✳ Fix the cart`), and tells the deck which pane you're
+looking at. Tabs outside a project, and tabs you've titled yourself, keep WezTerm's title.
+WezTerm uses only one tab-title handler; if you have your own, use
+`require('cardak').apply(config, { tab_titles = false })`. After upgrading cardak, run the command again when
 the deck asks you to.
 
 `cardak themes zsh` adds an optional zsh hook that tints each pane's background by project.

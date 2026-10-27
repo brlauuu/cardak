@@ -95,6 +95,11 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   order even when it is hidden, so the deck focuses its tree explicitly on mount; and
   `Tree.clear()` leaves the cursor on no line, so a rebuild without a target puts it on row 0.
 - The X11 window title is the **active pane's title**; `set-window-title` does not change it.
+- **Tab titles (#31, module 4):** `cardak.lua` registers `format-tab-title`, and WezTerm runs only
+  the **first** handler registered for it, so a user's own handler after `apply` is silently dead;
+  `apply(config, { tab_titles = false })` opts out. Returning `nil` keeps WezTerm's title (other
+  folders, a title set with `set-tab-title`). Git roots are found in Lua (a `.git` file or dir
+  up the tree, cached per directory), not by running git: the handler runs on the GUI thread.
 - `cwd` in `wezterm cli list` comes from OSC 7, so it follows the shell, not the foreground
   process. Fallback when it is missing: `/proc/<pid>/cwd`.
 
@@ -104,8 +109,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 
   | Path | Written by | Content |
   |---|---|---|
-  | `~/.config/wezterm/cardak.lua` | `cardak wezterm install` | static module: focus, theming, preview |
-  | `~/.config/wezterm/cardak_projects.lua` | deck on every config change; `cardak themes apply` | project path → scheme (only when cardak.lua is installed there) |
+  | `~/.config/wezterm/cardak.lua` | `cardak wezterm install` | static module: focus, theming, preview, tab titles |
+  | `~/.config/wezterm/cardak_projects.lua` | deck on every config change; `cardak themes apply` | project path → name and scheme, every project (only when cardak.lua is installed there) |
   | `~/.config/cardak/tints` | same | `path<TAB>#rrggbb` for the zsh hook |
   | `~/.config/cardak/tint.zsh` | `cardak themes zsh` | the opt-in per-pane tint hook |
   | `~/.config/cardak/web_key` | `cardak web setup` (mode 0600; `--new-key` replaces it) | the web view's key; `cardak daemon` reads it at start and refuses it with group/other bits |
