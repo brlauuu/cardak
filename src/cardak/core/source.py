@@ -168,21 +168,25 @@ class LiveSource:
         if self._store is None:
             return []
         try:
-            live = self._store.live_sessions()
-            history, now = self._focus_history(), self._clock()
-            seen = [s for s in live if seen_by_focus(s, history, now)]
-            if not self._write_seen:
-                ids = {s.session_id for s in seen}
-                live = [mark_seen(s, now) if s.session_id in ids else s for s in live]
-            elif seen:
-                for s in seen:
-                    self._store.mark_seen(s.session_id, now, s.status_since)
-                live = self._store.live_sessions()
+            live = self._seen(self._store, self._store.live_sessions())
         except StoreError as e:
             self._store_warning = f"agent status unavailable: {e}"
             return []
         self._store_warning = None
         return live
+
+    def _seen(self, store: AgentStore, live: list[SessionState]) -> list[SessionState]:
+        """Mark focus-seen waits in the store, or with write_seen off only in what is returned."""
+        history, now = self._focus_history(), self._clock()
+        seen = {s.session_id for s in live if seen_by_focus(s, history, now)}
+        if not seen:
+            return live
+        if not self._write_seen:
+            return [mark_seen(s, now) if s.session_id in seen else s for s in live]
+        for s in live:
+            if s.session_id in seen:
+                store.mark_seen(s.session_id, now, s.status_since)
+        return store.live_sessions()
 
     def _summary_store(self) -> AgentStore | None:
         """The store to read summaries from, or None when this deck shows none."""
