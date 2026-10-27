@@ -17,40 +17,11 @@ from textual.widgets import Button, Collapsible, Footer, Header, Static
 
 from cardak.collectors.transcripts import Entry, read_transcript
 from cardak.core.agents import KIND_LABELS, SessionState, tool_summary
+from cardak.core.detail import shown_path, turn_text, words
 from cardak.core.summary import SummaryInfo
 from cardak.ui.widgets import IDLE, WAITING, WORKING, age
 
-MAX_WORDS = 100
 PAGE = 200
-
-
-def _words(text: str, keep: str) -> str:
-    """At most MAX_WORDS words, keeping the start or the end of the text."""
-    words = text.split()
-    if len(words) <= MAX_WORDS:
-        return " ".join(words)
-    if keep == "end":
-        return "…" + " ".join(words[-MAX_WORDS:])
-    return " ".join(words[:MAX_WORDS]) + "…"
-
-
-def _count(n: int, one: str, many: str) -> str:
-    return f"{n} {one if n == 1 else many}"
-
-
-def _turn(state: SessionState) -> str:
-    parts = [
-        _count(state.turn_edits, "edit", "edits") if state.turn_edits else "",
-        _count(state.turn_reads, "read", "reads") if state.turn_reads else "",
-        _count(state.turn_commands, "command", "commands") if state.turn_commands else "",
-        f"{state.turn_other} other" if state.turn_other else "",
-    ]
-    return ", ".join(p for p in parts if p) or "nothing yet"
-
-
-def _shown_path(path: str, cwd: Path | None) -> str:
-    p = Path(path)
-    return str(p.relative_to(cwd)) if cwd and p.is_relative_to(cwd) else path
 
 
 def _needs(text: Text, state: SessionState, summary: str | None) -> None:
@@ -60,7 +31,7 @@ def _needs(text: Text, state: SessionState, summary: str | None) -> None:
         if summary:
             text.append(f"  Summary: {summary}\n")
         keep = "start" if state.kind == "permission" else "end"
-        text.append(f"  {_words(state.reason or '', keep)}\n")
+        text.append(f"  {words(state.reason or '', keep)}\n")
     elif state.status == "working":
         text.append(f"Working: {state.current_tool or '…'}\n")
     else:
@@ -82,13 +53,13 @@ def detail_text(
         asked = f"  ({age(now - state.last_prompt_at)} ago)" if state.last_prompt_at else ""
         text.append("\nYOU ASKED", style="bold")
         text.append(f"{asked}\n", style="dim")
-        text.append(f'  "{_words(state.last_prompt, "start")}"\n')
+        text.append(f'  "{words(state.last_prompt, "start")}"\n')
 
     text.append("\nTHIS TURN  ", style="bold")
-    text.append(f"{_turn(state)}\n")
+    text.append(f"{turn_text(state)}\n")
     for path in state.turn_files:
         text.append("  edited ", style="green")
-        text.append(f"{_shown_path(path, state.cwd)}\n")
+        text.append(f"{shown_path(path, state.cwd)}\n")
     if info is not None:
         text.append(f"\nSummaries this month: ${info.month_spend:.2f} of ${info.limit:.2f}\n")
     text.rstrip()
