@@ -3,12 +3,14 @@
 New snapshot fields stay off the network until they are added here; pids never go out.
 """
 
+from typing import Any
+
 from cardak.core.agents import SessionState
 from cardak.core.detail import shown_path, turn_text, words
 from cardak.core.snapshot import AgentView, DeckSnapshot, Group, PaneRow
 from cardak.core.summary import TAGS
 
-Json = dict[str, object]
+Json = dict[str, Any]  # JSON-shaped; Any so callers can index nested values
 
 
 def _tag(agent: AgentView) -> str | None:
