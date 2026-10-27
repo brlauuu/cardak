@@ -56,12 +56,22 @@ class ResourceSettings:
 
 
 @dataclass(frozen=True)
+class WebSettings:
+    """[web]: the read-only page `cardak daemon` serves to phones on the home network (M7)."""
+
+    enabled: bool = False
+    port: int = 8765
+    host: str = "0.0.0.0"  # every interface
+
+
+@dataclass(frozen=True)
 class Config:
     projects: tuple[Project, ...] = ()
     defaults: dict[str, object] = field(default_factory=dict)
     notify: NotifySettings = NotifySettings()
     summary: SummarySettings = SummarySettings()
     resources: ResourceSettings = ResourceSettings()
+    web: WebSettings = WebSettings()
 
 
 class ConfigError(Exception):
@@ -91,6 +101,11 @@ def config_dir(env: Mapping[str, str] | None = None) -> Path:
 def anthropic_key_path(env: Mapping[str, str] | None = None) -> Path:
     """The Anthropic API key for waiting summaries; the user creates it, cardak only reads it."""
     return config_dir(env) / "anthropic_key"
+
+
+def web_key_path(env: Mapping[str, str] | None = None) -> Path:
+    """The web view's key; `cardak web setup` writes it, `cardak daemon` reads it."""
+    return config_dir(env) / "web_key"
 
 
 def state_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -170,6 +185,7 @@ def load(path: Path) -> Config:
         notify=_notify(path, data),
         summary=_summary(path, data),
         resources=_resources(path, data),
+        web=_web(path, data),
     )
 
 
@@ -209,6 +225,24 @@ def _resources(path: Path, data: Mapping[str, object]) -> ResourceSettings:
     return ResourceSettings(
         **{name: _resource(path, name, raw[name]) for name in names if raw.get(name) is not None}
     )
+
+
+def _web(path: Path, data: Mapping[str, object]) -> WebSettings:
+    raw = data.get("web", {})
+    if not isinstance(raw, dict):
+        raise ConfigError(path, "[web] must be a table")
+    enabled, port, host = (
+        raw.get("enabled", False),
+        raw.get("port", 8765),
+        raw.get("host", "0.0.0.0"),
+    )
+    if not isinstance(enabled, bool):
+        raise ConfigError(path, "[web] enabled must be true or false")
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        raise ConfigError(path, "[web] port must be a number from 1 to 65535")
+    if not isinstance(host, str) or not host:
+        raise ConfigError(path, "[web] host must be a string")
+    return WebSettings(enabled, port, host)
 
 
 def _resource(path: Path, name: str, value: object) -> float:
@@ -327,6 +361,23 @@ def write_resource_defaults(
     _parse(path, text)
     _atomic_write(path, target, text)
     return written
+
+
+def set_web_enabled(path: Path, enabled: bool) -> None:
+    """Set [web] enabled, keeping the rest of the file as it is."""
+    load(path)  # refuses a broken file before anything is written
+    target = path.resolve()
+    import tomlkit
+
+    doc = tomlkit.parse(_read(target) or "")
+    table = doc.get("web")
+    if table is None:
+        table = tomlkit.table()
+        doc.add("web", table)
+    _set_key(table, "enabled", enabled)
+    text = tomlkit.dumps(doc)
+    _parse(path, text)
+    _atomic_write(path, target, text)
 
 
 def set_project_theme(path: Path, project_path: Path, theme: str) -> None:

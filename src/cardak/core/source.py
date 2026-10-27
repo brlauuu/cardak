@@ -14,7 +14,7 @@ from cardak.collectors.machine import MachineSample, MachineSampler
 from cardak.collectors.processes import PaneProcs, ProcessSampler
 from cardak.core import config as config_mod
 from cardak.core.accounting import account
-from cardak.core.agents import FocusChange, SessionState, seen_by_focus
+from cardak.core.agents import FocusChange, SessionState, focus_seen_at, mark_seen
 from cardak.core.alerts import bundled_sounds, check
 from cardak.core.config import Config, ConfigError
 from cardak.core.recent import Recent, decorate
@@ -64,6 +64,7 @@ class LiveSource:
         key_file: Path | None = None,
         machine: Callable[[], MachineSample | None] | None = None,
         docker: Callable[[], Sequence[DockerWork]] | None = None,
+        write_seen: bool = True,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -79,6 +80,7 @@ class LiveSource:
         self._schemes: Callable[[], Mapping[str, Scheme]] = schemes or (lambda: {})
         self._store = store
         self._focus_history = focus_history
+        self._write_seen = write_seen  # False: show focus-seen waits as seen, write nothing (M7)
         self._clock = clock
         self._key_file = key_file  # None: no waiting summaries in this deck
         self._machine = machine or MachineSampler().sample
@@ -166,18 +168,25 @@ class LiveSource:
         if self._store is None:
             return []
         try:
-            live = self._store.live_sessions()
-            history, now = self._focus_history(), self._clock()
-            seen = [s for s in live if seen_by_focus(s, history, now)]
-            for s in seen:
-                self._store.mark_seen(s.session_id, now, s.status_since)
-            if seen:
-                live = self._store.live_sessions()
+            live = self._seen(self._store, self._store.live_sessions())
         except StoreError as e:
             self._store_warning = f"agent status unavailable: {e}"
             return []
         self._store_warning = None
         return live
+
+    def _seen(self, store: AgentStore, live: list[SessionState]) -> list[SessionState]:
+        """Mark focus-seen waits in the store, or with write_seen off only in what is returned."""
+        history, now = self._focus_history(), self._clock()
+        seen = {s.session_id: at for s in live if (at := focus_seen_at(s, history, now))}
+        if not seen:
+            return live
+        if not self._write_seen:  # as seen when it was seen, so its age doesn't restart each poll
+            return [mark_seen(s, seen[s.session_id]) if s.session_id in seen else s for s in live]
+        for s in live:
+            if s.session_id in seen:
+                store.mark_seen(s.session_id, now, s.status_since)
+        return store.live_sessions()
 
     def _summary_store(self) -> AgentStore | None:
         """The store to read summaries from, or None when this deck shows none."""

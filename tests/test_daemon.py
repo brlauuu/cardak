@@ -234,3 +234,64 @@ def test_main_exits_with_already_running_when_locked(
     finally:
         held.close()
     assert "already running" in capsys.readouterr().err
+
+
+def test_step_publishes_each_snapshot() -> None:
+    published: list[tuple[DeckSnapshot, float]] = []
+    snap = big_snap()
+    d = daemon(FakeSource(snap), FakeStore(), [], publish=lambda s, t: published.append((s, t)))
+    d.step(5.0)
+    d.step(7.0)
+    assert published == [(snap, 5.0), (snap, 7.0)]
+
+
+def test_publish_error_does_not_stop_alerts(capsys: pytest.CaptureFixture[str]) -> None:
+    def broken(snap: DeckSnapshot, ts: float) -> None:
+        raise RuntimeError("boom")
+
+    sent: Sent = []
+    d = daemon(FakeSource(big_snap()), FakeStore(), sent, publish=broken)
+    assert d.step(0.0)
+    assert sent
+    assert "boom" in capsys.readouterr().err
+
+
+def with_waiting(snap: DeckSnapshot) -> DeckSnapshot:
+    from dataclasses import replace
+
+    from cardak.core.snapshot import AgentView
+
+    agent = AgentView("s", "waiting", "finished", 0.0, None, None, "webshop")
+    g = snap.groups[0]
+    row = replace(g.panes[0], is_claude=True, agent=agent)
+    waiting = Group("waiting", None, "Waiting on you", None, None, 0.0, 0, (row,))
+    return replace(snap, groups=(waiting, replace(g, panes=(row,))), n_waiting=1)
+
+
+def test_alerts_same_with_agents() -> None:
+    from cardak.core.history import Rollup
+    from cardak.core.resources import derive
+    from cardak.core.watch import Watcher
+
+    plain, agents = big_snap(), with_waiting(big_snap())
+    t = derive(Config().resources, MACHINE.mem_total, MACHINE.n_cpus)
+    a, b = Watcher(), Watcher()
+    for now in (0.0, 30.0, 61.0):
+        assert [x.text for x in a.step(plain, t, now)] == [x.text for x in b.step(agents, t, now)]
+    ra, rb = Rollup(), Rollup()
+    for now in (0.0, 30.0, 61.0):
+        ra.add(plain, now)
+        rb.add(agents, now)
+    assert ra.flush() == rb.flush()
+
+
+def test_build_source_for_the_web_reads_agents_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cardak.core.daemon import build_source
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    plain = build_source(tmp_path / "projects.toml", agents=False)
+    assert plain._store is None and plain._write_seen
+    web = build_source(tmp_path / "projects.toml", agents=True)
+    assert web._store is not None and not web._write_seen and web._key_file is not None

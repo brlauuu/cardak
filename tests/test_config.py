@@ -9,12 +9,15 @@ from cardak.core.config import (
     Project,
     ResourceSettings,
     SummarySettings,
+    WebSettings,
     add_project,
     anthropic_key_path,
     config_dir,
     config_path,
     load,
     set_project_theme,
+    set_web_enabled,
+    web_key_path,
     write_resource_defaults,
 )
 
@@ -449,3 +452,42 @@ def test_write_resource_defaults_refuses_a_broken_file(tmp_path: Path) -> None:
     f.write_text("[[project]]\nname = \n")
     with pytest.raises(ConfigError):
         write_resource_defaults(f, RESOURCE_ENTRIES)
+
+
+def test_web_defaults(tmp_path: Path) -> None:
+    p = tmp_path / "projects.toml"
+    p.write_text(SAMPLE)
+    assert load(p).web == WebSettings()
+    assert WebSettings() == WebSettings(enabled=False, port=8765, host="0.0.0.0")
+
+
+def test_web_section_parsed(tmp_path: Path) -> None:
+    p = tmp_path / "projects.toml"
+    p.write_text('[web]\nenabled = true\nport = 9000\nhost = "192.168.1.5"\n')
+    assert load(p).web == WebSettings(True, 9000, "192.168.1.5")
+
+
+@pytest.mark.parametrize(
+    "body", ['enabled = "yes"', "port = 0", "port = 70000", "port = true", "host = 5"]
+)
+def test_web_bad_values_raise(tmp_path: Path, body: str) -> None:
+    p = tmp_path / "projects.toml"
+    p.write_text(f"[web]\n{body}\n")
+    with pytest.raises(ConfigError, match=r"\[web\]"):
+        load(p)
+
+
+def test_set_web_enabled_keeps_comments(tmp_path: Path) -> None:
+    p = tmp_path / "projects.toml"
+    p.write_text(SAMPLE)
+    set_web_enabled(p, True)
+    assert "# my projects" in p.read_text()
+    assert load(p).web.enabled
+    assert len(load(p).projects) == 2
+    set_web_enabled(p, False)
+    assert not load(p).web.enabled
+    assert "# my projects" in p.read_text()
+
+
+def test_web_key_path(tmp_path: Path) -> None:
+    assert web_key_path({"XDG_CONFIG_HOME": str(tmp_path)}) == tmp_path / "cardak" / "web_key"

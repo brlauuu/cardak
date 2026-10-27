@@ -8,8 +8,8 @@ from cardak.core.agents import (
     SessionState,
     apply,
     ends_with_question,
+    focus_seen_at,
     mark_seen,
-    seen_by_focus,
     tool_summary,
 )
 
@@ -296,18 +296,18 @@ def fc(pane: int | None, at: float) -> FocusChange:
     return FocusChange(pane, at)
 
 
-def test_seen_by_focus() -> None:
+def test_focus_seen_at_says_whether_it_was_seen() -> None:
     s = waiting_since(100.0)
-    assert not seen_by_focus(s, [fc(5, 99), fc(7, 100.5), fc(None, 101.2)], 110.0)
-    assert seen_by_focus(s, [fc(7, 100.5), fc(3, 102)], 110.0)
-    assert seen_by_focus(s, [fc(7, 100.5)], 101.6)
-    assert not seen_by_focus(s, [fc(7, 100.5)], 101.2)
+    assert focus_seen_at(s, [fc(5, 99), fc(7, 100.5), fc(None, 101.2)], 110.0) is None
+    assert focus_seen_at(s, [fc(7, 100.5), fc(3, 102)], 110.0) is not None
+    assert focus_seen_at(s, [fc(7, 100.5)], 101.6) is not None
+    assert focus_seen_at(s, [fc(7, 100.5)], 101.2) is None
     # focus that began before the wait counts only from status_since
-    assert not seen_by_focus(s, [fc(7, 50), fc(3, 100.5)], 110.0)
-    assert seen_by_focus(s, [fc(7, 50), fc(3, 101.5)], 110.0)
-    assert not seen_by_focus(s, [], 110.0)
+    assert focus_seen_at(s, [fc(7, 50), fc(3, 100.5)], 110.0) is None
+    assert focus_seen_at(s, [fc(7, 50), fc(3, 101.5)], 110.0) is not None
+    assert focus_seen_at(s, [], 110.0) is None
     working = SessionState(SID, pane_id=7, status="working", status_since=100.0)
-    assert not seen_by_focus(working, [fc(7, 100.5)], 110.0)
+    assert focus_seen_at(working, [fc(7, 100.5)], 110.0) is None
 
 
 @pytest.mark.parametrize(
@@ -404,3 +404,10 @@ def test_same_kind_in_wait_no_ping() -> None:
     first, _ = run(ev("Stop", last_assistant_message="Done."))
     _, pings = run(ev("Stop", last_assistant_message="Done again."), start=first)
     assert pings == []
+
+
+def test_focus_seen_at() -> None:
+    s = SessionState("a", pane_id=7, status="waiting", status_since=100.0)
+    assert focus_seen_at(s, [fc(7, 100.5)], 110.0) == 101.5
+    assert focus_seen_at(s, [fc(7, 50), fc(3, 100.5)], 110.0) is None
+    assert focus_seen_at(s, [fc(7, 50)], 110.0) == 101.0  # focused before it started waiting

@@ -192,6 +192,20 @@ def test_cli_install_asks(
     assert status(json.loads(settings.read_text()), CMD) == "installed"
 
 
+def _no_stdin(_prompt: str) -> str:
+    raise EOFError
+
+
+def test_cli_install_without_stdin_writes_nothing(
+    settings: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    before = settings.read_text()
+    monkeypatch.setattr("builtins.input", _no_stdin)
+    assert main(["hooks", "install", "--settings", str(settings)]) == 0
+    assert "Nothing written." in capsys.readouterr().out
+    assert settings.read_text() == before
+
+
 def test_cli_install_yes_then_already_installed(
     settings: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

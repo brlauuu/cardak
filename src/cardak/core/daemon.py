@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import IO, Protocol
+from typing import IO, TYPE_CHECKING, Protocol
 
 from cardak.collectors.journal import JournalEntry
 from cardak.core.config import Config, NotifySettings
@@ -24,6 +24,9 @@ from cardak.core.snapshot import DeckSnapshot
 from cardak.core.store import MinuteRow, ResourceEvent, StoreError
 from cardak.core.watch import ResourceAlert, Watcher
 
+if TYPE_CHECKING:
+    from cardak.core.source import LiveSource
+
 INTERVAL = 2.0
 ALREADY_RUNNING = 3  # the unit's RestartPreventExitStatus: systemd must not retry it
 PRUNE_EVERY_S = 3600.0
@@ -31,6 +34,8 @@ PRUNE_EVERY_S = 3600.0
 Notify = Callable[[str, str, str, NotifySettings], None]  # level, title, text, settings
 Journal = Callable[[float, float], tuple[list[JournalEntry] | None, list[JournalEntry]]]
 Guis = Callable[[], Mapping[int, str | None]]
+Publish = Callable[[DeckSnapshot, float], None]  # the web view's copy of each snapshot (M7)
+WebStart = Callable[["LiveSource"], Publish | None]  # cli.py's: starts the server, or None
 
 
 class Poller(Protocol):
@@ -64,7 +69,7 @@ def lock(path: Path) -> IO[str]:
     return handle
 
 
-def _log(message: str) -> None:
+def log(message: str) -> None:
     print(
         f"{datetime.now().isoformat(timespec='seconds')} cardak daemon: {message}", file=sys.stderr
     )
@@ -84,6 +89,7 @@ class Daemon:
     crashes: CrashWatch = field(default_factory=CrashWatch)
     guis: Guis = dict
     journal: Journal = _no_journal
+    publish: Publish | None = None
 
     def _store(self, what: str, write: Callable[[EventStore], None]) -> None:
         if self.store is None:
@@ -91,7 +97,7 @@ class Daemon:
         try:
             write(self.store)
         except StoreError as e:
-            _log(f"{what}: {e}")
+            log(f"{what}: {e}")
 
     def _event(self, event: ResourceEvent) -> None:
         self._store("event log", lambda s: s.record_resource_event(event))
@@ -103,6 +109,7 @@ class Daemon:
     def step(self, now: float) -> list[ResourceAlert]:
         guis = self.guis()
         snap = self.source.poll()
+        self._publish(snap, now)
         config = self.source.config
         self.crashes.observe(guis, snap, now)
         self._minutes(self.rollup.add(snap, now))
@@ -117,13 +124,21 @@ class Daemon:
             self._crash(gone, t, now, config.notify)
         return alerts
 
+    def _publish(self, snap: DeckSnapshot, now: float) -> None:
+        if self.publish is None:
+            return
+        try:
+            self.publish(snap, now)
+        except Exception as e:  # the web view never costs an alert
+            log(f"web view: {e!r}")
+
     def _crash(
         self, gone: Gone, t: Thresholds | None, now: float, settings: NotifySettings
     ) -> None:
         try:
             kernel, user = self.journal(gone.ts - JOURNAL_BEFORE_S, now)
         except Exception as e:  # a journal problem costs the details, never the report
-            _log(f"journal: {e!r}")
+            log(f"journal: {e!r}")
             kernel, user = None, []
         rep = self.crashes.report(gone, kernel, user, t)
         level = "critical" if rep.loud else "info"
@@ -159,7 +174,7 @@ def run(
         try:
             daemon.step(now)
         except Exception as e:  # WezTerm restarting, a collector bug: log and keep watching
-            _log(repr(e))
+            log(repr(e))
         sleep(INTERVAL)
     daemon.stopped(clock())
 
@@ -170,9 +185,36 @@ def _notify(level: str, title: str, text: str, settings: NotifySettings) -> None
     resource_alert(level, title, text, settings)
 
 
-def main() -> int:
-    from cardak.core.config import config_path, state_dir
+def build_source(config_file: Path, agents: bool) -> "LiveSource":
+    """The daemon's source; with agents (the web view on), agent status read-only (M7).
+
+    Read-only means a wait the focus history saw is shown as seen and nothing is written: only
+    the deck marks waits seen.
+    """
     from cardak.core.source import LiveSource
+
+    if not agents:
+        return LiveSource(config_file)
+    from cardak.core.config import anthropic_key_path
+    from cardak.core.focus import focus_path, read_history
+    from cardak.core.store import Store, db_path
+
+    try:
+        store: Store | None = Store(db_path())  # its own connection: requests read through it
+    except StoreError as e:
+        log(f"web view without agent status: {e}")
+        store = None
+    return LiveSource(
+        config_file,
+        store=store,
+        focus_history=lambda: read_history(focus_path()),
+        key_file=anthropic_key_path(),
+        write_seen=False,
+    )
+
+
+def main(web: WebStart | None = None) -> int:
+    from cardak.core.config import config_path, state_dir
     from cardak.core.store import Store, db_path
 
     try:
@@ -183,7 +225,7 @@ def main() -> int:
     try:
         store: Store | None = Store(db_path())
     except StoreError as e:
-        _log(f"running without the event log: {e}")
+        log(f"running without the event log: {e}")
         store = None
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -191,8 +233,10 @@ def main() -> int:
     from cardak.collectors.journal import read_journal
     from cardak.collectors.wezterm import gui_processes
 
+    source = build_source(config_path(None), agents=web is not None)
+    publish = web(source) if web is not None else None
     daemon = Daemon(
-        LiveSource(config_path(None)), store, _notify, guis=gui_processes, journal=read_journal
+        source, store, _notify, guis=gui_processes, journal=read_journal, publish=publish
     )
     run(daemon, sleep=stop.wait, stop=stop)
     held.close()

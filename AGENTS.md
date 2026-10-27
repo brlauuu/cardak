@@ -18,7 +18,7 @@ agent status (working / waiting / idle), and attributes CPU/RAM to the pane that
 ```
 pyproject.toml
 src/cardak/
-  cli.py                  # cardak [tui] | hook | summarize | daemon | hooks … | skills … | resources … | wezterm install | themes …
+  cli.py                  # cardak [tui] | hook | summarize | daemon | hooks … | skills … | resources … | web … | wezterm install | themes …
   core/{config, resolver, snapshot, source, filter, navigate, themes}.py
   core/{agents, store, alerts, focus, hook}.py         # M4: agent status
   core/{summary, summarize}.py                         # #30: waiting summaries
@@ -26,9 +26,11 @@ src/cardak/
   core/{watch, daemon}.py                              # M5: alerts and the background service
   core/{history, crash, eventlog}.py                   # M5: history, crash reports, the event log
   core/{checkpoint, recap}.py                          # M6: checkpoint & recap
+  core/detail.py                                       # how `i` and the web view word a session
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
   collectors/{handoff, git}.py                         # M6: the handoff note, read-only git
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
+  web/{view, server, key, lan}.py, page.html          # M7: the read-only page for phones
   wezterm/{cardak.lua, generate.py, install.py, schemes.py, files.py, tint.zsh}
   claude/install.py       # M4: cardak's hooks in ~/.claude/settings.json
   claude/skills.py        # M6: installs claude/skills/{checkpoint,where-were-we}/SKILL.md
@@ -41,8 +43,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 
 ## Code
 - Small, single-purpose modules.
-- **Layering:** `cli → {ui, wezterm, claude, llm, systemd} → core → collectors`. `core` never
-  imports `ui`, `cardak.wezterm`, `cardak.claude`, `cardak.llm` or `cardak.systemd`, `collectors`
+- **Layering:** `cli → {ui, web, wezterm, claude, llm, systemd} → core → collectors`. `core` never
+  imports `ui`, `cardak.web`, `cardak.wezterm`, `cardak.claude`, `cardak.llm` or `cardak.systemd`, `collectors`
   import nothing from cardak, and `wezterm/` (the Lua module and its installer), `claude/` (the
   hooks installer), `llm/` (model providers for waiting summaries) and `systemd/` (the alert
   service's unit) import nothing from cardak. `core`
@@ -106,6 +108,7 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   | `~/.config/wezterm/cardak_projects.lua` | deck on every config change; `cardak themes apply` | project path → scheme (only when cardak.lua is installed there) |
   | `~/.config/cardak/tints` | same | `path<TAB>#rrggbb` for the zsh hook |
   | `~/.config/cardak/tint.zsh` | `cardak themes zsh` | the opt-in per-pane tint hook |
+  | `~/.config/cardak/web_key` | `cardak web setup` (mode 0600; `--new-key` replaces it) | the web view's key; `cardak daemon` reads it at start and refuses it with group/other bits |
   | `~/.config/cardak/anthropic_key` | the user (cardak only reads it, in `cardak summarize`; refused with group/other bits) | the Anthropic API key for waiting summaries |
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
   | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days). `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
@@ -226,6 +229,28 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   the dialog is open. Hooks can't see a half-typed draft; the dialog says it goes along.
 - Recap runs only `git --no-optional-locks` reads (`collectors/git.py`, 3 s timeout) in a worker;
   no `gh`, no network. GitHub is `/where-were-we`'s job.
+
+## Web view (M7)
+- `cardak daemon` serves it when `[web] enabled = true` (`cardak web setup`), on `host:port`
+  (default `0.0.0.0:8765`): `GET /` is a static page with no data, `GET /api/snapshot` and
+  `GET /api/session/<id>` need `Authorization: Bearer <web_key>` (`hmac.compare_digest`). Only
+  GET/HEAD; nothing in a request polls or writes. The config and key are read at daemon start;
+  a bad `[web]`, an open key file or a taken port logs one line and the daemon runs without it.
+- With the web on, the daemon's `LiveSource` gets the store, the focus history and the Anthropic
+  key path with `write_seen=False`: a wait the focus history saw shows as seen (the same
+  `agents.mark_seen` transition, in memory) and nothing is written. Only the deck writes `seen_at`.
+- `web/view.py` whitelists what goes out; pids and `is_self` never do. The page keeps the key in
+  the URL fragment (`#k=`, never sent to the server), so a bookmark or home-screen icon keeps it,
+  and copies it to `localStorage`. Text goes in through `textContent` only; the page's CSP allows
+  just its own inline script and style by hash, so no `style=` attributes or inline handlers.
+- `cardak web setup` and `off` call `systemctl --user` on the real service: XDG scratch dirs don't
+  isolate it. Live checks write `[web]` and the key by hand instead.
+- Verified 2026-10-27 against a scratch daemon and a headless `wezterm-mux-server`, in headless
+  Chrome at 390×844 and 1180×820: the waiting card, the expanded project kept across polls, the
+  detail sheet (an `<img onerror>` prompt shown as text), the stored key on a bare address, both
+  key notices, a focus-seen wait leaving the page while its row stays `waiting`, "can't reach
+  cardak" after the daemon stopped, and WezTerm's error with the machine numbers kept after the
+  mux stopped.
 
 ## Processes (measured in M1, reworked in M5)
 - **Never use psutil's `Process.terminal()`** in a long-running process: psutil memoizes
@@ -349,6 +374,11 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 - **Bug batch 3 (deck glitches)** split `find_socket` (`_newest`) and `_cursor_target`
   (`_where_it_was`). Accepted: the coordinators `cli._lua_dir` (3 × 6: the recorded dir, its
   check, the default) and `DeckApp._empty_label` (3 × 6: one label per empty state).
+- **M7 (web view)** split `LiveSource._sessions` (10: `_seen`). Accepted: the fan-in of
+  `config.config_path` (9), `systemd.install.run_systemctl` (9) and `daemon.log` (8), one more
+  caller each from `cardak web …` and the daemon's web wiring; `config._read` as a hotspot (5 × 4:
+  `set_web_enabled` is one more writer); and `LiveSource._seen`'s call-in-loop (the `mark_seen`
+  loop that was in `_sessions`, over a handful of live sessions).
 - **M5 part 1 (live numbers)** split `docker._container` (14), `accounting._attach_builds` /
   `_attach_containers` and `config._resources`. Accepted after that: `_pane_procs` at
   complexity 10, and the coordinators `LiveSource._resources` (3 × 6) and `widgets.usage`

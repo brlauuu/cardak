@@ -131,3 +131,28 @@ def test_dropin_present(tmp_path: Path) -> None:
 def test_unit_does_not_restart_while_another_daemon_runs() -> None:
     # `cardak daemon` exits 3 when another one holds the lock; restarting would loop every 5 s
     assert "RestartPreventExitStatus=3\n" in unit_text(Path("/bin/cardak"))
+
+
+def test_is_active_and_restart() -> None:
+    import subprocess
+
+    from cardak.systemd.install import is_active, restart
+
+    calls: list[list[str]] = []
+
+    def run(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0 if argv[2] == "restart" else 3, "", "")
+
+    assert not is_active(run)
+    assert restart(run) is None
+    assert calls == [
+        ["systemctl", "--user", "is-active", "--quiet", "cardak.service"],
+        ["systemctl", "--user", "restart", "cardak.service"],
+    ]
+
+    def missing(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError("systemctl")
+
+    assert not is_active(missing)
+    assert restart(missing) is not None

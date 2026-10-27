@@ -254,8 +254,89 @@ def test_daemon_does_not_import_textual() -> None:
 def test_daemon_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
     from cardak.core import daemon
 
-    monkeypatch.setattr(daemon, "main", lambda: 7)
+    monkeypatch.setattr(daemon, "main", lambda web=None: 7)
     assert main(["daemon"]) == 7
+
+
+@pytest.fixture
+def web_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A config file with [web] on and a fresh key, both in scratch dirs; returns the config."""
+    from cardak.core.config import web_key_path
+    from cardak.web.key import ensure_key
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text('[web]\nenabled = true\nport = 8765\nhost = "127.0.0.1"\n')
+    monkeypatch.setenv("CARDAK_CONFIG", str(cfg))
+    ensure_key(web_key_path())
+    return cfg
+
+
+def daemon_web(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    from cardak.core import daemon
+
+    seen: list[object] = []
+    monkeypatch.setattr(daemon, "main", lambda web=None: seen.append(web) or 0)
+    assert main(["daemon"]) == 0
+    return seen
+
+
+def test_cli_daemon_web_disabled_by_default(web_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    web_env.write_text("")
+    assert daemon_web(monkeypatch) == [None]
+
+
+def test_cli_daemon_web_off_when_key_is_open(
+    web_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from cardak.core.config import web_key_path
+
+    web_key_path().chmod(0o644)
+    assert daemon_web(monkeypatch) == [None]
+    assert "web view off" in capsys.readouterr().err
+
+
+def test_cli_daemon_web_off_on_bad_config(
+    web_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    web_env.write_text("[web]\nport = 0\n")
+    assert daemon_web(monkeypatch) == [None]
+    assert "web view off" in capsys.readouterr().err
+
+
+class NoSession:
+    def session(self, session_id: str) -> None:
+        return None
+
+
+def test_cli_daemon_web_start_serves(web_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket
+    import urllib.request
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    web_env.write_text(f'[web]\nenabled = true\nport = {port}\nhost = "127.0.0.1"\n')
+    (start,) = daemon_web(monkeypatch)
+    publish = start(NoSession())  # type: ignore[operator]
+    assert callable(publish)
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5) as r:
+        assert r.status == 200
+
+
+def test_cli_daemon_web_start_bind_failure_returns_none(
+    web_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import socket
+
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        port = taken.getsockname()[1]
+        web_env.write_text(f'[web]\nenabled = true\nport = {port}\nhost = "127.0.0.1"\n')
+        (start,) = daemon_web(monkeypatch)
+        assert start(NoSession()) is None  # type: ignore[operator]
+    assert "web view off" in capsys.readouterr().err
 
 
 GIB = 2**30
@@ -368,6 +449,18 @@ def test_failed_reinstall_restores_the_previous_unit(resources_env, monkeypatch)
 def test_install_asks_and_no_writes_nothing(resources_env, monkeypatch, capsys) -> None:
     tmp_path, fake = resources_env
     monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    assert main(["--config", str(tmp_path / "p.toml"), "resources", "install"]) == 0
+    assert "Nothing written" in capsys.readouterr().out
+    assert not (tmp_path / "cfg/systemd/user/cardak.service").exists() and fake.calls == []
+
+
+def _no_stdin(prompt: str) -> str:
+    raise EOFError
+
+
+def test_install_without_stdin_writes_nothing(resources_env, monkeypatch, capsys) -> None:
+    tmp_path, fake = resources_env
+    monkeypatch.setattr("builtins.input", _no_stdin)
     assert main(["--config", str(tmp_path / "p.toml"), "resources", "install"]) == 0
     assert "Nothing written" in capsys.readouterr().out
     assert not (tmp_path / "cfg/systemd/user/cardak.service").exists() and fake.calls == []
@@ -536,3 +629,137 @@ def test_themes_zsh_prints_problems(xdg: Path, capsys: pytest.CaptureFixture[str
     assert main(["themes", "zsh"]) == 0
     err = capsys.readouterr().err
     assert "warning: " in err and "cardak_projects.lua" in err  # was silently dropped (#27)
+
+
+class WebSystemctl:
+    def __init__(self, active: bool) -> None:
+        self.active = active
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv: list[str]) -> subprocess.CompletedProcess[str]:
+        self.calls.append(argv)
+        if argv[2:3] == ["is-active"]:
+            return subprocess.CompletedProcess(argv, 0 if self.active else 3, "", "")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+
+@pytest.fixture
+def web_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from cardak.systemd import install as unit
+    from cardak.web import lan
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text('# mine\n[[project]]\nname = "webshop"\npath = "/home/user/repos/webshop"\n')
+    monkeypatch.setenv("CARDAK_CONFIG", str(cfg))
+    monkeypatch.setattr(lan, "lan_address", lambda: "192.168.1.20")
+    fake = WebSystemctl(active=False)
+    monkeypatch.setattr(unit, "run_systemctl", fake)
+    return cfg, fake
+
+
+def web_key() -> str:
+    from cardak.core.config import web_key_path
+
+    return web_key_path().read_text().strip()
+
+
+def test_web_setup_creates_key_enables_and_prints_url(web_setup, capsys) -> None:
+    from cardak.core.config import web_key_path
+
+    cfg, _ = web_setup
+    assert main(["web", "setup", "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert f"http://192.168.1.20:8765/#k={web_key()}" in out
+    assert web_key_path().stat().st_mode & 0o777 == 0o600
+    assert load(cfg).web.enabled and "# mine" in cfg.read_text()
+    assert "plain http" in out and "ufw" in out and "home screen" in out
+    assert "cardak resources install" in out  # the service isn't running
+    assert "█" in out or "▀" in out or "▄" in out  # the QR code
+
+
+def test_web_setup_again_keeps_the_key(web_setup, capsys) -> None:
+    main(["web", "setup", "--yes"])
+    key = web_key()
+    assert main(["web", "setup", "--yes"]) == 0
+    assert web_key() == key
+    assert "stops working" not in capsys.readouterr().out
+
+
+def test_web_setup_new_key_warns_and_replaces(web_setup, capsys) -> None:
+    main(["web", "setup", "--yes"])
+    key = web_key()
+    assert main(["web", "setup", "--yes", "--new-key"]) == 0
+    assert web_key() != key
+    assert "every device with the old link stops working" in capsys.readouterr().out
+
+
+def test_web_setup_declined_writes_no_config(web_setup, monkeypatch, capsys) -> None:
+    cfg, _ = web_setup
+    before = cfg.read_text()
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    assert main(["web", "setup"]) == 1
+    assert cfg.read_text() == before
+
+
+def test_web_setup_without_stdin_writes_no_config(web_setup, monkeypatch, capsys) -> None:
+    cfg, _ = web_setup
+    before = cfg.read_text()
+    monkeypatch.setattr("builtins.input", _no_stdin)
+    assert main(["web", "setup"]) == 1
+    assert cfg.read_text() == before
+    assert "--yes" in capsys.readouterr().err
+
+
+def test_web_setup_restarts_active_service_with_yes(web_setup) -> None:
+    _, fake = web_setup
+    fake.active = True
+    assert main(["web", "setup", "--yes"]) == 0
+    assert ["systemctl", "--user", "restart", "cardak.service"] in fake.calls
+
+
+def test_web_setup_asks_before_restarting(web_setup, monkeypatch) -> None:
+    _, fake = web_setup
+    fake.active = True
+    answers = iter(["y", "n"])  # turn it on: yes; restart: no
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    assert main(["web", "setup"]) == 0
+    assert not any("restart" in c for c in fake.calls)
+
+
+def test_web_off_disables(web_setup, capsys) -> None:
+    cfg, _ = web_setup
+    main(["web", "setup", "--yes"])
+    assert main(["web", "off", "--yes"]) == 0
+    assert not load(cfg).web.enabled
+    assert web_key()  # the key stays
+
+
+def test_web_status_not_serving(web_setup, capsys) -> None:
+    assert main(["web", "status"]) == 0
+    out = capsys.readouterr().out
+    assert "off" in out and "not serving" in out and "No key yet" in out
+
+
+def test_web_status_serving(web_setup, capsys) -> None:
+    import socket
+
+    from cardak.web.server import Latest, make_server, start
+
+    cfg, _ = web_setup
+    main(["web", "setup", "--yes"])
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    cfg.write_text(f"[web]\nenabled = true\nport = {port}\n")
+    server = make_server("127.0.0.1", port, web_key(), Latest(), lambda sid: None)
+    start(server, poll_interval=0.02)
+    try:
+        capsys.readouterr()
+        assert main(["web", "status"]) == 0
+        out = capsys.readouterr().out
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert "on" in out and "serving" in out and "not serving" not in out
+    assert f":{port}/#k={web_key()}" in out
