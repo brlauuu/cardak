@@ -736,6 +736,13 @@ def test_web_off_disables(web_setup, capsys) -> None:
 
 
 def test_web_status_not_serving(web_setup, capsys) -> None:
+    import socket
+
+    cfg, _ = web_setup
+    with socket.socket() as s:  # a port nothing listens on, not the default a real daemon may hold
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    cfg.write_text(f"[web]\nport = {port}\n")
     assert main(["web", "status"]) == 0
     out = capsys.readouterr().out
     assert "off" in out and "not serving" in out and "No key yet" in out
