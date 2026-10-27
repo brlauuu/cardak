@@ -95,6 +95,15 @@ def enable(run: Run = run_systemctl) -> str | None:
     return None
 
 
+def is_active(run: Run = run_systemctl) -> bool:
+    result = _systemctl(run, "is-active", "--quiet", UNIT)
+    return not isinstance(result, str) and result.returncode == 0
+
+
+def restart(run: Run = run_systemctl) -> str | None:
+    return _failed(_systemctl(run, "restart", UNIT))
+
+
 def disable(run: Run = run_systemctl) -> str | None:
     result = _systemctl(run, "disable", "--now", UNIT)
     error = _failed(result)

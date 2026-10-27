@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from cardak.core.config import (
     Config,
     ConfigError,
+    WebSettings,
     anthropic_key_path,
     config_dir,
     config_path,
@@ -99,6 +100,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="replace a cardak.service not written by cardak"
     )
     res_sub.add_parser("uninstall", help="stop and remove the alert service")
+    web = sub.add_parser("web", help="the read-only page for your phone, on your Wi-Fi")
+    web_sub = web.add_subparsers(dest="web_command", required=True)
+    web_setup = web_sub.add_parser("setup", help="turn it on and show its link and QR code")
+    web_setup.add_argument(
+        "--new-key", action="store_true", help="replace the key (old links stop)"
+    )
+    web_setup.add_argument("--yes", action="store_true", help="don't ask before writing")
+    web_off = web_sub.add_parser("off", help="turn it off")
+    web_off.add_argument("--yes", action="store_true", help="don't ask before writing")
+    web_sub.add_parser("status", help="whether it's on and served, and its link")
     wez = sub.add_parser("wezterm", help="WezTerm integration")
     wez_sub = wez.add_subparsers(dest="wezterm_command", required=True)
     inst = wez_sub.add_parser("install", help="install cardak.lua so jumps raise windows")
@@ -492,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
         return _summarize(args.session_id, args.wait_since)
     if args.command == "hooks":
         return _hooks(args.hooks_command, args.settings, getattr(args, "yes", False))
-    if args.command in ("skills", "resources", "wezterm", "themes"):
+    if args.command in ("skills", "resources", "wezterm", "themes", "web"):
         return _setup(args)
     return _deck(args.config)
 
@@ -538,8 +549,145 @@ def _web_start() -> WebStart | None:
     return start_web
 
 
+def _web(command: str, config_arg: str | None, new_key: bool, yes: bool) -> int:
+    path = config_path(config_arg)
+    try:
+        web = load(path).web
+    except ConfigError as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    if command == "status":
+        return _web_status(web)
+    if command == "off":
+        return _web_off(path, web, yes)
+    return _web_setup(path, web, new_key, yes)
+
+
+def _web_url(web: WebSettings, key: str) -> str:
+    from cardak.web import lan
+
+    host = web.host
+    if host in ("0.0.0.0", "::", ""):
+        host = lan.lan_address() or "localhost"
+    return f"http://{host}:{web.port}/#k={key}"
+
+
+def _web_setup(path: Path, web: WebSettings, new_key: bool, yes: bool) -> int:
+    from cardak.core.config import set_web_enabled, web_key_path
+    from cardak.web.key import WebKeyError, ensure_key
+
+    had_key = web_key_path().exists()
+    try:
+        key, created = ensure_key(web_key_path(), new=new_key)
+    except (WebKeyError, OSError) as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    if created and had_key:
+        print("New key: every device with the old link stops working.")
+    changed = created
+    if not web.enabled:
+        if not yes and not _ask(f"Turn on the web view in {path}? [y/N] "):
+            print(f"Nothing changed in {path}.")
+            return 1
+        try:
+            set_web_enabled(path, True)
+        except ConfigError as e:
+            print(f"cardak: {e}", file=sys.stderr)
+            return 1
+        changed = True
+    _web_link(web, key)
+    _offer_restart(yes, changed)
+    return 0
+
+
+def _web_link(web: WebSettings, key: str) -> None:
+    import segno
+
+    from cardak.web import lan
+
+    url = _web_url(web, key)
+    print(f"\n{url}\n")
+    segno.make(url, error="l").terminal(compact=True)
+    if web.host in ("0.0.0.0", "::", "") and lan.lan_address() is None:
+        print("No network address found; connect to your Wi-Fi and run `cardak web setup` again.")
+    elif web.host.startswith("127."):
+        print(f"[web] host is {web.host}: only this computer can open it.")
+    print(
+        "\nOpen it or scan the code on each device, then bookmark it or add it to the home screen "
+        "from that page.\n"
+        "It's plain http: anyone on this Wi-Fi who records traffic could read it. "
+        "`cardak web setup --new-key` replaces the key.\n"
+        "If a firewall such as ufw is on: "
+        f"`sudo ufw allow from 192.168.0.0/16 to any port {web.port} proto tcp`."
+    )
+
+
+def _offer_restart(yes: bool, changed: bool) -> None:
+    from cardak.systemd import install as unit
+
+    if not unit.is_active(unit.run_systemctl):
+        print("Run `cardak resources install` to start the background service; it serves the page.")
+        return
+    if not changed:
+        return
+    if not yes and not _ask("Restart cardak's background service so it takes effect? [y/N] "):
+        print("Restart it later with: systemctl --user restart cardak")
+        return
+    if error := unit.restart(unit.run_systemctl):
+        print(f"cardak: {error}", file=sys.stderr)
+    else:
+        print("Restarted the background service.")
+
+
+def _web_off(path: Path, web: WebSettings, yes: bool) -> int:
+    from cardak.core.config import set_web_enabled
+
+    if not web.enabled:
+        print("The web view is already off.")
+        return 0
+    if not yes and not _ask(f"Turn off the web view in {path}? [y/N] "):
+        print(f"Nothing changed in {path}.")
+        return 1
+    try:
+        set_web_enabled(path, False)
+    except ConfigError as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    print("The web view is off; the key stays for when you turn it on again.")
+    _offer_restart(yes, True)
+    return 0
+
+
+def _web_status(web: WebSettings) -> int:
+    import urllib.request
+
+    from cardak.core.config import web_key_path
+    from cardak.web.key import WebKeyError, read_key
+
+    print(f"Web view: {'on' if web.enabled else 'off'} ({web.host}:{web.port})")
+    host = "127.0.0.1" if web.host in ("0.0.0.0", "::", "", "127.0.0.1") else web.host
+    try:
+        with urllib.request.urlopen(f"http://{host}:{web.port}/", timeout=1) as r:
+            serving = r.status == 200
+    except OSError:
+        serving = False
+    print("serving" if serving else "not serving")
+    if not web_key_path().exists():
+        print("No key yet: run `cardak web setup`.")
+        return 0
+    try:
+        print(_web_url(web, read_key(web_key_path())))
+    except WebKeyError as e:
+        print(f"No usable key: {e}")
+    print("`cardak web setup` shows the QR code again; it keeps the key.")
+    return 0
+
+
 def _setup(args: argparse.Namespace) -> int:
-    """The commands that install or generate files: skills, resources, wezterm, themes."""
+    """The commands that install or generate files: skills, resources, wezterm, themes, web."""
+    if args.command == "web":
+        new_key, yes = getattr(args, "new_key", False), getattr(args, "yes", False)
+        return _web(args.web_command, args.config, new_key, yes)
     if args.command == "skills":
         yes, force = getattr(args, "yes", False), getattr(args, "force", False)
         return _skills(args.skills_command, args.dir, yes, force)
