@@ -174,6 +174,33 @@ def test_usage_with_spark_and_over() -> None:
     assert not any("red" in str(s.style) for s in usage(GIB, None).spans)
 
 
+def test_usage_shows_share_of_total_ram() -> None:
+    assert usage(int(13.9 * GIB), 180.0, "▁▂", total=43 * GIB).plain == (
+        "RAM 13.9G (32%) ▁▂  CPU 180%"
+    )
+    assert usage(412 * 2**20, 1.0, total=43 * GIB).plain == "RAM 412M (1%)  CPU 1%"
+    assert usage(100 * 2**20, 1.0, total=43 * GIB).plain == "RAM 100M (<1%)  CPU 1%"
+    assert usage(0, None, total=43 * GIB).plain == "RAM 0M (0%)  CPU –"
+    assert usage(GIB // 2, None, total=100 * GIB).plain == "RAM 512M (1%)  CPU –"  # half up
+    assert usage(5 * GIB // 2, None, total=100 * GIB).plain == "RAM 2.5G (3%)  CPU –"
+    assert usage(GIB, None, total=0).plain == "RAM 1.0G  CPU –"  # no usable total
+
+
+def test_labels_pass_the_total_on() -> None:
+    total = 10 * GIB
+    assert group_label(group(), total=total).plain.endswith("RAM 1.2G (12%)  CPU 12%")
+    r = PaneRow(
+        pane_id=1, label="zsh", detail=None, cwd=None, cwd_display=".", cpu_pct=1.0,
+        rss=GIB, is_self=False, mcp_rss=GIB, mcp_cpu_pct=1.0,
+    )  # fmt: skip
+    assert "RAM 1.0G (10%)" in pane_label(r, 0.0, total=total).plain
+    assert mcp_label(r, total=total).plain.endswith("RAM 1.0G (10%)  CPU 1%")
+    line = DockerLine("docker: db", 2 * GIB, 30.0)
+    assert docker_label(line, total=total).plain.endswith("RAM 2.0G (20%)  CPU 30%")
+    other = replace(group(kind="other"), outside_rss=5 * GIB, outside_cpu_pct=2.0)
+    assert outside_label(other, total=total).plain.endswith("RAM 5.0G (50%)  CPU 2%")
+
+
 def test_group_label_over_is_red() -> None:
     text = group_label(replace(group(), over=True, ram_spark="▅"))
     assert text.plain == "webshop  ~/r/w  RAM 1.2G ▅  CPU 12%"
@@ -202,9 +229,9 @@ def machine_view(
 
 
 def test_machine_label_levels() -> None:
-    assert machine_label(machine_view(10, None)).plain == "CPU 38% ▂▃   RAM 22.0 / 32.0G ▄▅"
+    assert machine_label(machine_view(10, None)).plain == "CPU 38% ▂▃   RAM 22.0 / 32.0G (69%) ▄▅"
     warn = machine_label(machine_view(4.4, "warning"))
-    assert warn.plain == "CPU 38% ▂▃   RAM 27.6 / 32.0G ▄▅  ⚠ 14% free"
+    assert warn.plain == "CPU 38% ▂▃   RAM 27.6 / 32.0G (86%) ▄▅  ⚠ 14% free"
     crit = machine_label(machine_view(1.9, "critical", cpu=None))
     assert crit.plain.startswith("CPU – ▂▃") and crit.plain.endswith("⚠ 6% free")
     assert any("red" in str(s.style) for s in crit.spans)

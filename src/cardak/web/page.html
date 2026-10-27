@@ -127,6 +127,13 @@ function age(seconds) {
 function gb(bytes) {
   return bytes < 2 ** 30 ? Math.round(bytes / 2 ** 20) + " MB" : (bytes / 2 ** 30).toFixed(1) + " GB";
 }
+// " (32%)": a share of the machine's RAM (MemTotal), as the deck shows it; "" with no total
+function share(bytes, total) {
+  if (!total) return "";
+  const v = bytes / total * 100;
+  return v > 0 && v < 0.5 ? " (<1%)" : " (" + Math.round(v) + "%)";
+}
+function ram(bytes, total) { return gb(bytes) + share(bytes, total); }
 function pct(v) { return v === null || v === undefined ? "–" : Math.round(v) + "%"; }
 function clock(ts) {
   const d = new Date(ts * 1000);
@@ -155,7 +162,8 @@ function renderMachine(m) {
   const box = $("machine");
   box.className = m && m.level ? m.level : "";
   if (!m) { box.textContent = ""; return; }
-  let text = "RAM " + (m.mem_used / 2 ** 30).toFixed(1) + " / " + gb(m.mem_total) + " · CPU " + pct(m.cpu_pct);
+  let text = "RAM " + (m.mem_used / 2 ** 30).toFixed(1) + " / " + gb(m.mem_total) +
+    share(m.mem_used, m.mem_total) + " · CPU " + pct(m.cpu_pct);
   if (m.swap_full) text += " · swap full";
   box.textContent = text;
 }
@@ -178,10 +186,10 @@ function waitCard(w, now) {
   return card;
 }
 
-function paneRow(p, now) {
+function paneRow(p, now, total) {
   const row = el("div", "pane" + (p.agent ? " agent" : ""));
   const head = add(el("div", "row"), dot(p.agent), el("span", "grow ellipsis", p.label),
-    el("span", "muted" + (p.over ? " over" : ""), gb(p.rss + p.mcp_rss)));
+    el("span", "muted" + (p.over ? " over" : ""), ram(p.rss + p.mcp_rss, total)));
   add(row, head);
   const where = p.cwd_display === "." ? "" : p.cwd_display;
   let sub = where;
@@ -196,7 +204,7 @@ function paneRow(p, now) {
   return row;
 }
 
-function projectCard(g, now) {
+function projectCard(g, now, total) {
   const card = el("div", "card");
   const head = el("div", "row proj-head");
   const sw = el("span", "swatch");
@@ -206,7 +214,7 @@ function projectCard(g, now) {
   for (const p of agents) add(dots, dot(p.agent));
   const isOpen = opened.has(g.name);
   add(head, g.kind === "other" ? null : sw, el("b", "grow ellipsis", g.name), dots,
-    el("span", "spark", g.ram_spark), el("span", "muted" + (g.over ? " over" : ""), gb(g.rss)),
+    el("span", "spark", g.ram_spark), el("span", "muted" + (g.over ? " over" : ""), ram(g.rss, total)),
     el("span", "chev", isOpen ? "▾" : "▸"));
   add(card, head);
   const shells = g.panes.length - agents.length;
@@ -218,10 +226,10 @@ function projectCard(g, now) {
   add(card, el("div", "line small", (g.path ? g.path + " · " : "") + parts.join(" · ")));
   if (isOpen) {
     const list = el("div", "panes");
-    for (const p of g.panes) add(list, paneRow(p, now));
+    for (const p of g.panes) add(list, paneRow(p, now, total));
     for (const d of g.docker) {
       add(list, add(el("div", "pane"), add(el("div", "row"), el("span", "dot shell"),
-        el("span", "grow ellipsis", d.label), el("span", "muted", gb(d.rss)))));
+        el("span", "grow ellipsis", d.label), el("span", "muted", ram(d.rss, total)))));
     }
     if (!g.panes.length && !g.docker.length) add(list, el("div", "empty", "nothing running here"));
     add(card, list);
@@ -251,7 +259,7 @@ function render(snap) {
   for (const w of snap.waiting) add(waiting, waitCard(w, snap.now));
   const projects = $("projects");
   clear(projects);
-  for (const g of snap.projects) add(projects, projectCard(g, snap.now));
+  for (const g of snap.projects) add(projects, projectCard(g, snap.now, snap.machine && snap.machine.mem_total));
   if (!snap.projects.length && !snap.error) add(projects, el("div", "empty", "No WezTerm panes."));
 }
 

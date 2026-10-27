@@ -1,5 +1,6 @@
 """Row labels for the deck tree."""
 
+import math
 import time
 
 from rich.color import Color, ColorParseError
@@ -25,26 +26,42 @@ def fmt_rss(rss: int) -> str:
     return f"{gib:.1f}G" if gib >= 1 else f"{rss / 2**20:.0f}M"
 
 
-def usage(rss: int, cpu_pct: float | None, spark: str = "", over: bool = False) -> Text:
-    """ "RAM 13.9G ▁▂▄▆█  CPU 180%"; red when over a threshold."""
+def share(rss: int, total: int | None) -> str:
+    """ " (32%)": rss as a share of the machine's RAM (MemTotal); "" with no total to compare."""
+    if not total:
+        return ""
+    pct = rss / total * 100
+    # half up, like the web view's Math.round (an f-string rounds 0.5 to 0)
+    return " (<1%)" if 0 < pct < 0.5 else f" ({math.floor(pct + 0.5)}%)"
+
+
+def usage(
+    rss: int,
+    cpu_pct: float | None,
+    spark: str = "",
+    over: bool = False,
+    total: int | None = None,
+) -> Text:
+    """ "RAM 13.9G (32%) ▁▂▄▆█  CPU 180%"; red when over a threshold."""
     style = OVER if over else ""
-    text = Text(f"RAM {fmt_rss(rss)}", style=style)
+    text = Text(f"RAM {fmt_rss(rss)}{share(rss, total)}", style=style)
     if spark:
         text.append(f" {spark}", style="cyan")
     return text.append(f"  CPU {fmt_cpu(cpu_pct)}", style=style)
 
 
-def mcp_label(r: PaneRow) -> Text:
-    return Text("    └ MCP servers  ", style="dim").append_text(usage(r.mcp_rss, r.mcp_cpu_pct))
+def mcp_label(r: PaneRow, total: int | None = None) -> Text:
+    text = Text("    └ MCP servers  ", style="dim")
+    return text.append_text(usage(r.mcp_rss, r.mcp_cpu_pct, total=total))
 
 
-def docker_label(line: DockerLine) -> Text:
-    return Text(f"    {line.label}  ").append_text(usage(line.rss, line.cpu_pct))
+def docker_label(line: DockerLine, total: int | None = None) -> Text:
+    return Text(f"    {line.label}  ").append_text(usage(line.rss, line.cpu_pct, total=total))
 
 
-def outside_label(g: Group) -> Text:
+def outside_label(g: Group, total: int | None = None) -> Text:
     text = Text("    outside WezTerm  ", style="dim")
-    return text.append_text(usage(g.outside_rss or 0, g.outside_cpu_pct))
+    return text.append_text(usage(g.outside_rss or 0, g.outside_cpu_pct, total=total))
 
 
 def machine_label(v: MachineView) -> Text:
@@ -52,7 +69,9 @@ def machine_label(v: MachineView) -> Text:
     gib = 2**30
     text = Text(f"CPU {fmt_cpu(m.cpu_pct)} ")
     text.append(v.cpu_spark, style="cyan")
-    text.append(f"   RAM {m.mem_used / gib:.1f} / {m.mem_total / gib:.1f}G ")
+    text.append(
+        f"   RAM {m.mem_used / gib:.1f} / {m.mem_total / gib:.1f}G{share(m.mem_used, m.mem_total)} "
+    )
     text.append(v.ram_spark, style="cyan")
     if v.level is not None:
         free = round(m.mem_available / m.mem_total * 100)
@@ -114,7 +133,7 @@ def _why(agent: AgentView) -> Text:
     return Text(_reason(agent))
 
 
-def group_label(g: Group) -> Text:
+def group_label(g: Group, total: int | None = None) -> Text:
     text = Text()
     if g.kind == "waiting":
         return Text(g.name, style=f"bold {WAITING}")
@@ -129,10 +148,10 @@ def group_label(g: Group) -> Text:
     if g.path:
         text.append(f"  {g.path}", style="dim")
     text.append("  ")
-    return text.append_text(usage(g.rss, g.cpu_pct, g.ram_spark, g.over))
+    return text.append_text(usage(g.rss, g.cpu_pct, g.ram_spark, g.over, total))
 
 
-def pane_label(r: PaneRow, now: float | None = None) -> Text:
+def pane_label(r: PaneRow, now: float | None = None, total: int | None = None) -> Text:
     now = time.time() if now is None else now
     text = Text("▲ ", style=OVER) if r.over else Text()
     text.append_text(agent_dot(r))
@@ -140,7 +159,7 @@ def pane_label(r: PaneRow, now: float | None = None) -> Text:
     if r.detail:
         text.append(f"  {r.detail}")
     text.append(f"  {r.cwd_display}  ", style="dim")
-    text.append_text(usage(r.rss, r.cpu_pct, r.ram_spark, r.over))
+    text.append_text(usage(r.rss, r.cpu_pct, r.ram_spark, r.over, total))
     if r.is_self:
         text.append("  (this deck)", style="italic")
     if agent := r.agent:

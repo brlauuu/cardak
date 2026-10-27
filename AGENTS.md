@@ -382,7 +382,7 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 - **M5 part 1 (live numbers)** split `docker._container` (14), `accounting._attach_builds` /
   `_attach_containers` and `config._resources`. Accepted after that: `_pane_procs` at
   complexity 10, and the coordinators `LiveSource._resources` (3 × 6) and `widgets.usage`
-  (5 × 4: every row kind formats its numbers through it).
+  (5 × 5 since #73, which added the RAM share: every row kind formats its numbers through it).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.
