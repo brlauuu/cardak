@@ -254,8 +254,89 @@ def test_daemon_does_not_import_textual() -> None:
 def test_daemon_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
     from cardak.core import daemon
 
-    monkeypatch.setattr(daemon, "main", lambda: 7)
+    monkeypatch.setattr(daemon, "main", lambda web=None: 7)
     assert main(["daemon"]) == 7
+
+
+@pytest.fixture
+def web_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A config file with [web] on and a fresh key, both in scratch dirs; returns the config."""
+    from cardak.core.config import web_key_path
+    from cardak.web.key import ensure_key
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text('[web]\nenabled = true\nport = 8765\nhost = "127.0.0.1"\n')
+    monkeypatch.setenv("CARDAK_CONFIG", str(cfg))
+    ensure_key(web_key_path())
+    return cfg
+
+
+def daemon_web(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    from cardak.core import daemon
+
+    seen: list[object] = []
+    monkeypatch.setattr(daemon, "main", lambda web=None: seen.append(web) or 0)
+    assert main(["daemon"]) == 0
+    return seen
+
+
+def test_cli_daemon_web_disabled_by_default(web_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    web_env.write_text("")
+    assert daemon_web(monkeypatch) == [None]
+
+
+def test_cli_daemon_web_off_when_key_is_open(
+    web_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from cardak.core.config import web_key_path
+
+    web_key_path().chmod(0o644)
+    assert daemon_web(monkeypatch) == [None]
+    assert "web view off" in capsys.readouterr().err
+
+
+def test_cli_daemon_web_off_on_bad_config(
+    web_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    web_env.write_text("[web]\nport = 0\n")
+    assert daemon_web(monkeypatch) == [None]
+    assert "web view off" in capsys.readouterr().err
+
+
+class NoSession:
+    def session(self, session_id: str) -> None:
+        return None
+
+
+def test_cli_daemon_web_start_serves(web_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket
+    import urllib.request
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    web_env.write_text(f'[web]\nenabled = true\nport = {port}\nhost = "127.0.0.1"\n')
+    (start,) = daemon_web(monkeypatch)
+    publish = start(NoSession())  # type: ignore[operator]
+    assert callable(publish)
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5) as r:
+        assert r.status == 200
+
+
+def test_cli_daemon_web_start_bind_failure_returns_none(
+    web_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import socket
+
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        port = taken.getsockname()[1]
+        web_env.write_text(f'[web]\nenabled = true\nport = {port}\nhost = "127.0.0.1"\n')
+        (start,) = daemon_web(monkeypatch)
+        assert start(NoSession()) is None  # type: ignore[operator]
+    assert "web view off" in capsys.readouterr().err
 
 
 GIB = 2**30

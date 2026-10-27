@@ -25,6 +25,8 @@ from cardak.core.config import (
 if TYPE_CHECKING:
     import argparse
 
+    from cardak.core.daemon import Publish, WebStart
+    from cardak.core.source import LiveSource
     from cardak.core.themes import SchemeStore
 
 
@@ -485,9 +487,7 @@ def main(argv: list[str] | None = None) -> int:
         return hook.main(sys.stdin)
     args = build_parser().parse_args(argv)
     if args.command == "daemon":
-        from cardak.core import daemon
-
-        return daemon.main()
+        return _daemon()
     if args.command == "summarize":
         return _summarize(args.session_id, args.wait_since)
     if args.command == "hooks":
@@ -495,6 +495,47 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in ("skills", "resources", "wezterm", "themes"):
         return _setup(args)
     return _deck(args.config)
+
+
+def _daemon() -> int:
+    from cardak.core import daemon
+
+    return daemon.main(web=_web_start())
+
+
+def _web_start() -> WebStart | None:
+    """What starts the web view inside the daemon, or None when it stays off (logged)."""
+    from cardak.core.config import web_key_path
+    from cardak.core.daemon import log
+    from cardak.web.key import WebKeyError, read_key
+
+    try:
+        web = load(config_path(None)).web
+    except ConfigError as e:
+        log(f"web view off: {e}")
+        return None
+    if not web.enabled:
+        return None
+    try:
+        key = read_key(web_key_path())
+    except WebKeyError as e:
+        log(f"web view off: {e}")
+        return None
+
+    def start_web(source: LiveSource) -> Publish | None:
+        from cardak.web.server import Latest, make_server, start
+
+        latest = Latest()
+        try:
+            server = make_server(web.host, web.port, key, latest, source.session)
+        except OSError as e:
+            log(f"web view off: can't listen on {web.host}:{web.port}: {e.strerror or e}")
+            return None
+        start(server)
+        log(f"web view on {web.host}:{web.port}")
+        return latest.publish
+
+    return start_web
 
 
 def _setup(args: argparse.Namespace) -> int:
