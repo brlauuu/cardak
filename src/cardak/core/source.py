@@ -14,7 +14,7 @@ from cardak.collectors.machine import MachineSample, MachineSampler
 from cardak.collectors.processes import PaneProcs, ProcessSampler
 from cardak.core import config as config_mod
 from cardak.core.accounting import account
-from cardak.core.agents import FocusChange, SessionState, seen_by_focus
+from cardak.core.agents import FocusChange, SessionState, mark_seen, seen_by_focus
 from cardak.core.alerts import bundled_sounds, check
 from cardak.core.config import Config, ConfigError
 from cardak.core.recent import Recent, decorate
@@ -64,6 +64,7 @@ class LiveSource:
         key_file: Path | None = None,
         machine: Callable[[], MachineSample | None] | None = None,
         docker: Callable[[], Sequence[DockerWork]] | None = None,
+        write_seen: bool = True,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -79,6 +80,7 @@ class LiveSource:
         self._schemes: Callable[[], Mapping[str, Scheme]] = schemes or (lambda: {})
         self._store = store
         self._focus_history = focus_history
+        self._write_seen = write_seen  # False: show focus-seen waits as seen, write nothing (M7)
         self._clock = clock
         self._key_file = key_file  # None: no waiting summaries in this deck
         self._machine = machine or MachineSampler().sample
@@ -169,9 +171,12 @@ class LiveSource:
             live = self._store.live_sessions()
             history, now = self._focus_history(), self._clock()
             seen = [s for s in live if seen_by_focus(s, history, now)]
-            for s in seen:
-                self._store.mark_seen(s.session_id, now, s.status_since)
-            if seen:
+            if not self._write_seen:
+                ids = {s.session_id for s in seen}
+                live = [mark_seen(s, now) if s.session_id in ids else s for s in live]
+            elif seen:
+                for s in seen:
+                    self._store.mark_seen(s.session_id, now, s.status_since)
                 live = self._store.live_sessions()
         except StoreError as e:
             self._store_warning = f"agent status unavailable: {e}"

@@ -10,6 +10,7 @@ from cardak.collectors.wezterm import Pane, WeztermUnavailable
 from cardak.core.agents import FocusChange, SessionState, mark_seen
 from cardak.core.config import Config
 from cardak.core.resources import derive
+from cardak.core.snapshot import DeckSnapshot
 from cardak.core.source import LiveSource
 from cardak.core.store import StoreError
 from cardak.core.summary import SummaryInfo
@@ -279,7 +280,12 @@ def claude_sample(ttys: Iterable[str]) -> dict[str, PaneProcs]:
 
 
 def agent_source(
-    tmp_path: Path, store: FakeStore, history=(), now: float = 102.0, key_file: Path | None = None
+    tmp_path: Path,
+    store: FakeStore,
+    history=(),
+    now: float = 102.0,
+    key_file: Path | None = None,
+    write_seen: bool = True,
 ) -> LiveSource:
     return LiveSource(
         tmp_path / "projects.toml",
@@ -295,6 +301,7 @@ def agent_source(
         focus_history=lambda: list(history),
         clock=lambda: now,
         key_file=key_file,
+        write_seen=write_seen,
     )
 
 
@@ -317,6 +324,46 @@ def test_poll_without_focus_leaves_waiting(tmp_path: Path) -> None:
     store = FakeStore(WAITING)
     agent_source(tmp_path, store, history=[FocusChange(0, 100.2)]).poll()
     assert store.seen == []
+
+
+def pane_agent(snap: DeckSnapshot, pane_id: int):
+    return next(
+        r.agent for g in snap.groups if g.kind != "waiting" for r in g.panes if r.pane_id == pane_id
+    )
+
+
+class NoWrites(FakeStore):
+    def mark_seen(self, session_id: str, now: float, wait_since: float | None = None) -> None:
+        raise AssertionError("a read-only source wrote seen_at")
+
+
+def test_read_only_seen_hides_the_wait_without_writing(tmp_path: Path) -> None:
+    store = NoWrites(WAITING)
+    source = agent_source(tmp_path, store, history=[FocusChange(1, 100.2)], write_seen=False)
+    snap = source.poll()
+    assert snap.n_waiting == 0
+    assert not any(g.kind == "waiting" for g in snap.groups)
+    agent = pane_agent(snap, 1)
+    assert agent is not None and agent.status == "idle"
+    assert store.states["w"].status == "waiting"  # the store is untouched
+
+
+def test_read_only_seen_permission_shows_working(tmp_path: Path) -> None:
+    asked = SessionState(
+        "w", pane_id=1, status="waiting", kind="permission", reason="Bash", status_since=100.0
+    )
+    source = agent_source(
+        tmp_path, NoWrites(asked), history=[FocusChange(1, 100.2)], write_seen=False
+    )
+    agent = pane_agent(source.poll(), 1)
+    assert agent is not None and agent.status == "working"
+
+
+def test_read_only_unseen_wait_stays(tmp_path: Path) -> None:
+    source = agent_source(
+        tmp_path, NoWrites(WAITING), history=[FocusChange(0, 100.2)], write_seen=False
+    )
+    assert source.poll().n_waiting == 1
 
 
 def test_mark_seen_pane(tmp_path: Path) -> None:
