@@ -96,6 +96,7 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
 <script>
 "use strict";
 const POLL_MS = 3000;
+const FETCH_TIMEOUT_MS = 5000;
 const STALE_S = 10;
 const NO_KEY = "open the link from `cardak web setup` (or scan its QR code) on this device";
 const BAD_KEY = "this link's key is no longer valid · run `cardak web setup` on the computer";
@@ -104,7 +105,7 @@ const ENDED = "this session has ended";
 const KINDS = { permission: "Approve a tool", question: "Answer a question", finished: "Turn finished" };
 const $ = (id) => document.getElementById(id);
 
-let key = null, last = null, timer = null, sheetId = null, stopped = false;
+let key = null, last = null, timer = null, sheetId = null, stopped = false, inflight = false;
 const opened = new Set();
 
 function el(tag, cls, text) {
@@ -270,11 +271,28 @@ function stop(text) {
 }
 
 async function get(path) {
-  return fetch(path, { headers: { Authorization: "Bearer " + key }, cache: "no-store" });
+  // a suspended computer never answers: give up rather than keep "updated 2s ago" on screen
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(path, { headers: { Authorization: "Bearer " + key }, cache: "no-store", signal: abort.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function poll() {
   if (stopped || document.visibilityState !== "visible") return;
+  if (inflight) return;
+  inflight = true;
+  try {
+    await pollOnce();
+  } finally {
+    inflight = false;
+  }
+}
+
+async function pollOnce() {
   let r;
   try {
     r = await get("/api/snapshot");
@@ -311,11 +329,15 @@ async function loadSheet() {
   }
   if (id !== sheetId) return;
   if (r.status === 401) { closeSheet(); stop(BAD_KEY); return; }
-  clear(body);
-  if (r.status === 404) { add(body, el("p", "muted", ENDED)); return; }
-  if (!r.ok) { add(body, el("p", "muted", "couldn't load this session")); return; }
-  const s = await r.json();
+  let s = null;
+  if (r.ok) {
+    try { s = await r.json(); } catch (e) { return; } // keep what the sheet shows
+  }
   if (id !== sheetId) return;
+  const panel = body.parentElement, scroll = panel.scrollTop;
+  clear(body); // only now, so a refresh never blanks the sheet
+  if (r.status === 404) { add(body, el("p", "muted", ENDED)); return; }
+  if (!s) { add(body, el("p", "muted", "couldn't load this session")); return; }
   add(body, el("h3", null, s.project + " · claude"));
   add(body, el("p", "muted", s.status + " " + age(s.now - s.since)));
   if (s.status === "waiting") {
@@ -332,6 +354,7 @@ async function loadSheet() {
     const files = s.turn_files.map((f) => el("p", "muted small", "edited " + f));
     section(body, "This turn", el("p", null, s.turn), ...files);
   }
+  panel.scrollTop = scroll;
 }
 
 function openSheet(id) {

@@ -46,3 +46,13 @@ def test_csp_hashes_match_page() -> None:
         assert body is not None
         digest = base64.b64encode(hashlib.sha256(body.group(1).encode()).digest()).decode()
         assert f"{tag}-src 'sha256-{digest}'" in csp()
+
+
+def test_fetches_time_out_and_never_overlap() -> None:
+    assert "AbortController" in PAGE and "FETCH_TIMEOUT_MS = 5000" in PAGE
+    assert "if (inflight) return;" in PAGE
+
+
+def test_sheet_parses_before_clearing() -> None:
+    sheet = PAGE[PAGE.index("async function loadSheet") : PAGE.index("function openSheet")]
+    assert sheet.index("await r.json()") < sheet.index("clear(body)")

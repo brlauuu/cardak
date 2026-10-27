@@ -256,12 +256,27 @@ def mark_seen(state: SessionState, now: float) -> SessionState:
     return replace(_set_status(state, "idle", None, None, now), seen_at=now)
 
 
+def focus_seen_at(
+    state: SessionState, history: Sequence[FocusChange], now: float, dwell: float = 1.0
+) -> float | None:
+    """When the session's pane had been focused `dwell` seconds since it started waiting."""
+    if state.status != "waiting" or state.pane_id is None:
+        return None
+    for i, change in enumerate(history):
+        if change.pane_id != state.pane_id:
+            continue
+        start = max(change.at, state.status_since)
+        end = history[i + 1].at if i + 1 < len(history) else now
+        if end - start >= dwell:
+            return start + dwell
+    return None
+
+
 def seen_by_focus(
     state: SessionState, history: Sequence[FocusChange], now: float, dwell: float = 1.0
 ) -> bool:
     """Was the session's pane focused for `dwell` seconds since it started waiting?"""
-    if state.status != "waiting" or state.pane_id is None:
-        return False
+    return focus_seen_at(state, history, now, dwell) is not None
     for i, change in enumerate(history):
         if change.pane_id != state.pane_id:
             continue

@@ -20,9 +20,9 @@ def session_ok(session_id: str) -> SessionState | None:
 def serve() -> Iterator[Callable[..., tuple[str, Latest]]]:
     servers = []
 
-    def run(session=session_ok, clock=lambda: 112.0) -> tuple[str, Latest]:
+    def run(session=session_ok, clock=lambda: 112.0, timeout=10.0) -> tuple[str, Latest]:
         latest = Latest()
-        server = make_server("127.0.0.1", 0, KEY, latest, session, clock=clock)
+        server = make_server("127.0.0.1", 0, KEY, latest, session, clock=clock, timeout=timeout)
         start(server, poll_interval=0.02)
         servers.append(server)
         return f"http://127.0.0.1:{server.server_address[1]}", latest
@@ -148,3 +148,12 @@ def test_no_request_logging(serve, capsys) -> None:
     get(base + "/api/snapshot")
     get(base + "/nope")
     assert capsys.readouterr().err == ""
+
+
+def test_idle_connection_is_closed(serve) -> None:
+    import socket
+
+    base, _ = serve(timeout=0.3)
+    port = int(base.rsplit(":", 1)[1])
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
+        assert s.recv(1) == b""  # the server gave up on a client that never sent a request

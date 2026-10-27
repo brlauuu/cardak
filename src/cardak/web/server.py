@@ -72,13 +72,17 @@ def make_server(
     latest: Latest,
     session: Session,
     clock: Callable[[], float] = time.time,
+    timeout: float = 10.0,
 ) -> ThreadingHTTPServer:
     """Bound and ready for `start`; raises OSError when the address can't be bound."""
     expected = key.encode()
+    request_timeout = timeout
     policy = csp()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "cardak"
+        # an idle connection (a browser's preconnect, a slow client) frees its thread
+        timeout = request_timeout
         sys_version = ""
 
         def log_message(self, format: str, *args: object) -> None:

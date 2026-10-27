@@ -14,7 +14,7 @@ from cardak.collectors.machine import MachineSample, MachineSampler
 from cardak.collectors.processes import PaneProcs, ProcessSampler
 from cardak.core import config as config_mod
 from cardak.core.accounting import account
-from cardak.core.agents import FocusChange, SessionState, mark_seen, seen_by_focus
+from cardak.core.agents import FocusChange, SessionState, focus_seen_at, mark_seen
 from cardak.core.alerts import bundled_sounds, check
 from cardak.core.config import Config, ConfigError
 from cardak.core.recent import Recent, decorate
@@ -178,11 +178,11 @@ class LiveSource:
     def _seen(self, store: AgentStore, live: list[SessionState]) -> list[SessionState]:
         """Mark focus-seen waits in the store, or with write_seen off only in what is returned."""
         history, now = self._focus_history(), self._clock()
-        seen = {s.session_id for s in live if seen_by_focus(s, history, now)}
+        seen = {s.session_id: at for s in live if (at := focus_seen_at(s, history, now))}
         if not seen:
             return live
-        if not self._write_seen:
-            return [mark_seen(s, now) if s.session_id in seen else s for s in live]
+        if not self._write_seen:  # as seen when it was seen, so its age doesn't restart each poll
+            return [mark_seen(s, seen[s.session_id]) if s.session_id in seen else s for s in live]
         for s in live:
             if s.session_id in seen:
                 store.mark_seen(s.session_id, now, s.status_since)

@@ -3,6 +3,8 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from cardak.collectors.docker import DockerWork
 from cardak.collectors.machine import MachineSample
 from cardak.collectors.processes import PaneProcs
@@ -357,6 +359,18 @@ def test_read_only_seen_permission_shows_working(tmp_path: Path) -> None:
     )
     agent = pane_agent(source.poll(), 1)
     assert agent is not None and agent.status == "working"
+
+
+def test_read_only_seen_age_is_stable(tmp_path: Path) -> None:
+    ages = []
+    for now in (102.0, 500.0):
+        source = agent_source(
+            tmp_path, NoWrites(WAITING), history=[FocusChange(1, 100.2)], now=now, write_seen=False
+        )
+        agent = pane_agent(source.poll(), 1)
+        assert agent is not None
+        ages.append(agent.since)
+    assert ages == [pytest.approx(101.2), pytest.approx(101.2)]  # when it was seen, not each poll
 
 
 def test_read_only_unseen_wait_stays(tmp_path: Path) -> None:

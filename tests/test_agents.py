@@ -404,3 +404,12 @@ def test_same_kind_in_wait_no_ping() -> None:
     first, _ = run(ev("Stop", last_assistant_message="Done."))
     _, pings = run(ev("Stop", last_assistant_message="Done again."), start=first)
     assert pings == []
+
+
+def test_focus_seen_at() -> None:
+    from cardak.core.agents import focus_seen_at
+
+    s = SessionState("a", pane_id=7, status="waiting", status_since=100.0)
+    assert focus_seen_at(s, [fc(7, 100.5)], 110.0) == 101.5
+    assert focus_seen_at(s, [fc(7, 50), fc(3, 100.5)], 110.0) is None
+    assert focus_seen_at(s, [fc(7, 50)], 110.0) == 101.0  # focused before it started waiting
