@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.12.0 — 2026-10-28
+
 ### Added
 - `x` on a project in the deck opens a new WezTerm tab in that project's folder and starts `claude /repo-cleanup` there, after asking, then takes you to it. It runs your own `/repo-cleanup` skill; cardak doesn't ship one. (#65)
 - The deck's header and the phone page show what this month's Claude Code use would cost at API prices, e.g. `$412 this month at API prices`, and each project shows its share. It counts every session on this machine since the 1st, including ones in closed projects and subagents; prices are downloaded once a day while cardak runs. A `+` after the figure means some replies used a model with no known price; the warning line names it. (#29)
