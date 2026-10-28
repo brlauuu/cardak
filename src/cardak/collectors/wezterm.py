@@ -178,3 +178,24 @@ def send_text(
     """Type text into the pane as keystrokes (`--no-paste`: a trailing \\r is Enter)."""
     env = os.environ if env is None else env
     _run_cli(["send-text", "--pane-id", str(pane_id), "--no-paste", text], env, runner)
+
+
+def spawn(
+    cwd: Path,
+    near_pane: int | None,
+    env: Mapping[str, str] | None = None,
+    runner: Runner = subprocess.run,
+) -> int:
+    """Open a tab running the default shell in cwd; return its pane id. The tab goes in
+    near_pane's window, else the calling pane's (WEZTERM_PANE), else a new window."""
+    env = os.environ if env is None else env
+    args = ["spawn", "--cwd", str(cwd)]
+    if near_pane is not None:
+        args += ["--pane-id", str(near_pane)]
+    elif "WEZTERM_PANE" not in env:
+        args.append("--new-window")
+    stdout = _run_cli(args, env, runner)
+    try:
+        return int(stdout.strip())
+    except ValueError:
+        raise WeztermUnavailable(f"unexpected wezterm cli output: {stdout.strip()!r}") from None

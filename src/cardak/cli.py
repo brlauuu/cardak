@@ -758,6 +758,7 @@ def _deck(config_arg: str | None) -> int:
         log=log,
         send=lambda pane_id, text: wezterm.send_text(pane_id, text),
         skills_status=_skills_hint,
+        open_tab=lambda cwd, near: wezterm.spawn(cwd, near),
     ).run()
     for db in (agents, log):
         if db is not None:

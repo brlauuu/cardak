@@ -26,6 +26,7 @@ src/cardak/
   core/{watch, daemon}.py                              # M5: alerts and the background service
   core/{history, crash, eventlog}.py                   # M5: history, crash reports, the event log
   core/{checkpoint, recap}.py                          # M6: checkpoint & recap
+  core/cleanup.py                                      # #65: where `x` opens /repo-cleanup
   core/detail.py                                       # how `i` and the web view word a session
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
   collectors/{handoff, git}.py                         # M6: the handoff note, read-only git
@@ -58,8 +59,11 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   Nothing else touches raw `wezterm cli` output or reads files under `~/.claude/`; the one
   writer there is `claude/install.py`. Neither format is a stable API.
 - Read-only by default: the deck observes and focuses panes; it does not launch or drive agents.
-  The one exception is `c` (M6), which types `/checkpoint` into an agent pane after the user
-  confirms it in a dialog.
+  Two exceptions, each after the user confirms it in a dialog: `c` (M6) types `/checkpoint` into
+  an agent pane, and `x` (#65) opens a shell tab in a project (`wezterm cli spawn --cwd`, in the
+  window of the project's first or selected pane, else the deck's) and types
+  `claude /repo-cleanup` into it. Typing into the shell, rather than spawning `claude` directly,
+  gives Claude the user's PATH and rc files and leaves the tab open when it exits.
 - Never edit `~/.config/wezterm/wezterm.lua`, `~/.claude/settings.json` or anything else
   under `~/.config` or `~/.claude` without asking. Generated files go to a path the user
   `require`s or opts into.
