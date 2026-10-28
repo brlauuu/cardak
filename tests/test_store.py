@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from cardak.collectors.usage import Prompt, Reply, Usage
 from cardak.core.agents import SessionState
 from cardak.core.config import state_dir
 from cardak.core.store import (
@@ -79,7 +80,7 @@ def test_creates_parent_dir_and_schema_version(tmp_path: Path) -> None:
     path = tmp_path / "deep" / "cardak.db"
     Store(path).close()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 4
+    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -261,7 +262,7 @@ def test_v1_database_gains_summaries(tmp_path: Path) -> None:
     store = Store(path)
     store.add_summary(summary_row())
     assert store.has_summary("s", 10.0)
-    assert SCHEMA_VERSION == 4
+    assert SCHEMA_VERSION == 5
 
 
 def test_latest_error_since(tmp_path: Path) -> None:
@@ -306,7 +307,7 @@ def test_schema_2_database_gains_the_table(tmp_path: Path) -> None:
     )
     con.close()
     store = Store(path)
-    assert store._con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 4
+    assert store._con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
     store.record_resource_event(ResourceEvent(1.0, "big", "warning", "pane:3", "x", False))
     assert store.event_count() == 1 and len(store.resource_events_since(0.0)) == 1
 
@@ -414,7 +415,7 @@ def test_v3_db_upgrades_and_keeps_events(tmp_path: Path) -> None:
     assert len(store.history_days(0.0)) == 1
     store.close()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     con.close()
 
 
@@ -494,3 +495,71 @@ def test_read_only_current_db_opens(tmp_path: Path) -> None:
         assert Store(path).get("a") is not None
     finally:
         path.chmod(0o644)
+
+
+def reply(key: str, ts: float, model: str = "claude-opus-5-5") -> Reply:
+    return Reply(key, ts, "s1", "/home/user/webshop", model, 3, 400, 20000, 0, 5000, "standard")
+
+
+def prompt(key: str, ts: float) -> Prompt:
+    return Prompt(key, ts, "s1", "/home/user/webshop", 15)
+
+
+def test_record_usage_ignores_duplicates(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    usage = Usage((reply("a:1", 10.0), reply("b:2", 11.0)), (prompt("p1", 9.0),))
+    assert store.record_usage("/t/s.jsonl", 7, 100, usage) == 2
+    resumed = Usage((reply("a:1", 10.0),), (prompt("p1", 9.0),))  # copied into a resumed file
+    assert store.record_usage("/t/r.jsonl", 8, 50, resumed) == 0
+    assert [r.key for r in store.replies_since(0.0)] == ["a:1", "b:2"]
+    assert store.replies_since(0.0)[0] == reply("a:1", 10.0)
+    assert store.prompts_since(0.0) == [prompt("p1", 9.0)]
+
+
+def test_record_usage_moves_offset(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    store.record_usage("/t/s.jsonl", 7, 100, Usage())
+    store.record_usage("/t/s.jsonl", 7, 250, Usage())
+    store.record_usage("/t/r.jsonl", 9, 5, Usage())
+    assert store.transcript_offsets() == {"/t/s.jsonl": (7, 250), "/t/r.jsonl": (9, 5)}
+
+
+def test_replies_since_filters(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    store.record_usage("/t", 1, 1, Usage((reply("b", 20.0), reply("a", 5.0)), (prompt("p", 4.0),)))
+    assert [r.key for r in store.replies_since(10.0)] == ["b"]
+    assert [r.key for r in store.replies_since(0.0)] == ["a", "b"]  # oldest first
+    assert store.prompts_since(10.0) == []
+
+
+def test_prune_drops_old_replies(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    now = 100 * DAY
+    old, kept = now - 63 * DAY, now - 61 * DAY
+    usage = Usage(
+        (reply("old", old), reply("kept", kept)), (prompt("old", old), prompt("kept", kept))
+    )
+    store.record_usage("/t", 1, 1, usage)
+    store.prune(now)
+    assert [r.key for r in store.replies_since(0.0)] == ["kept"]
+    assert [p.key for p in store.prompts_since(0.0)] == ["kept"]
+
+
+def test_schema_5_opens_in_place(tmp_path: Path) -> None:
+    path = tmp_path / "cardak.db"
+    Store(path).close()
+    con = sqlite3.connect(path)  # back to the v4 layout: no usage tables
+    con.executescript(
+        "DROP TABLE claude_replies; DROP TABLE claude_prompts; DROP TABLE transcript_offsets; "
+        "INSERT INTO resource_events VALUES (1.0, 'big', 'warning', 'pane:3', 'kept', 1); "
+        "PRAGMA user_version = 4;"
+    )
+    con.close()
+    store = Store(path)
+    assert [e.text for e in store.resource_events_since(0.0)] == ["kept"]
+    assert store.record_usage("/t", 1, 1, Usage((reply("a", 1.0),))) == 1
+    store.close()
+    con = sqlite3.connect(path)
+    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
+    assert con.execute("PRAGMA application_id").fetchone()[0] == MIN_READER == 1
+    con.close()
