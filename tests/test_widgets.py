@@ -12,6 +12,7 @@ from cardak.ui.widgets import (
     docker_label,
     fmt_cpu,
     fmt_rss,
+    fmt_usd,
     group_label,
     machine_label,
     mcp_label,
@@ -236,3 +237,18 @@ def test_machine_label_levels() -> None:
     assert crit.plain.startswith("CPU – ▂▃") and crit.plain.endswith("⚠ 6% free")
     assert any("red" in str(s.style) for s in crit.spans)
     assert machine_label(machine_view(10, "critical", swap_free=0)).plain.endswith("swap full")
+
+
+@pytest.mark.parametrize(
+    ("usd", "shown"),
+    [(0.421, "$0.42"), (9.994, "$9.99"), (37.4, "$37"), (1204.6, "$1,205"), (0.0, "$0")],
+)
+def test_fmt_usd(usd: float, shown: str) -> None:
+    assert fmt_usd(usd) == shown
+
+
+def test_group_label_spend() -> None:
+    text = group_label(replace(group(), spend_usd=37.0))
+    assert text.plain == "webshop  ~/r/w  $37 this month  RAM 1.2G  CPU 12%"
+    for nothing in (None, 0.0):
+        assert "this month" not in group_label(replace(group(), spend_usd=nothing)).plain

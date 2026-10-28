@@ -37,6 +37,7 @@ from cardak.ui.recap import RecapScreen
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
     docker_label,
+    fmt_usd,
     group_label,
     internal_label,
     machine_label,
@@ -413,6 +414,9 @@ class DeckApp(App[None]):
             self.sub_title = f"{raw.n_projects} projects · {raw.n_panes} panes"
         if raw.n_waiting:
             self.sub_title += f" · {raw.n_waiting} waiting"
+        if raw.month_spend is not None:
+            more = "+" if raw.spend_unpriced else ""
+            self.sub_title += f" · {fmt_usd(raw.month_spend)}{more} this month at API prices"
         self._rebuild(
             result.snapshot,
             focus_pane=result.best_pane_id if follow_best else None,

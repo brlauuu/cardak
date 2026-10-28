@@ -614,6 +614,31 @@ async def test_header_counts_waiting() -> None:
         assert app.sub_title.endswith("· 2 waiting")
 
 
+async def test_header_spend() -> None:
+    for spent, unpriced, ending in (
+        (412.0, (), " · $412 this month at API prices"),
+        (412.0, ("claude-x",), " · $412+ this month at API prices"),
+        (0.0, (), " · $0 this month at API prices"),
+    ):
+        snap = replace(SNAP, month_spend=spent, spend_unpriced=unpriced)
+        app = DeckApp(StubSource(snap), interval=3600)
+        async with app.run_test() as pilot:
+            await settle(app, pilot)
+            assert app.sub_title.endswith(ending)
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        assert "this month" not in app.sub_title
+
+
+async def test_header_spend_while_filtering() -> None:
+    app = DeckApp(StubSource(replace(SNAP, month_spend=37.0)), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await open_find(app, pilot, "w", "e", "b")
+        assert app.sub_title == '1 of 4 panes match "web" · $37 this month at API prices'
+
+
 async def test_jump_marks_seen() -> None:
     snap = waiting_snap(agent_row(7, "waiting", "finished"))
     for result, expected in ((RAISED, [7]), (JumpResult("failed", "no"), [])):

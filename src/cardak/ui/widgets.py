@@ -26,6 +26,13 @@ def fmt_rss(rss: int) -> str:
     return f"{gib:.1f}G" if gib >= 1 else f"{rss / 2**20:.0f}M"
 
 
+def fmt_usd(usd: float) -> str:
+    """ "$0.42" under $10, then whole dollars: "$37", "$1,204"; nothing at all is "$0"."""
+    if usd == 0:
+        return "$0"
+    return f"${usd:.2f}" if usd < 10 else f"${usd:,.0f}"
+
+
 def share(rss: int, total: int | None) -> str:
     """ " (32%)": rss as a share of the machine's RAM (MemTotal); "" with no total to compare."""
     if not total:
@@ -148,6 +155,8 @@ def group_label(g: Group, total: int | None = None) -> Text:
     if g.path:
         text.append(f"  {g.path}", style="dim")
     text.append("  ")
+    if g.spend_usd:
+        text.append(f"{fmt_usd(g.spend_usd)} this month", style="dim").append("  ")
     return text.append_text(usage(g.rss, g.cpu_pct, g.ram_spark, g.over, total))
 
 
