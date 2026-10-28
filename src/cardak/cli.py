@@ -716,8 +716,12 @@ def _summarize(session_id: str, wait_since: str) -> int:
 
 
 def _deck(config_arg: str | None) -> int:
+    import os
+
     from cardak.collectors import wezterm
+    from cardak.core import spend
     from cardak.core.focus import focus_path, read_history
+    from cardak.core.hook import log_problem
     from cardak.core.navigate import Navigator, Previewer
     from cardak.core.source import LiveSource
     from cardak.core.store import Store, StoreError, db_path
@@ -738,8 +742,10 @@ def _deck(config_arg: str | None) -> int:
         log: Store | None = Store(db_path())  # its own connection: the UI thread reads it
     except StoreError:
         log = None
+    counted = spend.background(lambda message: log_problem(os.environ, message))
     source = LiveSource(
         config_path(config_arg),
+        spend=counted[0] if counted else lambda: None,
         on_config=_theme_writer(lua_dir, config_dir(), store),
         schemes=store.get,
         store=agents,
@@ -760,6 +766,8 @@ def _deck(config_arg: str | None) -> int:
         skills_status=_skills_hint,
         open_tab=lambda cwd, near: wezterm.spawn(cwd, near),
     ).run()
+    if counted is not None:
+        counted[1].set()
     for db in (agents, log):
         if db is not None:
             db.close()

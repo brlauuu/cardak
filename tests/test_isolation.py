@@ -15,3 +15,13 @@ def test_config_and_state_dirs_are_temporary() -> None:
 
 def test_cache_dir_is_temporary() -> None:
     assert not cache_dir().is_relative_to(Path.home() / ".cache")
+
+
+def test_transcripts_and_price_download_are_fakes() -> None:
+    import pytest
+
+    from cardak.collectors import prices, usage
+
+    assert not usage.default_root().is_relative_to(Path.home() / ".claude")
+    with pytest.raises(OSError):
+        prices.fetch()

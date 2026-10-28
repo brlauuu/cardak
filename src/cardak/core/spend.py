@@ -6,23 +6,19 @@ reply once (both may run at the same time: the store ignores a reply it already 
 prices the month's replies by `cwd`. Mapping a `cwd` to a project is the snapshot's job.
 """
 
+import contextlib
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from cardak.collectors import usage as usage_mod
 from cardak.collectors.prices import ModelPrice
-from cardak.collectors.usage import (
-    Reply,
-    TranscriptFile,
-    Usage,
-    default_root,
-    read_usage,
-    transcript_files,
-)
-from cardak.core.prices import PriceBook, lookup, priced, reply_cost
-from cardak.core.store import Store
+from cardak.collectors.usage import Reply, TranscriptFile, Usage, read_usage, transcript_files
+from cardak.core.config import cache_dir
+from cardak.core.prices import CACHE_NAME, PriceBook, lookup, priced, reply_cost
+from cardak.core.store import Store, StoreError, db_path
 from cardak.core.summary import month_start
 
 PASS_EVERY_S = 30.0
@@ -71,7 +67,7 @@ class SpendCounter:
     ) -> None:
         self.store = store
         self.prices = prices
-        self._root = root or default_root()
+        self._root = root or usage_mod.default_root()
         self._clock = clock
         self.latest: MonthSpend | None = None  # read from other threads; replaced whole
 
@@ -104,7 +100,8 @@ def run(counter: SpendCounter, stop: threading.Event, log: Callable[[str], None]
             counter.prices.refresh()
             counter.step()
         except Exception as e:  # a pass that fails is retried on the next one
-            log(f"monthly spend: {e!r}")
+            with contextlib.suppress(Exception):  # nor may a log that can't be written stop it
+                log(f"monthly spend: {e!r}")
         stop.wait(PASS_EVERY_S)
 
 
@@ -114,3 +111,17 @@ def start(counter: SpendCounter, log: Callable[[str], None]) -> threading.Event:
         target=run, args=(counter, stop, log), name="cardak-spend", daemon=True
     ).start()
     return stop
+
+
+def background(
+    log: Callable[[str], None],
+) -> tuple[Callable[[], MonthSpend | None], threading.Event] | None:
+    """Start counting on a thread with its own store connection: the latest figure, and the
+    event that stops it. None when the database can't be opened (logged)."""
+    try:
+        store = Store(db_path())
+    except StoreError as e:
+        log(f"monthly spend unavailable: {e}")
+        return None
+    counter = SpendCounter(store, PriceBook(cache_dir() / CACHE_NAME, log=log))
+    return (lambda: counter.latest), start(counter, log)

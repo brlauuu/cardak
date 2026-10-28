@@ -81,12 +81,12 @@ class PriceBook:
     def __init__(
         self,
         cache_file: Path,
-        fetch: Callable[[], bytes] = prices.fetch,
+        fetch: Callable[[], bytes] | None = None,  # None: prices.fetch, looked up when used
         clock: Callable[[], float] = time.time,
         log: Callable[[str], None] = lambda _m: None,
     ) -> None:
         self._file = cache_file
-        self._fetch = fetch
+        self._fetch = fetch or (lambda: prices.fetch())
         self._clock = clock
         self._log = log
         self._failed_at: float | None = None

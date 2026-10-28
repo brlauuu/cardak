@@ -15,3 +15,20 @@ def isolated_state(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("config")))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path_factory.mktemp("cache")))
     return state
+
+
+@pytest.fixture(autouse=True)
+def no_transcripts_or_downloads(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deck or daemon started by a test counts an empty transcripts folder, and downloads
+    nothing: the real ~/.claude/projects and the network stay out of every test (#29)."""
+    from cardak.collectors import prices, usage
+
+    root = tmp_path_factory.mktemp("transcripts")
+    monkeypatch.setattr(usage, "default_root", lambda: root)
+
+    def offline(*_args: object, **_kwargs: object) -> bytes:
+        raise OSError("tests never download")
+
+    monkeypatch.setattr(prices, "fetch", offline)

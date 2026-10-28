@@ -295,3 +295,47 @@ def test_build_source_for_the_web_reads_agents_without_writing(
     assert plain._store is None and plain._write_seen
     web = build_source(tmp_path / "projects.toml", agents=True)
     assert web._store is not None and not web._write_seen and web._key_file is not None
+
+
+def test_build_source_passes_spend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.collectors.wezterm import WeztermUnavailable
+    from cardak.core.daemon import build_source
+    from cardak.core.spend import MonthSpend
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    month = MonthSpend(0.0, 12.0, {}, ())
+    for agents in (False, True):
+        source = build_source(tmp_path / "projects.toml", agents=agents, spend=lambda: month)
+
+        def down(env: object) -> list:
+            raise WeztermUnavailable("no GUI")
+
+        source._list_panes = down
+        assert source.poll().month_spend == 12.0
+
+
+def test_background_counter_runs_and_stops(tmp_path: Path) -> None:
+    import time
+
+    from cardak.core import spend
+
+    started = spend.background(lambda _m: None)
+    assert started is not None
+    latest, stop = started
+    deadline = time.monotonic() + 5
+    while latest() is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    stop.set()
+    got = latest()
+    assert got is not None and got.total == 0.0  # the test root holds no transcripts
+
+
+def test_background_without_a_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.core import spend
+
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+    monkeypatch.setenv("XDG_STATE_HOME", str(blocker))  # no directory can be made under it
+    logged: list[str] = []
+    assert spend.background(logged.append) is None
+    assert logged and logged[0].startswith("monthly spend unavailable:")

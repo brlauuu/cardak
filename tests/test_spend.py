@@ -187,3 +187,25 @@ def test_files_before_this_month_are_not_read(tmp_path: Path, root: Path) -> Non
     for path in root.rglob("*.jsonl"):
         os.utime(path, (month_start(NOW) - 10, month_start(NOW) - 10))
     assert counter(tmp_path, root).step().total == 0.0
+
+
+def test_run_survives_a_broken_log(
+    tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    c = counter(tmp_path, root)
+    stop = threading.Event()
+    steps: list[int] = []
+
+    def step() -> MonthSpend:
+        steps.append(1)
+        if len(steps) == 2:
+            stop.set()
+        raise RuntimeError("boom")
+
+    def log(_message: str) -> None:
+        raise OSError("log file unwritable")
+
+    monkeypatch.setattr(c, "step", step)
+    monkeypatch.setattr(spend, "PASS_EVERY_S", 0.0)
+    spend.run(c, stop, log)
+    assert len(steps) == 2
