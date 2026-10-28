@@ -240,5 +240,5 @@
 
 - [ ] **Step 1:** Edit the three files.
 - [ ] **Step 2:** `uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run pytest --cov --cov-branch --cov-fail-under=80` → all green.
-- [ ] **Step 3:** `enola check /home/brlauuu/repos/cardak`; split any new complexity outlier or cycle; record accepted coordinators under "Architecture checks" as `#29 (monthly spend)`.
+- [ ] **Step 3:** `enola check .`; split any new complexity outlier or cycle; record accepted coordinators under "Architecture checks" as `#29 (monthly spend)`.
 - [ ] **Step 4: Commit** `docs: monthly spend at API prices (#29)`.
