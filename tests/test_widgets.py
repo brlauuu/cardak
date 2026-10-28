@@ -10,6 +10,7 @@ from cardak.ui.widgets import (
     age,
     agent_dot,
     docker_label,
+    fmt_count,
     fmt_cpu,
     fmt_rss,
     fmt_usd,
@@ -245,6 +246,21 @@ def test_machine_label_levels() -> None:
 )
 def test_fmt_usd(usd: float, shown: str) -> None:
     assert fmt_usd(usd) == shown
+
+
+@pytest.mark.parametrize(
+    ("n", "shown"),
+    [
+        (0, "0"),
+        (999, "999"),
+        (1_234, "1.2k"),
+        (340_000, "340k"),
+        (1_234_567, "1.2M"),
+        (3_400_000_000, "3.4B"),
+    ],  # fmt: skip
+)
+def test_fmt_count(n: float, shown: str) -> None:
+    assert fmt_count(n) == shown
 
 
 def test_group_label_spend() -> None:

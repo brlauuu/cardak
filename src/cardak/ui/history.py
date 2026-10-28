@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
-from typing import Protocol
+from typing import Protocol, cast
 
 from rich.text import Text
 from textual import on
@@ -30,11 +30,29 @@ from cardak.core.history import (
 from cardak.core.resources import GIB, Thresholds, derive
 from cardak.core.snapshot import DeckSnapshot
 from cardak.core.store import DayPeak, ResourceEvent, StoreError
+from cardak.core.trends import (
+    ALL,
+    FIGURES,
+    LABELS,
+    DayUsage,
+    Figure,
+    GroupedTrends,
+    UsageRow,
+    usage_edges,
+    usage_rows,
+    value,
+)
 from cardak.ui.plot import BLANK, braille, level_row
+from cardak.ui.widgets import fmt_count, fmt_usd
 
-FIXED = (("project", 14), ("now", 9), ("median", 9), ("peak", 9), ("alerts", 7))
+FIXED = (("project", 14), ("now", 9), ("median", 9), ("peak", 9), ("alerts", 9))
+USAGE_FIXED = (("project", 14), ("today", 9), ("per day", 9), ("peak", 9), ("30 d", 9))
+Mode = Metric | Figure
+MODES: tuple[Mode, ...] = ("ram", "cpu", *FIGURES)
+USAGE_SORTS = {"peak": "peak", "now": "today", "median": "per_day", "alerts": "window"}
 BAND_STYLES = ("dim", "", "yellow", "dark_orange", "bold red")
 EMPTY = "No history yet: the daemon records it (cardak resources install)."
+NO_USAGE = "No usage yet: cardak counts it while the deck or the daemon runs."
 PLOT_HEIGHT = 10
 HOURS = DAYS * 24
 
@@ -55,6 +73,51 @@ def fmt(value: float | None, metric: Metric) -> str:
     if value is None:
         return "-"
     return f"{value / GIB:.1f} GB" if metric == "ram" else f"{value:.0f}%"
+
+
+def ufmt(v: float | None, figure: Figure, incomplete: bool = False) -> str:
+    """A usage figure as the history screen shows it; "+" when some replies had no price."""
+    if v is None:
+        return "-"
+    if figure == "cost":
+        return fmt_usd(v) + ("+" if incomplete else "")
+    if figure == "prompt_len":
+        return f"{v:.0f} ch"
+    return fmt_count(v)
+
+
+def _usage_legend(e: Sequence[float], figure: Figure) -> str:
+    head = f"{LABELS[figure]} per day, relative to the busiest day:"
+    if e[0] == float("inf"):
+        return head
+    parts = [f"{CELLS[0]} <{ufmt(e[0], figure)}"]
+    parts += [f"{CELLS[i]} {ufmt(e[i - 1], figure)}–{ufmt(e[i], figure)}" for i in range(1, 4)]
+    parts.append(f"{CELLS[-1]} {ufmt(e[-1], figure)}")
+    return f"{head}  " + "  ".join(parts)
+
+
+def sort_usage(rows: Sequence[UsageRow], key: str) -> list[UsageRow]:
+    """As `sort_rows`: biggest first, Other and then All projects last."""
+    if key == "name":
+        ordered = sorted(rows, key=lambda r: r.name.lower())
+    else:
+        attr = USAGE_SORTS[key]
+        ordered = sorted(rows, key=lambda r: (getattr(r, attr) is None, -(getattr(r, attr) or 0)))
+    tail = (OTHER, ALL)
+    return [r for r in ordered if r.subject not in tail] + [
+        r for subject in tail for r in ordered if r.subject == subject
+    ]
+
+
+def _mode_name(mode: Mode) -> str:
+    return mode.upper() if mode in ("ram", "cpu") else LABELS[cast(Figure, mode)]
+
+
+def _day_note(name: str, day: date, d: DayUsage | None) -> str:
+    if d is None:
+        return f"{name} · {day:%a %b %-d}: no use"
+    lines = [f"{LABELS[f]}: {ufmt(value(d, f), f, d.unpriced > 0)}" for f in FIGURES]
+    return f"{name} · {day:%a %b %-d}\n" + "\n".join(lines)
 
 
 def _thresholds(live: DeckSnapshot | None) -> Thresholds | None:
@@ -80,7 +143,7 @@ def _midnight(d: date) -> float:
 
 class HistoryScreen(Screen[None]):
     BINDINGS = [
-        Binding("c", "metric", "RAM/CPU"),
+        Binding("c", "metric", "Next figure"),
         Binding("s", "sort", "Sort"),
         Binding("escape", "app.pop_screen", "Back"),
     ]
@@ -96,9 +159,10 @@ class HistoryScreen(Screen[None]):
         self._live = live
         self._today = date.fromtimestamp(now)
         self._since = _midnight(_first_day(self._today))
-        self._metric: Metric = "ram"
+        self._mode: Mode = "ram"
         self._sort = SORTS[0]
         self._rows: list[HistoryRow] = []
+        self._usage: list[UsageRow] = []
         self._error: str | None = None
         try:
             self._days = log.history_days(self._since)
@@ -118,16 +182,36 @@ class HistoryScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#axis", Static).update(self._axis())
+        self._fill()
+        self.query_one(DataTable).focus()
+
+    @property
+    def _trends(self) -> GroupedTrends | None:
+        return self._live.usage_trends if self._live is not None else None
+
+    def _columns(self, fixed: Sequence[tuple[str, int]]) -> None:
         table = self.query_one(DataTable)
-        for name, width in FIXED:
+        table.clear(columns=True)
+        for name, width in fixed:
             table.add_column(name.rjust(width) if name != "project" else name.ljust(width))
         for _ in range(DAYS):
             table.add_column(" ", width=1)
-        self.query_one("#axis", Static).update(self._axis())
-        hint = self._error or (EMPTY if not self._days else "")
-        self.query_one("#hint", Static).update(Text(hint))
-        self._fill()
-        table.focus()
+
+    def _title(self) -> None:
+        mode = self._mode
+        following = MODES[(MODES.index(mode) + 1) % len(MODES)]
+        name, nxt = _mode_name(mode), _mode_name(following)
+        keys = f"[c] next: {nxt}  [s] sort: {self._sort}"
+        title = f"history · last {DAYS} days · {name}      {keys}"
+        self.query_one("#title", Static).update(Text(title))  # Text: "[c]" is not markup
+
+    def _fill(self) -> None:
+        if self._mode in ("ram", "cpu"):
+            self._fill_resources(cast(Metric, self._mode))
+        else:
+            self._fill_usage(cast(Figure, self._mode))
+        self._title()
 
     def _axis(self) -> str:
         first = _first_day(self._today)
@@ -139,15 +223,16 @@ class HistoryScreen(Screen[None]):
             line[start : start + len(label)] = label
         return "".join(line).rstrip()
 
-    def _fill(self) -> None:
-        metric = self._metric
+    def _fill_resources(self, metric: Metric) -> None:
+        self._columns(FIXED)
+        hint = self._error or (EMPTY if not self._days else "")
+        self.query_one("#hint", Static).update(Text(hint))
         rows = history_rows(
             self._days, self._medians, self._counts, self._live, self._today, metric
         )
         self._rows = sort_rows(rows, self._sort)
         e = _edges(_thresholds(self._live), metric)
         table = self.query_one(DataTable)
-        table.clear()
         for r in self._rows:
             alerts = "-" if r.alerts is None else str(r.alerts)
             fixed = [  # Text: DataTable parses plain strings as markup, and names are free text
@@ -162,25 +247,62 @@ class HistoryScreen(Screen[None]):
                 for v in r.days
             ]
             table.add_row(*(Text(x) for x in fixed), *cells, key=r.subject)
-        other = "CPU" if metric == "ram" else "RAM"
-        keys = f"[c] {other}  [s] sort: {self._sort}"
-        title = f"history · last {DAYS} days · {metric.upper()}      {keys}"
-        self.query_one("#title", Static).update(Text(title))  # Text: "[c]" is not markup
         self.query_one("#legend", Static).update(legend(e, metric) if e[0] != float("inf") else "")
 
+    def _fill_usage(self, figure: Figure) -> None:
+        self._columns(USAGE_FIXED)
+        grouped = self._trends
+        self._usage = sort_usage(usage_rows(grouped, figure) if grouped else [], self._sort)
+        self.query_one("#hint", Static).update(Text("" if self._usage else NO_USAGE))
+        e = usage_edges([r for r in self._usage if r.subject != ALL])
+        e_all = usage_edges([r for r in self._usage if r.subject == ALL])
+        table = self.query_one(DataTable)
+        for r in self._usage:
+            fixed = [
+                r.name[:13].ljust(14),
+                ufmt(r.today, figure, r.incomplete_today).rjust(9),
+                ufmt(r.per_day, figure).rjust(9),
+                ufmt(r.peak, figure).rjust(9),
+                ufmt(r.window, figure, r.incomplete).rjust(9),
+            ]
+            edges_of = e_all if r.subject == ALL else e
+            cells = [
+                Text(CELLS[b], style=BAND_STYLES[b]) if (b := band(v, edges_of)) >= 0 else Text(" ")
+                for v in r.days
+            ]
+            table.add_row(*(Text(x) for x in fixed), *cells, key=r.subject)
+        text = _usage_legend(e, figure) if self._usage else ""
+        if text and figure == "cost" and grouped is not None and grouped.unpriced:
+            text += f"  no price: {', '.join(grouped.unpriced)}"
+        self.query_one("#legend", Static).update(Text(text))
+
     def action_metric(self) -> None:
-        self._metric = "cpu" if self._metric == "ram" else "ram"
+        self._mode = MODES[(MODES.index(self._mode) + 1) % len(MODES)]
         self._fill()
 
     def action_sort(self) -> None:
         self._sort = SORTS[(SORTS.index(self._sort) + 1) % len(SORTS)]
         self._fill()
 
+    def _note_day(self, row: int, index: int) -> None:
+        grouped = self._trends
+        if grouped is None or row >= len(self._usage):
+            return
+        subject = self._usage[row].subject
+        trend = next(t for t in grouped.rows if t.subject == subject)
+        day = _first_day(grouped.today) + timedelta(days=index)
+        self.notify(escape(_day_note(trend.name, day, trend.days[index])))
+
     @on(DataTable.CellSelected)
     def _open_day(self, event: DataTable.CellSelected) -> None:
         index = event.coordinate.column - len(FIXED)
-        if index < 0 or event.coordinate.row >= len(self._rows):
+        if index < 0:
             return
+        if self._mode not in ("ram", "cpu"):
+            return self._note_day(event.coordinate.row, index)
+        if event.coordinate.row >= len(self._rows):
+            return
+        metric = cast(Metric, self._mode)
         row = self._rows[event.coordinate.row]
         try:
             hours = self._log.history_hours(row.subject, self._since)
@@ -193,12 +315,12 @@ class HistoryScreen(Screen[None]):
         t = _thresholds(self._live)
         threshold = None
         if t is not None and row.subject != OTHER:  # Other never alerts: no line to cross
-            threshold = float(t.pane_ram if self._metric == "ram" else t.pane_cpu_pct)
+            threshold = float(t.pane_ram if metric == "ram" else t.pane_cpu_pct)
         self.app.push_screen(
             PlotScreen(
                 row.name,
                 row.subject,
-                self._metric,
+                metric,
                 hours,
                 threshold,
                 _first_day(self._today) + timedelta(days=index),

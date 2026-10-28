@@ -11,6 +11,7 @@ from cardak.core.config import ResourceSettings
 from cardak.core.resources import derive
 from cardak.core.snapshot import DeckSnapshot
 from cardak.core.store import DayPeak, ResourceEvent
+from cardak.core.trends import DAYS, LABELS, DayUsage, GroupedTrends, ProjectTrend
 from cardak.ui.app import DeckApp
 from cardak.ui.history import HistoryScreen, PlotScreen
 
@@ -147,3 +148,117 @@ async def test_plot_survives_markup_in_names_and_events() -> None:
         await pilot.pause()
         assert isinstance(app.screen, PlotScreen)
         assert "web [/x]" in str(app.screen.query_one("#day", Static).render())
+
+
+def _days(**cells: DayUsage) -> tuple[DayUsage | None, ...]:
+    """Cells by "dN" = N days ago."""
+    out: list[DayUsage | None] = [None] * DAYS
+    for k, d in cells.items():
+        out[DAYS - 1 - int(k[1:])] = d
+    return tuple(out)
+
+
+def usage_live(trends: GroupedTrends | None | bool = True) -> DeckSnapshot:
+    if trends is True:
+        today = DayUsage(cost=4.0, unpriced=1, replies=3, tokens=9000, output_tokens=300,
+                         prompts=2, prompt_chars=80, sessions=frozenset({"s1"}))  # fmt: skip
+        earlier = DayUsage(cost=8.0, replies=2, tokens=5000, output_tokens=100, prompts=1,
+                           prompt_chars=10, sessions=frozenset({"s2"}))  # fmt: skip
+        other = DayUsage(cost=1.0, replies=1, tokens=100, output_tokens=10,
+                         sessions=frozenset({"s3"}))  # fmt: skip
+        trends = GroupedTrends(
+            date.today(),
+            (
+                ProjectTrend(WEB, "webshop", _days(d0=today, d3=earlier)),
+                ProjectTrend("other", "Other", _days(d0=other)),
+                ProjectTrend("all", "All projects", _days(d0=DayUsage(cost=40.0), d3=earlier)),
+            ),
+            ("claude-x",),
+        )
+    return replace(live(), usage_trends=trends or None)
+
+
+def headers(table: DataTable) -> list[str]:
+    return [str(c.label).strip() for c in table.columns.values()][:5]
+
+
+def names(table: DataTable) -> list[str]:
+    return [str(table.get_row_at(i)[0]).strip() for i in range(table.row_count)]
+
+
+async def test_cycle_through_every_figure_and_back() -> None:
+    app = DeckApp(StubSource(usage_live()), interval=3600, log=log())
+    async with app.run_test(size=(120, 30)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("h", "c", "c")
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, HistoryScreen)
+        assert "cost" in title(screen) and "[c] next: tokens" in title(screen)
+        table = screen.query_one(DataTable)
+        assert headers(table) == ["project", "today", "per day", "peak", "30 d"]
+        for _ in range(7):
+            await pilot.press("c")
+        await pilot.pause()
+        assert "RAM" in title(screen).split("[")[0]
+        assert headers(table) == ["project", "now", "median", "peak", "alerts"]
+
+
+async def test_usage_rows_and_marks() -> None:
+    app = DeckApp(StubSource(usage_live()), interval=3600, log=log())
+    async with app.run_test(size=(120, 30)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("h", "c", "c")
+        await pilot.pause()
+        table = app.screen.query_one(DataTable)
+        assert names(table) == ["webshop", "Other", "All projects"]
+        row = [str(x).strip() for x in table.get_row_at(0)[:5]]
+        assert row == ["webshop", "$4.00+", "$6.00", "$8.00", "$12+"]
+        await pilot.press("s", "s", "s", "s")  # name
+        assert names(table)[-2:] == ["Other", "All projects"]
+        legend = str(app.screen.query_one("#legend", Static).render())
+        assert "relative to the busiest day" in legend and "no price: claude-x" in legend
+
+
+async def test_usage_cell_shows_the_day() -> None:
+    app = DeckApp(StubSource(usage_live()), interval=3600, log=log())
+    async with app.run_test(size=(120, 40)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("h", "c", "c")
+        await pilot.pause()
+        table = app.screen.query_one(DataTable)
+        table.move_cursor(row=0, column=len(table.columns) - 1)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, HistoryScreen)
+        text = [n.message for n in app._notifications][-1]
+        assert f"{date.today():%a %b %-d}" in text and "webshop" in text
+        assert all(label in text for label in LABELS.values())
+        table.move_cursor(row=0, column=len(table.columns) - 2)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "no use" in [n.message for n in app._notifications][-1]
+
+
+async def test_usage_without_trends_shows_hint() -> None:
+    app = DeckApp(StubSource(usage_live(None)), interval=3600, log=log())
+    async with app.run_test(size=(120, 30)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("h", "c", "c")
+        await pilot.pause()
+        hint = str(app.screen.query_one("#hint", Static).render())
+        assert hint == "No usage yet: cardak counts it while the deck or the daemon runs."
+        assert app.screen.query_one(DataTable).row_count == 0
+
+
+async def test_all_projects_scaled_on_its_own() -> None:
+    app = DeckApp(StubSource(usage_live()), interval=3600, log=log())
+    async with app.run_test(size=(120, 30)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("h", "c", "c")
+        await pilot.pause()
+        table = app.screen.query_one(DataTable)
+        webshop, everything = table.get_row_at(0), table.get_row_at(2)
+        assert str(webshop[-4]) == "█"  # $8, three days ago: the busiest project cell
+        assert str(everything[-1]) == "█"  # $40 today: All projects' own busiest
+        assert str(everything[-4]) != "█"
