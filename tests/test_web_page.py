@@ -117,3 +117,18 @@ def test_page_shows_spend() -> None:
     assert '<span id="spend"></span>' in PAGE
     assert '" this month at API prices"' in PAGE
     assert "g.spend_usd" in PAGE
+
+
+def test_page_has_trends_view() -> None:
+    assert 'id="trends"' in PAGE and '"/api/trends"' in PAGE
+    assert "TRENDS_EVERY_MS = 30000" in PAGE
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_count_matches_the_deck() -> None:
+    from cardak.ui.widgets import fmt_count
+
+    values = [0, 999, 1234, 340000, 1234567, 3400000000, 12.6]
+    script = _js_function("count") + f"console.log(JSON.stringify({values}.map(count)));"
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) == [fmt_count(v) for v in values]

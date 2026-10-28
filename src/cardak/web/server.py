@@ -19,7 +19,7 @@ from importlib.resources import files
 
 from cardak.core.agents import SessionState
 from cardak.core.snapshot import DeckSnapshot
-from cardak.web.view import find_agent, session_json, snapshot_json
+from cardak.web.view import find_agent, session_json, snapshot_json, trends_json
 
 PAGE = files("cardak.web").joinpath("page.html").read_bytes()
 SESSION = re.compile(r"/api/session/([A-Za-z0-9_-]{1,128})")
@@ -116,7 +116,7 @@ def make_server(
             if path == "/":
                 return self._send(200, PAGE, "text/html; charset=utf-8")
             found = SESSION.fullmatch(path)
-            if path != "/api/snapshot" and found is None:
+            if path not in ("/api/snapshot", "/api/trends") and found is None:
                 return self._send(404)
             if not self._authorized():
                 return self._send(401)
@@ -124,6 +124,8 @@ def make_server(
             if current is None:
                 return self._json(503, {"starting": True})
             snap, ts = current
+            if path == "/api/trends":
+                return self._json(200, trends_json(snap.usage_trends))
             if found is None:
                 return self._json(200, snapshot_json(snap, ts, clock()))
             agent = find_agent(snap, found.group(1))

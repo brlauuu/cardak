@@ -1,10 +1,12 @@
 import json
+from datetime import date
 from pathlib import Path
 
 from cardak.collectors.machine import MachineSample
 from cardak.core.agents import SessionState
 from cardak.core.snapshot import AgentView, DeckSnapshot, DockerLine, Group, MachineView, PaneRow
-from cardak.web.view import find_agent, session_json, snapshot_json
+from cardak.core.trends import DAYS, DayUsage, GroupedTrends, ProjectTrend
+from cardak.web.view import find_agent, session_json, snapshot_json, trends_json
 
 CWD = Path("/home/user/repos/webshop")
 ASK = AgentView(
@@ -146,3 +148,43 @@ def test_snapshot_json_spend() -> None:
     blank = snapshot_json(base, 1.0, 2.0)
     assert blank["month_spend"] is None and blank["spend_unpriced"] is False
     json.dumps(out)
+
+
+def grouped() -> GroupedTrends:
+    d = DayUsage(cost=2.0, unpriced=1, tokens=500, output_tokens=50, replies=2, prompts=1,
+                 prompt_chars=12, sessions=frozenset({"secret-session"}))  # fmt: skip
+    days = (None,) * (DAYS - 1) + (d,)
+    big = (None,) * (DAYS - 1) + (DayUsage(cost=9.0, replies=1),)
+    return GroupedTrends(
+        date(2026, 10, 28),
+        (
+            ProjectTrend("project:/home/user/webshop", "webshop", days),
+            ProjectTrend("other", "Other", days),
+            ProjectTrend("all", "All projects", big),
+        ),
+        ("claude-x",),
+    )
+
+
+def test_trends_json_shape() -> None:
+    out = trends_json(grouped())
+    assert out["today"] == "2026-10-28" and out["first"] == "2026-09-29"
+    assert [f["key"] for f in out["figures"]][:2] == ["cost", "tokens"]
+    assert out["unpriced"] == ["claude-x"]
+    assert [(r["name"], r["kind"]) for r in out["rows"]] == [
+        ("webshop", "project"), ("Other", "other"), ("All projects", "all")
+    ]  # fmt: skip
+    cost = out["rows"][0]["figures"]["cost"]
+    assert len(cost["days"]) == DAYS and cost["days"][-1] == 2.0 and cost["days"][0] is None
+    assert cost["today"] == 2.0 and cost["incomplete"] and cost["incomplete_today"]
+    assert cost["top"] == 2.0  # the busiest project or Other day
+    assert out["rows"][2]["figures"]["cost"]["top"] == 9.0  # All projects: its own
+    assert out["rows"][0]["figures"]["prompt_len"]["window"] == 12.0
+    text = json.dumps(out)
+    for leak in ("/home/user", "secret-session", "subject", "cwd"):
+        assert leak not in text, leak
+
+
+def test_trends_json_none() -> None:
+    out = trends_json(None)
+    assert out["rows"] == [] and out["today"] is None

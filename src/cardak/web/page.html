@@ -71,6 +71,17 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
 #sheet h4 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
   margin: 14px 0 4px; }
 #sheet p { margin: 2px 0; overflow-wrap: anywhere; }
+#trends, #figure { background: none; border: 1px solid var(--line); color: var(--text);
+  border-radius: 8px; padding: 2px 10px; font: inherit; font-size: 13px; }
+#trends { margin-left: auto; }
+#figure { margin: 6px 0 4px; padding: 4px 8px; }
+.trend { padding: 8px 0 6px; border-bottom: 1px solid var(--line); }
+.trend:last-child { border-bottom: none; }
+.bars { display: flex; align-items: flex-end; gap: 2px; height: 36px; margin: 4px 0 2px; }
+.bar { flex: 1; min-width: 0; height: 2px; background: var(--link); border-radius: 2px 2px 0 0; }
+.bar.none { background: var(--line); }
+.trend.all .bar { background: var(--working); }
+.trend.all .bar.none { background: var(--line); }
 #close { float: right; background: none; border: 1px solid var(--line); color: var(--text);
   border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; }
 @media (min-width: 820px) {
@@ -85,6 +96,7 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
   <h1>cardak</h1>
   <span id="machine"></span>
   <span id="spend"></span>
+  <button id="trends" type="button">Trends</button>
   <span id="fresh">connecting…</span>
 </header>
 <div id="notice"></div>
@@ -99,6 +111,8 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
 const POLL_MS = 3000;
 const FETCH_TIMEOUT_MS = 5000;
 const STALE_S = 10;
+const TRENDS_EVERY_MS = 30000;
+const NO_USAGE = "No usage yet: cardak counts it while the deck or the daemon runs.";
 const NO_KEY = "open the link from `cardak web setup` (or scan its QR code) on this device";
 const BAD_KEY = "this link's key is no longer valid · run `cardak web setup` on the computer";
 const DOWN = "can't reach cardak · last data from ";
@@ -108,6 +122,7 @@ const $ = (id) => document.getElementById(id);
 
 let key = null, last = null, timer = null, sheetId = null, stopped = false, inflight = false;
 const opened = new Set();
+let trends = null, trendsOpen = false, trendsTimer = null, figure = "cost";
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -139,6 +154,13 @@ function ram(bytes, total) { return gb(bytes) + share(bytes, total); }
 function usd(v) {
   if (v === 0) return "$0";
   return v < 10 ? "$" + v.toFixed(2) : "$" + Math.round(v).toLocaleString("en-US");
+}
+// as the deck's fmt_count: "999", "1.2k", "340k", "1.2M", "3.4B"
+function count(n) {
+  for (const [unit, size] of [["B", 1e9], ["M", 1e6], ["k", 1e3]]) {
+    if (n >= size) return n < 10 * size ? (n / size).toFixed(1) + unit : Math.round(n / size) + unit;
+  }
+  return String(Math.round(n));
 }
 function pct(v) { return v === null || v === undefined ? "–" : Math.round(v) + "%"; }
 function clock(ts) {
@@ -379,7 +401,90 @@ async function loadSheet() {
   panel.scrollTop = scroll;
 }
 
+// as the history screen's ufmt: cost in dollars ("+": some replies had no price)
+function figureText(v, key, incomplete) {
+  if (v === null || v === undefined) return "-";
+  if (key === "cost") return usd(v) + (incomplete ? "+" : "");
+  if (key === "prompt_len") return Math.round(v) + " ch";
+  return count(v);
+}
+
+function trendRow(r) {
+  const f = r.figures[figure];
+  const box = el("div", "trend" + (r.kind === "all" ? " all" : ""));
+  add(box, add(el("div", "row"), el("b", "grow ellipsis", r.name),
+    el("span", "muted small", "30 d " + figureText(f.window, figure, f.incomplete))));
+  const strip = el("div", "bars");
+  for (const d of f.days) {
+    const bar = el("span", "bar" + (d === null ? " none" : ""));
+    if (d !== null && f.top) bar.style.height = Math.max(4, d / f.top * 100) + "%"; // CSSOM: CSP allows it
+    add(strip, bar);
+  }
+  add(box, strip);
+  add(box, el("div", "line small", "today " + figureText(f.today, figure, f.incomplete_today) +
+    " · per day " + figureText(f.per_day, figure) + " · peak " + figureText(f.peak, figure)));
+  return box;
+}
+
+function renderTrends() {
+  const body = $("sheet-body");
+  const panel = body.parentElement, scroll = panel.scrollTop;
+  clear(body);
+  add(body, el("h3", null, "Trends · last 30 days"));
+  const pick = el("select");
+  pick.id = "figure";
+  for (const f of trends.figures) {
+    const o = el("option", null, f.label);
+    o.value = f.key;
+    o.selected = f.key === figure;
+    add(pick, o);
+  }
+  pick.addEventListener("change", () => { figure = pick.value; renderTrends(); });
+  add(body, pick);
+  if (!trends.rows.length) { add(body, el("p", "muted", NO_USAGE)); return; }
+  add(body, add(el("div", "row muted small"), el("span", "grow", trends.first), el("span", null, trends.today)));
+  for (const r of trends.rows) if (r.figures[figure]) add(body, trendRow(r));
+  if (figure === "cost" && trends.unpriced.length) {
+    add(body, el("p", "muted small", "no price: " + trends.unpriced.join(", ")));
+  }
+  panel.scrollTop = scroll;
+}
+
+async function loadTrends() {
+  if (!trendsOpen || document.visibilityState !== "visible") return;
+  let r;
+  try {
+    r = await get("/api/trends");
+  } catch (e) {
+    return; // the list says the computer can't be reached
+  }
+  if (!trendsOpen) return;
+  if (r.status === 401) { closeSheet(); stop(BAD_KEY); return; }
+  let t = null;
+  if (r.ok) {
+    try { t = await r.json(); } catch (e) { return; }
+  }
+  if (!trendsOpen) return;
+  if (!t) {
+    if (!trends) { clear($("sheet-body")); add($("sheet-body"), el("p", "muted", "couldn't load trends")); }
+    return; // keep what the sheet shows
+  }
+  trends = t;
+  renderTrends();
+}
+
+function openTrends() {
+  closeSheet();
+  trendsOpen = true;
+  clear($("sheet-body"));
+  add($("sheet-body"), el("p", "muted", "loading…"));
+  $("sheet").classList.add("show");
+  loadTrends();
+  trendsTimer = setInterval(loadTrends, TRENDS_EVERY_MS);
+}
+
 function openSheet(id) {
+  closeSheet();
   sheetId = id;
   clear($("sheet-body"));
   add($("sheet-body"), el("p", "muted", "loading…"));
@@ -389,13 +494,19 @@ function openSheet(id) {
 
 function closeSheet() {
   sheetId = null;
+  trendsOpen = false;
+  if (trendsTimer) clearInterval(trendsTimer);
+  trendsTimer = null;
   $("sheet").classList.remove("show");
 }
 
 $("close").addEventListener("click", closeSheet);
+$("trends").addEventListener("click", openTrends);
 $("sheet").addEventListener("click", (e) => { if (e.target === $("sheet")) closeSheet(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") poll(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") { poll(); loadTrends(); }
+});
 
 key = readKey();
 if (!key) {
