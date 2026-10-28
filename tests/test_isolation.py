@@ -1,8 +1,9 @@
-"""Tests never see the user's real config: their Anthropic key, projects.toml, cardak.lua."""
+"""Tests never see the user's real config (their Anthropic key, projects.toml, cardak.lua),
+state or cache."""
 
 from pathlib import Path
 
-from cardak.core.config import anthropic_key_path, config_dir, state_dir
+from cardak.core.config import anthropic_key_path, cache_dir, config_dir, state_dir
 
 
 def test_config_and_state_dirs_are_temporary() -> None:
@@ -10,3 +11,7 @@ def test_config_and_state_dirs_are_temporary() -> None:
     for path in (config_dir(), anthropic_key_path(), state_dir()):
         assert not path.is_relative_to(home / ".config"), path
         assert not path.is_relative_to(home / ".local" / "state"), path
+
+
+def test_cache_dir_is_temporary() -> None:
+    assert not cache_dir().is_relative_to(Path.home() / ".cache")

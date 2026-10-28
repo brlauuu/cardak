@@ -116,6 +116,14 @@ def state_dir(env: Mapping[str, str] | None = None) -> Path:
     return Path(env.get("HOME") or Path.home()) / ".local" / "state" / "cardak"
 
 
+def cache_dir(env: Mapping[str, str] | None = None) -> Path:
+    """Where cardak keeps what it can download again: the Claude price list."""
+    env = os.environ if env is None else env
+    if env.get("XDG_CACHE_HOME"):
+        return Path(env["XDG_CACHE_HOME"]) / "cardak"
+    return Path(env.get("HOME") or Path.home()) / ".cache" / "cardak"
+
+
 def config_path(cli_value: str | None = None, env: Mapping[str, str] | None = None) -> Path:
     env = os.environ if env is None else env
     if cli_value:
