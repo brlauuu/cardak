@@ -14,6 +14,7 @@ from cardak.core.config import Config
 from cardak.core.resources import derive
 from cardak.core.snapshot import DeckSnapshot
 from cardak.core.source import LiveSource
+from cardak.core.spend import MonthSpend
 from cardak.core.store import StoreError
 from cardak.core.summary import SummaryInfo
 
@@ -569,3 +570,92 @@ def test_no_summary_info_without_key(tmp_path: Path) -> None:
     source = agent_source(tmp_path, store, key_file=tmp_path / "anthropic_key")  # not there
     assert source.summary_info(WAITING) is None
     assert source.poll().summary_capped is False
+
+
+def spending(cfg: Path, spend: MonthSpend | None, list_panes=panes, git=no_git) -> LiveSource:
+    return LiveSource(
+        cfg,
+        env={"WEZTERM_PANE": "1"},
+        list_panes=list_panes,
+        sample=sample,
+        claude_lookup=lambda pid: None,
+        git=git,
+        home=HOME,
+        machine=no_machine,
+        docker=no_docker,
+        spend=lambda: spend,
+    )
+
+
+WEBSHOP_CFG = f'[[project]]\nname = "webshop"\npath = "{HOME}/repos/webshop"\n'
+MONTH = MonthSpend(
+    0.0,
+    60.0,
+    {
+        f"{HOME}/repos/webshop": 10.0,
+        f"{HOME}/repos/webshop/api": 5.0,
+        f"{HOME}/repos/api-gw": 30.0,  # a git root with no pane open
+        f"{HOME}/notes": 7.0,
+        None: 8.0,
+    },
+    (),
+)
+
+
+def git_api_gw(cwd: Path) -> Path | None:
+    return HOME / "repos/api-gw" if cwd.is_relative_to(HOME / "repos/api-gw") else None
+
+
+def test_spend_by_project(tmp_path: Path) -> None:
+    cfg = tmp_path / "p.toml"
+    cfg.write_text(WEBSHOP_CFG)
+    snap = spending(cfg, MONTH, git=git_api_gw).poll()
+    assert snap.month_spend == 60.0  # api-gw's 30 is in the total, though it has no row
+    spent = {g.name: g.spend_usd for g in snap.groups}
+    assert spent == {"webshop": 15.0, "Other": 15.0}  # notes and no cwd both resolve to Other
+
+
+def test_spend_none_before_first_pass(tmp_path: Path) -> None:
+    snap = spending(tmp_path / "p.toml", None).poll()
+    assert snap.month_spend is None
+    assert all(g.spend_usd is None for g in snap.groups)
+
+
+def test_spend_left_off_groups_without_any(tmp_path: Path) -> None:
+    cfg = tmp_path / "p.toml"
+    cfg.write_text(WEBSHOP_CFG)
+    only_webshop = MonthSpend(0.0, 1.0, {f"{HOME}/repos/webshop": 1.0}, ())
+    spent = {g.name: g.spend_usd for g in spending(cfg, only_webshop).poll().groups}
+    assert spent == {"webshop": 1.0, "Other": None}
+
+
+def test_spend_never_on_waiting_group(tmp_path: Path) -> None:
+    source = agent_source(tmp_path, FakeStore(WAITING))
+    source._spend = lambda: MONTH
+    snap = source.poll()
+    assert [(g.kind, g.spend_usd) for g in snap.groups] == [("waiting", None), ("other", 60.0)]
+
+
+def test_spend_follows_config_change(tmp_path: Path) -> None:
+    cfg = tmp_path / "p.toml"
+    cfg.write_text("")
+    source = spending(cfg, MONTH)
+    assert {g.name: g.spend_usd for g in source.poll().groups} == {"Other": 60.0}
+    source.add_project("webshop", HOME / "repos/webshop")
+    assert {g.name: g.spend_usd for g in source.poll().groups} == {"webshop": 15.0, "Other": 45.0}
+
+
+def test_spend_with_wezterm_down(tmp_path: Path) -> None:
+    snap = spending(tmp_path / "p.toml", MONTH, list_panes=unavailable).poll()
+    assert snap.error is not None
+    assert snap.month_spend == 60.0
+
+
+def test_unpriced_warning(tmp_path: Path) -> None:
+    month = MonthSpend(0.0, 1.0, {}, ("claude-opus-5-5 (fast mode)", "claude-x"))
+    snap = spending(tmp_path / "p.toml", month).poll()
+    assert snap.spend_unpriced == ("claude-opus-5-5 (fast mode)", "claude-x")
+    assert (
+        "no API price for claude-opus-5-5 (fast mode), claude-x; left out of this month's figure"
+        in snap.config_warnings
+    )
