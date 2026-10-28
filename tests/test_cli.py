@@ -39,6 +39,23 @@ def test_default_command_is_tui(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     assert seen[0].source.config_file == tmp_path / "c.toml"  # type: ignore[attr-defined]
 
 
+def test_deck_starts_the_spend_counter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import threading
+
+    from cardak.core import spend
+    from cardak.core.spend import MonthSpend
+
+    month = MonthSpend(0.0, 3.0, {}, ())  # handed through as is: the source judges its month
+    stop = threading.Event()
+    calls: list[object] = []
+    monkeypatch.setattr(spend, "background", lambda log: calls.append(log) or (lambda: month, stop))
+    seen: list[DeckApp] = []
+    monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))
+    assert main(["--config", str(tmp_path / "p.toml"), "tui"]) == 0
+    assert len(calls) == 1 and stop.is_set()
+    assert seen[0].source._spend() is month  # type: ignore[attr-defined]
+
+
 def test_wezterm_install_prints_snippet(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["wezterm", "install", "--dir", str(tmp_path)]) == 0
     out = capsys.readouterr().out
@@ -171,6 +188,11 @@ HOOK_FORBIDDEN = (
     "cardak.llm",
     "cardak.core.summary",
     "cardak.core.summarize",
+    "cardak.collectors.usage",
+    "cardak.collectors.prices",
+    "cardak.core.spend",
+    "cardak.core.prices",
+    "urllib.request",
 )
 
 

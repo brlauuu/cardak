@@ -21,6 +21,7 @@ from cardak.core.recent import Recent, decorate
 from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
 from cardak.core.resources import derive
 from cardak.core.snapshot import ClaudeLookup, DeckSnapshot, Group, build_snapshot, group_for
+from cardak.core.spend import MonthSpend
 from cardak.core.store import StoreError
 from cardak.core.summary import SummaryInfo, key_warning, month_start
 from cardak.core.themes import Scheme, project_accent
@@ -28,6 +29,7 @@ from cardak.core.themes import Scheme, project_accent
 ListPanes = Callable[[Mapping[str, str]], list[wezterm.Pane]]
 Sample = Callable[[Iterable[str]], dict[str, PaneProcs]]
 Stamp = tuple[int, int, int, int] | None
+GroupKey = tuple[str, Path | None]  # (kind, key): what a cwd's spend is attached by
 
 
 class AgentStore(Protocol):
@@ -65,6 +67,7 @@ class LiveSource:
         machine: Callable[[], MachineSample | None] | None = None,
         docker: Callable[[], Sequence[DockerWork]] | None = None,
         write_seen: bool = True,
+        spend: Callable[[], MonthSpend | None] = lambda: None,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -85,6 +88,8 @@ class LiveSource:
         self._key_file = key_file  # None: no waiting summaries in this deck
         self._machine = machine or MachineSampler().sample
         self._docker = docker or DockerSampler().sample
+        self._spend = spend  # the counter's latest figure (core/spend.py), read every poll
+        self._spend_seen: tuple[MonthSpend, ProjectResolver, dict[GroupKey, float]] | None = None
         self._recent = Recent()
         self._summary_warning: str | None = None
         self._notify_warnings: tuple[str, ...] = ()
@@ -253,11 +258,53 @@ class LiveSource:
             except StoreError:
                 return None
 
-    def _warnings_now(self) -> tuple[str, ...]:
+    def _warnings_now(self, spend: MonthSpend | None = None) -> tuple[str, ...]:
         extra = (self._store_warning,) if self._store_warning else ()
         key = key_warning(self._key_file) if self._key_file is not None else None
         summary = (self._summary_warning,) if self._summary_warning else ()
-        return (*self._warnings, *self._notify_warnings, *extra, *((key,) if key else ()), *summary)
+        unpriced = (
+            (f"no API price for {', '.join(spend.unpriced)}; left out of this month's figure",)
+            if spend is not None and spend.unpriced
+            else ()
+        )
+        return (
+            *self._warnings,
+            *self._notify_warnings,
+            *extra,
+            *((key,) if key else ()),
+            *summary,
+            *unpriced,
+        )
+
+    def _spend_by_group(self, spend: MonthSpend) -> dict[GroupKey, float]:
+        """Each cwd's spend under the project it resolves to; resolved again only when the
+        figure or the config changed, not every poll."""
+        seen = self._spend_seen
+        if seen is not None and seen[0] is spend and seen[1] is self._resolver:
+            return seen[2]
+        found: dict[GroupKey, float] = {}
+        for cwd, usd in spend.by_cwd.items():
+            r = self._resolver.resolve(Path(cwd) if cwd else None)
+            found[(r.kind, r.key)] = found.get((r.kind, r.key), 0.0) + usd
+        self._spend_seen = (spend, self._resolver, found)
+        return found
+
+    def _with_spend(self, snap: DeckSnapshot) -> DeckSnapshot:
+        spend = self._spend()
+        if spend is None or spend.since != month_start(self._clock()):
+            return snap  # not counted yet, or a stalled counter's figure from last month
+        by_group = self._spend_by_group(spend)
+        groups = tuple(
+            g if g.kind == "waiting" else replace(g, spend_usd=by_group.get((g.kind, g.key)))
+            for g in snap.groups
+        )
+        return replace(
+            snap,
+            groups=groups,
+            month_spend=spend.total,
+            spend_unpriced=spend.unpriced,
+            config_warnings=self._warnings_now(spend),
+        )
 
     def _sample_machine(self) -> MachineSample | None:
         try:
@@ -290,6 +337,9 @@ class LiveSource:
         return replace(decorate(snap, self._recent, t), thresholds=t)
 
     def _poll(self) -> DeckSnapshot:
+        return self._with_spend(self._poll_panes())
+
+    def _poll_panes(self) -> DeckSnapshot:
         self._reload_if_changed()
         try:
             panes = self._list_panes(self._env)

@@ -74,6 +74,7 @@ class Group:
     outside_cpu_pct: float | None = None
     ram_spark: str = ""
     over: bool = False
+    spend_usd: float | None = None  # this month at API prices; None: nothing spent (#29)
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,8 @@ class DeckSnapshot:
     machine: MachineSample | None = None
     machine_view: MachineView | None = None
     thresholds: Thresholds | None = None  # set whenever there is a machine sample
+    month_spend: float | None = None  # all Claude Code use this month; None: not counted yet
+    spend_unpriced: tuple[str, ...] = ()  # models left out of month_spend: no price for them
 
     @property
     def n_projects(self) -> int:

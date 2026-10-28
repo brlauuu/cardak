@@ -11,12 +11,15 @@ import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import astuple, dataclass, fields
 from pathlib import Path
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from cardak.core.agents import SessionState, mark_seen
 from cardak.core.config import state_dir
 
-SCHEMA_VERSION = 4
+if TYPE_CHECKING:  # the hook imports this module; it never reads transcripts
+    from cardak.collectors.usage import Prompt, Reply, Usage
+
+SCHEMA_VERSION = 5
 # The oldest schema whose code can still use this database, kept in PRAGMA application_id so
 # that an older cardak (from this one on) opens a newer file instead of refusing it. Only a
 # new table is safe for older code. Any change to an existing table, a new column included,
@@ -26,6 +29,7 @@ MIN_READER = 1
 KEEP_SECONDS = 7 * 86_400
 RESOURCE_KEEP_SECONDS = 30 * 86_400
 SUMMARY_KEEP_SECONDS = 62 * 86_400  # longer than a month: the spend cap counts them
+USAGE_KEEP_SECONDS = 62 * 86_400  # the same: this month's spend at API prices (#29)
 MAX_EVENTS = 10_000
 BUSY_TIMEOUT = 2.0
 
@@ -90,6 +94,34 @@ CREATE TABLE IF NOT EXISTS resource_days (
     PRIMARY KEY (subject, day)
 );
 CREATE TABLE IF NOT EXISTS dismissed_reports (ts REAL PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS claude_replies (
+    reply_key TEXT PRIMARY KEY,
+    ts REAL NOT NULL,
+    session_id TEXT,
+    cwd TEXT,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cache_write_5m_tokens INTEGER NOT NULL,
+    cache_write_1h_tokens INTEGER NOT NULL,
+    speed TEXT
+);
+CREATE INDEX IF NOT EXISTS claude_replies_ts ON claude_replies (ts);
+-- stored for per-project stats (#88): nothing reads it yet
+CREATE TABLE IF NOT EXISTS claude_prompts (
+    prompt_key TEXT PRIMARY KEY,
+    ts REAL NOT NULL,
+    session_id TEXT,
+    cwd TEXT,
+    chars INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS claude_prompts_ts ON claude_prompts (ts);
+CREATE TABLE IF NOT EXISTS transcript_offsets (
+    path TEXT PRIMARY KEY,
+    inode INTEGER NOT NULL,
+    offset INTEGER NOT NULL
+);
 """
 ALERT_KINDS = ("memory", "big", "growth", "busy", "machine_busy")
 
@@ -471,6 +503,52 @@ class Store:
     def dismiss_report(self, ts: float) -> None:
         self._query("INSERT OR IGNORE INTO dismissed_reports VALUES (?)", (ts,))
 
+    def record_usage(self, path: str, inode: int, offset: int, usage: "Usage") -> int:
+        """Store what a pass read from one transcript, and how far it got; new replies counted.
+
+        The deck and the daemon may both read the same files: a reply or prompt already stored
+        is ignored, so the two never double the figure.
+        """
+        try:
+            with self._con:
+                self._con.execute("BEGIN")
+                before = self._con.total_changes
+                self._con.executemany(
+                    "INSERT OR IGNORE INTO claude_replies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [astuple(r) for r in usage.replies],
+                )
+                added = self._con.total_changes - before
+                self._con.executemany(
+                    "INSERT OR IGNORE INTO claude_prompts VALUES (?, ?, ?, ?, ?)",
+                    [astuple(p) for p in usage.prompts],
+                )
+                self._con.execute(
+                    "INSERT OR REPLACE INTO transcript_offsets VALUES (?, ?, ?)",
+                    (path, inode, offset),
+                )
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+        return added
+
+    def transcript_offsets(self) -> dict[str, tuple[int, int]]:
+        """path -> (inode, offset) of every transcript a pass has read."""
+        rows = self._query("SELECT path, inode, offset FROM transcript_offsets")
+        return {r[0]: (int(r[1]), int(r[2])) for r in rows}
+
+    def replies_since(self, ts: float) -> list["Reply"]:
+        """Oldest first."""
+        from cardak.collectors.usage import Reply
+
+        rows = self._query("SELECT * FROM claude_replies WHERE ts >= ? ORDER BY ts, rowid", (ts,))
+        return [Reply(*r) for r in rows]
+
+    def prompts_since(self, ts: float) -> list["Prompt"]:
+        """Oldest first."""
+        from cardak.collectors.usage import Prompt
+
+        rows = self._query("SELECT * FROM claude_prompts WHERE ts >= ? ORDER BY ts, rowid", (ts,))
+        return [Prompt(*r) for r in rows]
+
     def event_count(self) -> int:
         return self._con.execute("SELECT count(*) FROM events").fetchone()[0]
 
@@ -488,6 +566,9 @@ class Store:
             self._con.execute(
                 "DELETE FROM summaries WHERE created_at < ?", (now - SUMMARY_KEEP_SECONDS,)
             )
+            usage_cutoff = now - USAGE_KEEP_SECONDS
+            self._con.execute("DELETE FROM claude_replies WHERE ts < ?", (usage_cutoff,))
+            self._con.execute("DELETE FROM claude_prompts WHERE ts < ?", (usage_cutoff,))
             resource_cutoff = now - RESOURCE_KEEP_SECONDS
             self._con.execute("DELETE FROM resource_events WHERE ts < ?", (resource_cutoff,))
             self._con.execute(

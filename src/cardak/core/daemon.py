@@ -26,6 +26,7 @@ from cardak.core.watch import ResourceAlert, Watcher
 
 if TYPE_CHECKING:
     from cardak.core.source import LiveSource
+    from cardak.core.spend import MonthSpend
 
 INTERVAL = 2.0
 ALREADY_RUNNING = 3  # the unit's RestartPreventExitStatus: systemd must not retry it
@@ -185,7 +186,9 @@ def _notify(level: str, title: str, text: str, settings: NotifySettings) -> None
     resource_alert(level, title, text, settings)
 
 
-def build_source(config_file: Path, agents: bool) -> "LiveSource":
+def build_source(
+    config_file: Path, agents: bool, spend: "Callable[[], MonthSpend | None] | None" = None
+) -> "LiveSource":
     """The daemon's source; with agents (the web view on), agent status read-only (M7).
 
     Read-only means a wait the focus history saw is shown as seen and nothing is written: only
@@ -193,8 +196,9 @@ def build_source(config_file: Path, agents: bool) -> "LiveSource":
     """
     from cardak.core.source import LiveSource
 
+    spent = spend or (lambda: None)
     if not agents:
-        return LiveSource(config_file)
+        return LiveSource(config_file, spend=spent)
     from cardak.core.config import anthropic_key_path
     from cardak.core.focus import focus_path, read_history
     from cardak.core.store import Store, db_path
@@ -210,6 +214,7 @@ def build_source(config_file: Path, agents: bool) -> "LiveSource":
         focus_history=lambda: read_history(focus_path()),
         key_file=anthropic_key_path(),
         write_seen=False,
+        spend=spent,
     )
 
 
@@ -232,12 +237,18 @@ def main(web: WebStart | None = None) -> int:
         signal.signal(sig, lambda *_: stop.set())
     from cardak.collectors.journal import read_journal
     from cardak.collectors.wezterm import gui_processes
+    from cardak.core import spend
 
-    source = build_source(config_path(None), agents=web is not None)
+    counted = spend.background(log)
+    source = build_source(
+        config_path(None), agents=web is not None, spend=counted[0] if counted else None
+    )
     publish = web(source) if web is not None else None
     daemon = Daemon(
         source, store, _notify, guis=gui_processes, journal=read_journal, publish=publish
     )
     run(daemon, sleep=stop.wait, stop=stop)
+    if counted is not None:
+        counted[1].set()
     held.close()
     return 0
