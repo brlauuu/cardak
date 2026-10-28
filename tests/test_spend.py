@@ -295,3 +295,22 @@ def test_step_sees_rows_another_counter_stored(tmp_path: Path, root: Path) -> No
     after = deck.step()  # nothing new in the transcripts for deck: the daemon stored it
     assert after is not before
     assert after.trends is not None and ("/home/user/notes", 29) in after.trends.cells
+
+
+def test_step_rebuilds_after_midnight(tmp_path: Path, root: Path) -> None:
+    now = [datetime(2026, 10, 27, 23, 59, 50).timestamp()]
+    c = SpendCounter(Store(tmp_path / "c.db"), offline(tmp_path), root, clock=lambda: now[0])
+    first = c.step()
+    now[0] = datetime(2026, 10, 28, 0, 0, 20).timestamp()  # nothing new: only the date moved
+    second = c.step()
+    assert second is not first
+    assert second.trends is not None and second.trends.today == date(2026, 10, 28)
+
+
+def test_step_rebuilds_when_prices_change(tmp_path: Path, root: Path) -> None:
+    c = counter(tmp_path, root)
+    first = c.step()
+    cheaper = {**BUILTIN, "claude-opus-5-5": BUILTIN["claude-haiku-5-5"]}
+    c.prices._loaded = (None, cheaper)  # a download with new prices replaces the table
+    second = c.step()
+    assert second is not first and second.total < first.total
