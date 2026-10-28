@@ -4,17 +4,43 @@
 folders into projects once the snapshot knows which project each folder belongs to. Pure.
 """
 
-from collections.abc import Iterable, Mapping
+import math
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from functools import reduce
+from typing import Literal
 
 from cardak.collectors.prices import ModelPrice
 from cardak.collectors.usage import Prompt, Reply
 from cardak.core.prices import lookup, priced, reply_cost
+from cardak.core.resolver import Resolved
 
 DAYS = 30  # the history window, RAM/CPU and usage alike
 OTHER = "other"
 PROJECT_KINDS = ("config", "git")
+ALL = "all"  # the All projects row
+
+Figure = Literal["cost", "tokens", "prompts", "sessions", "prompt_len", "reply_len", "per_session"]
+FIGURES: tuple[Figure, ...] = (
+    "cost",
+    "tokens",
+    "prompts",
+    "sessions",
+    "prompt_len",
+    "reply_len",
+    "per_session",
+)
+AVERAGED: tuple[Figure, ...] = ("prompt_len", "reply_len", "per_session")
+LABELS: Mapping[Figure, str] = {
+    "cost": "cost",
+    "tokens": "tokens",
+    "prompts": "prompts",
+    "sessions": "sessions",
+    "prompt_len": "prompt length",
+    "reply_len": "reply length",
+    "per_session": "tokens per session",
+}
 
 
 @dataclass(frozen=True)
@@ -113,3 +139,111 @@ def build_trends(
             c.prompt_chars += p.chars
     frozen = {k: c.freeze() for k, c in cells.items()}
     return UsageTrends(today, frozen, tuple(sorted(unpriced)))
+
+
+@dataclass(frozen=True)
+class ProjectTrend:
+    subject: str  # "project:<key>" as in the RAM history, OTHER or ALL
+    name: str
+    days: tuple[DayUsage | None, ...]  # DAYS cells, oldest first; None: no use that day
+
+
+@dataclass(frozen=True)
+class GroupedTrends:
+    today: date
+    rows: tuple[ProjectTrend, ...]  # projects A–Z, then Other, then All projects
+    unpriced: tuple[str, ...]
+
+
+def _fold(cells: Mapping[int, DayUsage]) -> tuple[DayUsage | None, ...]:
+    return tuple(cells.get(i) for i in range(DAYS))
+
+
+def group_trends(trends: UsageTrends, resolve: Callable[[str | None], Resolved]) -> GroupedTrends:
+    """Each folder's days under the project it belongs to, plus All projects for everything."""
+    names: dict[str, str] = {}
+    days: dict[str, dict[int, DayUsage]] = {}
+    every: dict[int, DayUsage] = {}
+    for (cwd, index), d in trends.cells.items():
+        r = resolve(cwd)
+        subject = f"project:{r.key}" if r.kind in PROJECT_KINDS else OTHER
+        names.setdefault(subject, r.name if subject != OTHER else "Other")
+        row = days.setdefault(subject, {})
+        row[index] = merge(row[index], d) if index in row else d
+        every[index] = merge(every[index], d) if index in every else d
+    order = sorted(names, key=lambda s: (s == OTHER, names[s].lower()))
+    rows = [ProjectTrend(s, names[s], _fold(days[s])) for s in order]
+    if rows:
+        rows.append(ProjectTrend(ALL, "All projects", _fold(every)))
+    return GroupedTrends(trends.today, tuple(rows), trends.unpriced)
+
+
+def _ratio(n: float, d: int) -> float | None:
+    return n / d if d else None
+
+
+def value(d: DayUsage | None, figure: Figure) -> float | None:
+    """One figure of one day (or of a merged window); None: no use, or nothing to average."""
+    if d is None:
+        return None
+    match figure:
+        case "cost":
+            return d.cost
+        case "tokens":
+            return float(d.tokens)
+        case "prompts":
+            return float(d.prompts)
+        case "sessions":
+            return float(len(d.sessions))
+        case "prompt_len":
+            return _ratio(d.prompt_chars, d.prompts)
+        case "reply_len":
+            return _ratio(d.output_tokens, d.replies)
+        case "per_session":
+            return _ratio(d.tokens, len(d.sessions))
+
+
+@dataclass(frozen=True)
+class UsageRow:
+    subject: str
+    name: str
+    today: float | None
+    per_day: float | None  # mean over the days with use
+    peak: float | None
+    window: float | None  # the whole window: sums, distinct sessions, weighted averages
+    days: tuple[float | None, ...]
+    incomplete: bool  # cost only: some reply in the window had no price
+    incomplete_today: bool
+
+
+def _row(t: ProjectTrend, figure: Figure) -> UsageRow | None:
+    used = [d for d in t.days if d is not None]
+    if not used:
+        return None
+    cells = tuple(value(d, figure) for d in t.days)
+    seen = [v for v in cells if v is not None]
+    last = t.days[-1]
+    return UsageRow(
+        subject=t.subject,
+        name=t.name,
+        today=cells[-1],
+        per_day=sum(seen) / len(seen) if seen else None,
+        peak=max(seen) if seen else None,
+        window=value(reduce(merge, used), figure),
+        days=cells,
+        incomplete=figure == "cost" and any(d.unpriced for d in used),
+        incomplete_today=figure == "cost" and last is not None and last.unpriced > 0,
+    )
+
+
+def usage_rows(grouped: GroupedTrends, figure: Figure) -> list[UsageRow]:
+    """One row per project with use in the window, in the grouped order."""
+    return [r for t in grouped.rows if (r := _row(t, figure)) is not None]
+
+
+def usage_edges(rows: Sequence[UsageRow]) -> tuple[float, float, float, float]:
+    """Band edges at ¼, ½, ¾ and all of the busiest day cell in these rows."""
+    top = max((v for r in rows for v in r.days if v is not None), default=0.0)
+    if top <= 0:
+        return (math.inf, math.inf, math.inf, math.inf)
+    return (top / 4, top / 2, top * 3 / 4, top)
