@@ -132,6 +132,20 @@ def _prompt(record: dict, ts: float) -> Prompt | None:
     return Prompt(key, ts, _str(record.get("sessionId")), _str(record.get("cwd")), chars)
 
 
+def _record(line: bytes) -> Reply | Prompt | None:
+    if b'"usage"' not in line and b'"user"' not in line:
+        return None  # most lines are neither; json.loads is the expensive part
+    try:
+        record = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(record, dict) or (ts := _ts(record)) is None:
+        return None
+    if record.get("type") == "assistant":
+        return _reply(record, ts)
+    return _prompt(record, ts) if record.get("type") == "user" else None
+
+
 def read_usage(path: Path, offset: int) -> tuple[Usage, int]:
     """Replies and prompts from `offset` to the last complete line, and where that line ends."""
     try:
@@ -144,16 +158,9 @@ def read_usage(path: Path, offset: int) -> tuple[Usage, int]:
     replies: dict[str, Reply] = {}
     prompts: list[Prompt] = []
     for line in data[:end].splitlines():
-        if b'"usage"' not in line and b'"user"' not in line:
-            continue  # most lines are neither; json.loads is the expensive part
-        try:
-            record = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(record, dict) or (ts := _ts(record)) is None:
-            continue
-        if record.get("type") == "assistant" and (reply := _reply(record, ts)):
-            replies.setdefault(reply.key, reply)
-        elif record.get("type") == "user" and (prompt := _prompt(record, ts)):
-            prompts.append(prompt)
+        found = _record(line)
+        if isinstance(found, Reply):
+            replies.setdefault(found.key, found)
+        elif found is not None:
+            prompts.append(found)
     return Usage(tuple(replies.values()), tuple(prompts)), offset + end

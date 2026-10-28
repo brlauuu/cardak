@@ -26,10 +26,12 @@ src/cardak/
   core/{watch, daemon}.py                              # M5: alerts and the background service
   core/{history, crash, eventlog}.py                   # M5: history, crash reports, the event log
   core/{checkpoint, recap}.py                          # M6: checkpoint & recap
+  core/{prices, spend}.py                              # #29: this month at API prices
   core/cleanup.py                                      # #65: where `x` opens /repo-cleanup
   core/detail.py                                       # how `i` and the web view word a session
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
   collectors/{handoff, git}.py                         # M6: the handoff note, read-only git
+  collectors/{usage, prices}.py                        # #29: per-reply usage, LiteLLM's price list
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
   web/{view, server, key, lan}.py, page.html          # M7: the read-only page for phones
   wezterm/{cardak.lua, generate.py, install.py, schemes.py, files.py, tint.zsh}
@@ -55,7 +57,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   and its subpackages import each other (a directory-level cycle enola reports).
 - **One interface per external format.** All WezTerm invocation and parsing lives in
   `collectors/wezterm.py`; all Claude Code parsing lives in `collectors/claude.py`
-  (session files), `collectors/hooks.py` (hook payloads) and `collectors/transcripts.py`.
+  (session files), `collectors/hooks.py` (hook payloads), `collectors/transcripts.py` and
+  `collectors/usage.py` (token usage and prompts, #29).
   Nothing else touches raw `wezterm cli` output or reads files under `~/.claude/`; the one
   writer there is `claude/install.py`. Neither format is a stable API.
 - Read-only by default: the deck observes and focuses panes; it does not launch or drive agents.
@@ -123,7 +126,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   | `~/.config/cardak/web_key` | `cardak web setup` (mode 0600; `--new-key` replaces it) | the web view's key; `cardak daemon` reads it at start and refuses it with group/other bits |
   | `~/.config/cardak/anthropic_key` | the user (cardak only reads it, in `cardak summarize`; refused with group/other bits) | the Anthropic API key for waiting summaries |
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
-  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days). `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
+  | `~/.cache/cardak/prices.json` | the deck and `cardak daemon`, at most daily while one runs (#29) | the Anthropic entries of LiteLLM's price list |
+  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`); the deck and the daemon (`claude_replies`, `claude_prompts`, `transcript_offsets`, #29) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days); one row per Claude Code reply and per typed prompt (62 days; prompts are stored for #88, nothing reads them yet) and how far each transcript was read. `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
   | `~/.local/state/cardak/focus` | `cardak.lua` (module 3), via `focus.tmp.<gui pid>` (`wezterm.procinfo.pid()`, checked on 20240203) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>`; several GUIs share it, last writer wins (#43) |
   | `~/.local/state/cardak/wezterm_dir` | `cardak wezterm install [--dir]` | the directory `cardak.lua` was installed to; the deck, `themes apply` and `themes zsh` use it while `cardak.lua` is there, else `~/.config/wezterm` (#19) |
   | `~/.local/state/cardak/daemon.lock` | `cardak daemon` | empty; locked while a daemon runs, so a second one exits |
@@ -241,6 +245,33 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   the dialog is open. Hooks can't see a half-typed draft; the dialog says it goes along.
 - Recap runs only `git --no-optional-locks` reads (`collectors/git.py`, 3 s timeout) in a worker;
   no `gh`, no network. GitHub is `/where-were-we`'s job.
+
+## Monthly spend (#29)
+- The deck and `cardak daemon` each run a `SpendCounter` thread (`core/spend.background`) with its
+  own store connection: every 30 s it reads what `~/.claude/projects/**/*.jsonl` gained since its
+  stored offset (files modified this month only; a replaced or shorter file is read from 0) and
+  stores replies with `INSERT OR IGNORE`, so the two never double the figure. At most 500 replies
+  per transaction, for the hooks' 2 s busy timeout. The first pass over a month of transcripts
+  took 3.8 s (~480 MB); later ones ~70 ms. Nothing in `cardak hook` imports any of it.
+- Measured on 2026-10-28 (Claude Code 2.1.3xx): a reply is written once per content block, each
+  line repeating `message.id`, `requestId` and `usage` (21k lines, 10k replies); the key is both
+  ids, which also dedupes replies copied into a resumed session's file. `usage.iterations` is one
+  `message` entry equal to the top-level counts and `advisorModel` carries no tokens of its own,
+  so only the top-level counts of `message.model` are priced. `usage.speed` is `standard` or
+  absent; `fast` (fast mode) has no price in the list and is reported as unpriced. Half the
+  replies send more than 200k tokens, but only `claude-haiku-5-5` has a long-context rate there
+  (`*_above_100k_tokens`); the request's whole input (fresh, cache read and written) decides it.
+- Not priced: web search and fetch requests (`server_tool_use`). Offsets of deleted transcripts
+  are never pruned (a row per file).
+- Prices: LiteLLM's `model_prices_and_context_window.json` (Anthropic entries: no `/` in the key,
+  `litellm_provider == "anthropic"`), fetched with a 10 s timeout when the cache is a day old,
+  retried an hour after a failure, cached atomically; `core/prices.BUILTIN` (the list's values on
+  2026-10-28) fills in for models the cache lacks or when there is no cache. A model with no price
+  shows as `$412+` and a warning naming it. Tests replace the download and the transcripts root
+  (`tests/conftest.py`).
+- Cross-checked live on 2026-10-28 against an independent script over the same transcripts and
+  price file: $899.30 vs $899.22 (sessions kept running in between); the scratch daemon with the
+  web view on showed it on the phone page at 390×844.
 
 ## Web view (M7)
 - `cardak daemon` serves it when `[web] enabled = true` (`cardak web setup`), on `host:port`
@@ -395,6 +426,13 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   `_attach_containers` and `config._resources`. Accepted after that: `_pane_procs` at
   complexity 10, and the coordinators `LiveSource._resources` (3 × 6) and `widgets.usage`
   (5 × 5 since #73, which added the RAM share: every row kind formats its numbers through it).
+- **#29 (monthly spend)** split `usage.read_usage` (12: `_record`) and `DeckApp._render` (10:
+  `_spend_part`). Accepted: the coordinators `LiveSource._poll_panes` (3 × 8, the old `_poll`
+  under a new name; `_poll` now adds the spend to it) and `SpendCounter._read` (3 × 7: offset,
+  read, batches); `Store._query` at fan-in 11 (three more queries share its error wrapping); and
+  the call-in-loop reports on `read_usage`, `SpendCounter._read` / `step` and `spend.run`: one
+  call per line, per 500-reply batch, per changed transcript and per 30 s pass, each the unit of
+  work by design.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

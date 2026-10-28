@@ -22,7 +22,8 @@ Working on several projects in parallel, each with one or more terminals and Cla
 - Launching or orchestrating agents (no worktree management, no kanban, no auto-replies).
 - Supporting terminals other than WezTerm.
 - Remote machines.
-- Cost dashboards (other tools already do this well).
+- Cost dashboards (other tools already do this well). cardak shows one figure: what this month's
+  Claude Code use would cost at API prices, in total and per project (#29).
 
 ## 4. Key decisions
 

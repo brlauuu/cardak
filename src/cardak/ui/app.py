@@ -195,6 +195,14 @@ def _resource_lines(group: Group, total: int | None) -> list[tuple[Text, Node]]:
     return lines
 
 
+def _spend_part(snap: DeckSnapshot) -> str:
+    """ " · $412 this month at API prices"; "" until the first count is in (#29)."""
+    if snap.month_spend is None:
+        return ""
+    more = "+" if snap.spend_unpriced else ""
+    return f" · {fmt_usd(snap.month_spend)}{more} this month at API prices"
+
+
 class DeckApp(App[None]):
     TITLE = "cardak"
     CSS = """
@@ -414,9 +422,7 @@ class DeckApp(App[None]):
             self.sub_title = f"{raw.n_projects} projects · {raw.n_panes} panes"
         if raw.n_waiting:
             self.sub_title += f" · {raw.n_waiting} waiting"
-        if raw.month_spend is not None:
-            more = "+" if raw.spend_unpriced else ""
-            self.sub_title += f" · {fmt_usd(raw.month_spend)}{more} this month at API prices"
+        self.sub_title += _spend_part(raw)
         self._rebuild(
             result.snapshot,
             focus_pane=result.best_pane_id if follow_best else None,
