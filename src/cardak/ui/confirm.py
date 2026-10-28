@@ -19,16 +19,17 @@ class ConfirmScreen(ModalScreen[bool]):
     #confirm-note, #confirm-keys { color: $text-muted; margin-top: 1; }
     """
 
-    def __init__(self, question: str, note: str) -> None:
+    def __init__(self, question: str, note: str, ok: str = "send") -> None:
         super().__init__()
         self._question = question
         self._note = note
+        self._ok = ok
 
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm"):  # Text: names and labels are free text, not markup
             yield Static(Text(self._question), id="confirm-question")
             yield Static(Text(self._note), id="confirm-note")
-            yield Static(Text("Enter: send · Esc: cancel"), id="confirm-keys")
+            yield Static(Text(f"Enter: {self._ok} · Esc: cancel"), id="confirm-keys")
 
     def action_answer(self, yes: bool) -> None:
         self.dismiss(yes)

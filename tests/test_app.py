@@ -1231,3 +1231,119 @@ def test_one_probe_for_startup_and_picker() -> None:
     assert app._schemes_for_picker() == THEMES  # noqa: SLF001
     startup.join()
     assert len(calls) == 1
+
+
+class Tabs:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.calls: list[tuple[Path, int | None]] = []
+        self.error = error
+
+    def __call__(self, cwd: Path, near: int | None) -> int:
+        self.calls.append((cwd, near))
+        if self.error is not None:
+            raise self.error
+        return 50
+
+
+def cleanup_app(tabs: Tabs | None = None) -> tuple[DeckApp, Tabs, Sends, StubNavigator]:
+    tabs, sends, jumps = tabs or Tabs(), Sends(), StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=jumps, interval=3600, send=sends, open_tab=tabs)
+    return app, tabs, sends, jumps
+
+
+async def test_x_opens_a_tab_and_starts_repo_cleanup() -> None:
+    from cardak.ui.confirm import ConfirmScreen
+
+    app, tabs, sends, jumps = cleanup_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        project = app.deck_tree.root.children[0]
+        app.deck_tree.move_cursor(project)
+        await pilot.press("x")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        text = " ".join(str(s.render()) for s in app.screen.query(Static))
+        group = SNAP.groups[0]
+        assert (
+            f"Open a new tab in {group.path or group.key} and run `claude /repo-cleanup`?" in text
+        )
+        assert "Enter: open" in text
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await settle(app, pilot)
+        await app.workers.wait_for_complete()
+        assert tabs.calls == [(group.key, group.panes[0].pane_id)]
+        assert sends.calls == [(50, "claude /repo-cleanup"), (50, "\r")]
+        assert jumps.jumps == [50]
+        assert "Started /repo-cleanup in pane 50." in notices(app)
+
+
+async def test_x_escape_opens_nothing() -> None:
+    app, tabs, sends, _ = cleanup_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        await pilot.press("x")
+        await pilot.pause()
+        await pilot.press("escape")
+        await settle(app, pilot)
+        assert tabs.calls == [] and sends.calls == []
+
+
+async def test_x_on_other_says_select() -> None:
+    app, tabs, _, _ = cleanup_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[2])
+        await pilot.press("x")
+        await pilot.pause()
+        assert "Select a project or one of its panes." in notices(app)
+        assert tabs.calls == []
+
+
+async def test_x_spawn_error_notified() -> None:
+    from cardak.collectors.wezterm import WeztermUnavailable
+
+    app, _, sends, jumps = cleanup_app(Tabs(WeztermUnavailable("wezterm cli timed out")))
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        await pilot.press("x")
+        await pilot.pause()
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert "Couldn't open a tab: wezterm cli timed out" in notices(app)
+        assert sends.calls == [] and jumps.jumps == []
+
+
+async def test_x_on_a_pane_opens_next_to_it() -> None:
+    app, tabs, _, _ = cleanup_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1].children[1])  # cardak, pane 3
+        await pilot.press("x")
+        await pilot.pause()
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert tabs.calls == [(Path("/repos/cardak"), 3)]
+
+
+async def test_x_send_error_still_takes_you_to_the_tab() -> None:
+    from cardak.collectors.wezterm import WeztermUnavailable
+
+    sends = Sends(WeztermUnavailable("wezterm cli timed out"))
+    jumps = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=jumps, interval=3600, send=sends, open_tab=Tabs())
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        await pilot.press("x")
+        await pilot.pause()
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await settle(app, pilot)
+        await app.workers.wait_for_complete()
+        assert "Opened pane 50 but couldn't type into it: wezterm cli timed out" in notices(app)
+        assert jumps.jumps == [50]

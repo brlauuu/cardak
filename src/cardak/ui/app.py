@@ -19,7 +19,7 @@ from textual.widgets import Footer, Header, Input, Label, Static, Tree
 from textual.widgets.tree import TreeNode
 from textual.worker import Worker
 
-from cardak.core import checkpoint, recap
+from cardak.core import checkpoint, cleanup, recap
 from cardak.core.agents import SessionState
 from cardak.core.config import ConfigError
 from cardak.core.eventlog import sentences
@@ -52,6 +52,7 @@ from cardak.ui.widgets import (
 
 LOG_DAYS = 30
 SENT_WITH_IT = "Anything already typed in that pane's input is sent with it."
+CLEANUP_NOTE = "Claude starts in that tab as if you typed it; the tab stays open after it exits."
 
 
 @dataclass(frozen=True)
@@ -218,6 +219,7 @@ class DeckApp(App[None]):
         Binding("k", "cursor_up", "Up", show=False),
         Binding("c", "checkpoint", "Checkpoint"),
         Binding("r", "recap", "Recap"),
+        Binding("x", "cleanup", "Cleanup"),
         Binding("R", "refresh", "Refresh", show=False),
         Binding("q", "quit", "Quit"),
     ]
@@ -226,7 +228,7 @@ class DeckApp(App[None]):
     DECK_ACTIONS = frozenset(
         {"add_project", "theme", "waiting_only", "detail", "find", "refresh", "cursor_down",
          "cursor_up", "clear_find", "event_log", "dismiss_crash", "history", "checkpoint",
-         "recap"}
+         "recap", "cleanup"}
     )  # fmt: skip
 
     def format_title(self, title: str, sub_title: str) -> Content:
@@ -252,6 +254,7 @@ class DeckApp(App[None]):
         log: ResourceLog | None = None,
         send: Callable[[int, str], None] | None = None,
         skills_status: Callable[[], str | None] | None = None,
+        open_tab: Callable[[Path, int | None], int] | None = None,
     ) -> None:
         super().__init__()
         self.source = source
@@ -264,6 +267,7 @@ class DeckApp(App[None]):
         self.resources_status = resources_status  # how to enable alerts, when they aren't yet
         self.send = send  # types into a pane: only /checkpoint, only after asking
         self.skills_status = skills_status  # how to install /checkpoint, when it isn't
+        self.open_tab = open_tab  # a shell tab in a project, for `x`; returns its pane id
         self.resource_log = log  # its own cardak.db connection: events, crash banner, history
         self._crash: ResourceEvent | None = None
         self._cap_noticed = False  # the summary-limit notice shows once per run
@@ -514,15 +518,67 @@ class DeckApp(App[None]):
         self.push_screen(ConfirmScreen(question, SENT_WITH_IT), done)
 
     def _send(self, send: Callable[[int, str], None], pane_id: int) -> None:
+        if self._type(send, pane_id, checkpoint.TEXT):
+            self.call_from_thread(self.notify, f"Sent /checkpoint to pane {pane_id}.")
+            self.call_from_thread(self.action_refresh)
+
+    def _type(
+        self,
+        send: Callable[[int, str], None],
+        pane_id: int,
+        text: str,
+        failed: str = "Couldn't send",
+    ) -> bool:
+        """Type text, then Enter as its own keystroke; a failure is a notice, not a crash."""
         try:
-            send(pane_id, checkpoint.TEXT)
+            send(pane_id, text)
             time.sleep(checkpoint.ENTER_DELAY_S)
             send(pane_id, checkpoint.ENTER)
-        except Exception as e:  # a WezTerm failure (or any bug) is a notice, not a crash
-            self.call_from_thread(self.notify, escape(f"Couldn't send: {e}"), severity="error")
+        except Exception as e:  # a WezTerm failure (or any bug)
+            self.call_from_thread(self.notify, escape(f"{failed}: {e}"), severity="error")
+            return False
+        return True
+
+    def action_cleanup(self) -> None:
+        node = self.deck_tree.cursor_node
+        send, open_tab = self.send, self.open_tab
+        if send is None or open_tab is None or node is None or node.data is None:
             return
-        self.call_from_thread(self.notify, f"Sent /checkpoint to pane {pane_id}.")
-        self.call_from_thread(self.action_refresh)
+        groups = self.raw.groups if self.raw else ()
+        found = cleanup.place(node.data.group, node.data.row, groups)
+        if isinstance(found, str):
+            self.notify(escape(found), severity="warning")
+            return
+        where = found
+
+        def done(yes: bool | None) -> None:
+            if yes:
+                self.run_worker(
+                    lambda: self._start_cleanup(open_tab, send, where), thread=True,
+                    group="send", exit_on_error=False,
+                )  # fmt: skip
+
+        shown = node.data.group.path or str(where.cwd)
+        question = f"Open a new tab in {shown} and run `{cleanup.COMMAND}`?"
+        self.push_screen(ConfirmScreen(question, CLEANUP_NOTE, ok="open"), done)
+
+    def _start_cleanup(
+        self,
+        open_tab: Callable[[Path, int | None], int],
+        send: Callable[[int, str], None],
+        where: cleanup.Place,
+    ) -> None:
+        try:
+            pane_id = open_tab(where.cwd, where.near)
+        except Exception as e:  # a WezTerm failure (or any bug) is a notice, not a crash
+            self.call_from_thread(
+                self.notify, escape(f"Couldn't open a tab: {e}"), severity="error"
+            )
+            return
+        failed = f"Opened pane {pane_id} but couldn't type into it"
+        if self._type(send, pane_id, cleanup.COMMAND, failed):
+            self.call_from_thread(self.notify, f"Started /repo-cleanup in pane {pane_id}.")
+        self.call_from_thread(self.jump, pane_id)  # the tab is open either way
 
     def action_recap(self) -> None:
         node = self.deck_tree.cursor_node

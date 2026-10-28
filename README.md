@@ -227,6 +227,11 @@ Both work without the deck. In the deck:
   branch, and uncommitted files. With several worktrees, the others are listed below it. It
   reads only local files and git. (Refresh moved to `R`.)
 
+`x` on a project (or one of its panes) opens a new WezTerm tab in the project's folder, next to
+that project's panes, types `claude /repo-cleanup` into it and takes you there, after asking.
+`/repo-cleanup` isn't one of cardak's skills: it runs whatever skill of that name you have in
+`~/.claude/skills/`. The tab is an ordinary shell and stays open when Claude exits.
+
 ## Development
 
 See `AGENTS.md` for conventions and `PLAN.md` for the roadmap.

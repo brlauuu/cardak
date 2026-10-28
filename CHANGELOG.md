@@ -9,6 +9,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+- `x` on a project in the deck opens a new WezTerm tab in that project's folder and starts `claude /repo-cleanup` there, after asking, then takes you to it. It runs your own `/repo-cleanup` skill; cardak doesn't ship one. (#65)
+
 ## 0.11.0 — 2026-10-28
 
 ### Added

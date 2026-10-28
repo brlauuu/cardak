@@ -15,6 +15,7 @@ from cardak.collectors.wezterm import (
     parse_cwd,
     parse_panes,
     send_text,
+    spawn,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -222,3 +223,29 @@ def test_vanished_gui_sock_is_skipped(tmp_path: Path, monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(Path, "stat", stat)
     assert find_socket({"XDG_RUNTIME_DIR": str(tmp_path)}) == live
+
+
+def test_spawn_next_to_a_pane(env: dict[str, str]) -> None:
+    runner = FakeRunner(stdout="42\n")
+    assert spawn(Path("/r/web"), 7, env, runner=runner) == 42
+    cmd, _ = runner.calls[0]
+    assert list(cmd) == [
+        "wezterm", "cli", "--no-auto-start", "spawn", "--cwd", "/r/web", "--pane-id", "7",
+    ]  # fmt: skip
+
+
+def test_spawn_without_a_pane_uses_the_callers_window(env: dict[str, str]) -> None:
+    runner = FakeRunner(stdout="42\n")
+    spawn(Path("/r/web"), None, {**env, "WEZTERM_PANE": "3"}, runner=runner)
+    assert list(runner.calls[0][0])[-2:] == ["--cwd", "/r/web"]
+
+
+def test_spawn_outside_wezterm_opens_a_window(env: dict[str, str]) -> None:
+    runner = FakeRunner(stdout="42\n")
+    spawn(Path("/r/web"), None, env, runner=runner)
+    assert list(runner.calls[0][0])[-1] == "--new-window"
+
+
+def test_spawn_rejects_odd_output(env: dict[str, str]) -> None:
+    with pytest.raises(WeztermUnavailable, match="unexpected"):
+        spawn(Path("/r/web"), 7, env, runner=FakeRunner(stdout="nope"))
