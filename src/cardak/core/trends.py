@@ -216,23 +216,28 @@ class UsageRow:
     incomplete_today: bool
 
 
+def _mean_peak(cells: Sequence[float | None]) -> tuple[float | None, float | None]:
+    seen = [v for v in cells if v is not None]
+    return (sum(seen) / len(seen), max(seen)) if seen else (None, None)
+
+
 def _row(t: ProjectTrend, figure: Figure) -> UsageRow | None:
     used = [d for d in t.days if d is not None]
     if not used:
         return None
     cells = tuple(value(d, figure) for d in t.days)
-    seen = [v for v in cells if v is not None]
-    last = t.days[-1]
+    per_day, peak = _mean_peak(cells)
+    last, cost = t.days[-1], figure == "cost"
     return UsageRow(
         subject=t.subject,
         name=t.name,
         today=cells[-1],
-        per_day=sum(seen) / len(seen) if seen else None,
-        peak=max(seen) if seen else None,
+        per_day=per_day,
+        peak=peak,
         window=value(reduce(merge, used), figure),
         days=cells,
-        incomplete=figure == "cost" and any(d.unpriced for d in used),
-        incomplete_today=figure == "cost" and last is not None and last.unpriced > 0,
+        incomplete=cost and any(d.unpriced for d in used),
+        incomplete_today=cost and last is not None and last.unpriced > 0,
     )
 
 

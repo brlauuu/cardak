@@ -86,14 +86,29 @@ def ufmt(v: float | None, figure: Figure, incomplete: bool = False) -> str:
     return fmt_count(v)
 
 
-def _usage_legend(e: Sequence[float], figure: Figure) -> str:
-    head = f"{LABELS[figure]} per day, relative to the busiest day:"
-    if e[0] == float("inf"):
-        return head
-    parts = [f"{CELLS[0]} <{ufmt(e[0], figure)}"]
-    parts += [f"{CELLS[i]} {ufmt(e[i - 1], figure)}–{ufmt(e[i], figure)}" for i in range(1, 4)]
-    parts.append(f"{CELLS[-1]} {ufmt(e[-1], figure)}")
-    return f"{head}  " + "  ".join(parts)
+def _usage_legend(e: Sequence[float], figure: Figure, unpriced: Sequence[str] = ()) -> str:
+    parts = [f"{LABELS[figure]} per day, relative to the busiest day:"]
+    if e[0] != float("inf"):
+        parts.append(f"{CELLS[0]} <{ufmt(e[0], figure)}")
+        parts += [f"{CELLS[i]} {ufmt(e[i - 1], figure)}–{ufmt(e[i], figure)}" for i in range(1, 4)]
+        parts.append(f"{CELLS[-1]} {ufmt(e[-1], figure)}")
+    if unpriced:
+        parts.append(f"no price: {', '.join(unpriced)}")
+    return "  ".join(parts)
+
+
+def _usage_line(r: UsageRow, figure: Figure, e: Sequence[float]) -> list[Text]:
+    """One usage row's cells: the fixed columns, then a shaded cell per day."""
+    fixed = [
+        r.name[:13].ljust(14),
+        ufmt(r.today, figure, r.incomplete_today).rjust(9),
+        ufmt(r.per_day, figure).rjust(9),
+        ufmt(r.peak, figure).rjust(9),
+        ufmt(r.window, figure, r.incomplete).rjust(9),
+    ]
+    days = [Text(CELLS[b], style=BAND_STYLES[b]) if (b := band(v, e)) >= 0 else Text(" ")
+            for v in r.days]  # fmt: skip
+    return [Text(x) for x in fixed] + days  # Text: names are free text, not markup
 
 
 def sort_usage(rows: Sequence[UsageRow], key: str) -> list[UsageRow]:
@@ -258,22 +273,9 @@ class HistoryScreen(Screen[None]):
         e_all = usage_edges([r for r in self._usage if r.subject == ALL])
         table = self.query_one(DataTable)
         for r in self._usage:
-            fixed = [
-                r.name[:13].ljust(14),
-                ufmt(r.today, figure, r.incomplete_today).rjust(9),
-                ufmt(r.per_day, figure).rjust(9),
-                ufmt(r.peak, figure).rjust(9),
-                ufmt(r.window, figure, r.incomplete).rjust(9),
-            ]
-            edges_of = e_all if r.subject == ALL else e
-            cells = [
-                Text(CELLS[b], style=BAND_STYLES[b]) if (b := band(v, edges_of)) >= 0 else Text(" ")
-                for v in r.days
-            ]
-            table.add_row(*(Text(x) for x in fixed), *cells, key=r.subject)
-        text = _usage_legend(e, figure) if self._usage else ""
-        if text and figure == "cost" and grouped is not None and grouped.unpriced:
-            text += f"  no price: {', '.join(grouped.unpriced)}"
+            table.add_row(*_usage_line(r, figure, e_all if r.subject == ALL else e), key=r.subject)
+        unpriced = grouped.unpriced if grouped is not None and figure == "cost" else ()
+        text = _usage_legend(e, figure, unpriced) if self._usage else ""
         self.query_one("#legend", Static).update(Text(text))
 
     def action_metric(self) -> None:

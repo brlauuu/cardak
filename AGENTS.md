@@ -27,6 +27,7 @@ src/cardak/
   core/{history, crash, eventlog}.py                   # M5: history, crash reports, the event log
   core/{checkpoint, recap}.py                          # M6: checkpoint & recap
   core/{prices, spend}.py                              # #29: this month at API prices
+  core/trends.py                                       # #88: usage per project and day
   core/cleanup.py                                      # #65: where `x` opens /repo-cleanup
   core/detail.py                                       # how `i` and the web view word a session
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
@@ -127,7 +128,7 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   | `~/.config/cardak/anthropic_key` | the user (cardak only reads it, in `cardak summarize`; refused with group/other bits) | the Anthropic API key for waiting summaries |
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
   | `~/.cache/cardak/prices.json` | the deck and `cardak daemon`, at most daily while one runs (#29) | the Anthropic entries of LiteLLM's price list |
-  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`); the deck and the daemon (`claude_replies`, `claude_prompts`, `transcript_offsets`, #29) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days); one row per Claude Code reply and per typed prompt (62 days; prompts are stored for #88, nothing reads them yet) and how far each transcript was read. `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
+  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`); the deck and the daemon (`claude_replies`, `claude_prompts`, `transcript_offsets`, #29) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days); one row per Claude Code reply and per typed prompt (62 days; both feed the usage trends, #88) and how far each transcript was read. `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
   | `~/.local/state/cardak/focus` | `cardak.lua` (module 3), via `focus.tmp.<gui pid>` (`wezterm.procinfo.pid()`, checked on 20240203) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>`; several GUIs share it, last writer wins (#43) |
   | `~/.local/state/cardak/wezterm_dir` | `cardak wezterm install [--dir]` | the directory `cardak.lua` was installed to; the deck, `themes apply` and `themes zsh` use it while `cardak.lua` is there, else `~/.config/wezterm` (#19) |
   | `~/.local/state/cardak/daemon.lock` | `cardak daemon` | empty; locked while a daemon runs, so a second one exits |
@@ -275,10 +276,33 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   price file: $899.30 vs $899.22 (sessions kept running in between); the scratch daemon with the
   web view on showed it on the phone page at 390×844.
 
+### Usage trends (#88)
+- The counter builds `core/trends` with the month's figure: per (cwd, local day) over the history
+  window (`trends.DAYS` = 30, which `core/history` shares), cost priced per reply as above (so the
+  long-context tier and the `+` for unpriced replies match), tokens, replies, prompts and their
+  characters, and each day's session ids. It reloads the rows only when `Store.usage_mark()` (the
+  newest reply and prompt rowid), the local date or the price table changed: the deck and the
+  daemon share the db, so a row the other process stored still counts as a change. Measured on
+  2026-10-28: a pass with nothing new takes ~7 ms (#29's took ~70 ms), one with new rows ~160 ms,
+  the first over a month of transcripts 5.3 s; the daemon peaked at 54 MB and averaged 1.0% of
+  one core over 90 s with sessions running.
+- `LiveSource` folds cwds into projects (`group_trends`, cached on the trends and the resolver)
+  and puts `GroupedTrends` on `DeckSnapshot.usage_trends`, only when it was built today. A
+  project's subject is `project:<key>` as in the RAM history, then Other, then All projects
+  (every row merged; sessions counted once across cwds and projects).
+- The history screen's `c` cycles RAM → CPU → the seven figures (`trends.FIGURES`). Usage bands
+  are relative to the busiest day cell of the project and Other rows; All projects is scaled on
+  its own. Window figures are the merged window: distinct sessions, weighted averages. Selecting
+  a usage cell notifies that day's figures; it opens no plot.
+- `GET /api/trends` (Bearer) returns `web/view.trends_json`: names, kinds and per-figure numbers
+  only, with `top` as the bar scale. The page fetches it when the Trends sheet opens and every
+  30 s while it's open. Checked in headless Chrome at 390×844 and 1180×820 against a scratch
+  daemon on 2026-10-28.
+
 ## Web view (M7)
 - `cardak daemon` serves it when `[web] enabled = true` (`cardak web setup`), on `host:port`
-  (default `0.0.0.0:8765`): `GET /` is a static page with no data, `GET /api/snapshot` and
-  `GET /api/session/<id>` need `Authorization: Bearer <web_key>` (`hmac.compare_digest`). Only
+  (default `0.0.0.0:8765`): `GET /` is a static page with no data, `GET /api/snapshot`,
+  `GET /api/session/<id>` and `GET /api/trends` (#88) need `Authorization: Bearer <web_key>` (`hmac.compare_digest`). Only
   GET/HEAD; nothing in a request polls or writes. The config and key are read at daemon start;
   a bad `[web]`, an open key file or a taken port logs one line and the daemon runs without it.
 - With the web on, the daemon's `LiveSource` gets the store, the focus history and the Anthropic
@@ -435,6 +459,12 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   the call-in-loop reports on `read_usage`, `SpendCounter._read` / `step` and `spend.run`: one
   call per line, per 500-reply batch, per changed transcript and per 30 s pass, each the unit of
   work by design.
+- **#88 (usage trends)** split `HistoryScreen._fill_usage` (15: `_usage_line`, the unpriced note
+  into `_usage_legend`) and `trends._row` (11: `_mean_peak`). Accepted: `trends.build_trends` and
+  `_fill_usage` at complexity 10 (one pass over replies and one over prompts; a guard per empty
+  state); the coordinators `HistoryScreen._fill_resources` (3 × 12, the old `_fill` for RAM/CPU)
+  and `_fill_usage` (3 × 11), the RAM/CPU and usage halves of one screen; and the nested-loop
+  reports on both, a row per project times 30 day cells.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.
