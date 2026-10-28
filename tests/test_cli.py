@@ -191,6 +191,7 @@ HOOK_FORBIDDEN = (
     "cardak.collectors.usage",
     "cardak.collectors.prices",
     "cardak.core.spend",
+    "cardak.core.trends",
     "cardak.core.prices",
     "urllib.request",
 )

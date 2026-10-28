@@ -2,7 +2,7 @@ import threading
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -19,6 +19,7 @@ from cardak.core.source import LiveSource
 from cardak.core.spend import MonthSpend
 from cardak.core.store import StoreError
 from cardak.core.summary import SummaryInfo, month_start
+from cardak.core.trends import DayUsage, UsageTrends
 
 HOME = Path("/home/user")
 
@@ -673,3 +674,30 @@ def test_spend_from_last_month_is_not_shown(tmp_path: Path) -> None:
     snap = source.poll()
     assert snap.month_spend is None
     assert all(g.spend_usd is None for g in snap.groups)
+
+
+def trending(today: date) -> MonthSpend:
+    cells: dict[tuple[str | None, int], DayUsage] = {
+        (f"{HOME}/repos/webshop", 29): DayUsage(replies=1, prompts=1, prompt_chars=5)
+    }
+    return replace(MONTH, trends=UsageTrends(today, cells, ()))
+
+
+def test_snapshot_carries_grouped_trends(tmp_path: Path) -> None:
+    cfg = tmp_path / "p.toml"
+    cfg.write_text(WEBSHOP_CFG)
+    snap = spending(cfg, trending(date.today())).poll()
+    assert snap.usage_trends is not None
+    assert [r.name for r in snap.usage_trends.rows] == ["webshop", "All projects"]
+
+
+def test_trends_from_yesterday_are_not_shown(tmp_path: Path) -> None:
+    snap = spending(tmp_path / "p.toml", trending(date.today() - timedelta(days=1))).poll()
+    assert snap.usage_trends is None
+    assert snap.month_spend == 60.0
+
+
+def test_grouped_trends_are_cached(tmp_path: Path) -> None:
+    source = spending(tmp_path / "p.toml", trending(date.today()))
+    first, second = source.poll(), source.poll()
+    assert first.usage_trends is not None and first.usage_trends is second.usage_trends

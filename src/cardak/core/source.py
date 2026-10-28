@@ -5,6 +5,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from typing import Protocol
 
@@ -25,6 +26,7 @@ from cardak.core.spend import MonthSpend
 from cardak.core.store import StoreError
 from cardak.core.summary import SummaryInfo, key_warning, month_start
 from cardak.core.themes import Scheme, project_accent
+from cardak.core.trends import GroupedTrends, UsageTrends, group_trends
 
 ListPanes = Callable[[Mapping[str, str]], list[wezterm.Pane]]
 Sample = Callable[[Iterable[str]], dict[str, PaneProcs]]
@@ -90,6 +92,7 @@ class LiveSource:
         self._docker = docker or DockerSampler().sample
         self._spend = spend  # the counter's latest figure (core/spend.py), read every poll
         self._spend_seen: tuple[MonthSpend, ProjectResolver, dict[GroupKey, float]] | None = None
+        self._trends_seen: tuple[UsageTrends, ProjectResolver, GroupedTrends] | None = None
         self._recent = Recent()
         self._summary_warning: str | None = None
         self._notify_warnings: tuple[str, ...] = ()
@@ -289,8 +292,21 @@ class LiveSource:
         self._spend_seen = (spend, self._resolver, found)
         return found
 
+    def _trends_by_group(self, trends: UsageTrends) -> GroupedTrends:
+        """The trends under each cwd's project, cached like `_spend_by_group`."""
+        seen = self._trends_seen
+        if seen is not None and seen[0] is trends and seen[1] is self._resolver:
+            return seen[2]
+        resolver = self._resolver
+        grouped = group_trends(trends, lambda cwd: resolver.resolve(Path(cwd) if cwd else None))
+        self._trends_seen = (trends, resolver, grouped)
+        return grouped
+
     def _with_spend(self, snap: DeckSnapshot) -> DeckSnapshot:
         spend = self._spend()
+        trends = spend.trends if spend is not None else None
+        if trends is not None and trends.today == date.fromtimestamp(self._clock()):
+            snap = replace(snap, usage_trends=self._trends_by_group(trends))  # not a stalled day's
         if spend is None or spend.since != month_start(self._clock()):
             return snap  # not counted yet, or a stalled counter's figure from last month
         by_group = self._spend_by_group(spend)

@@ -530,6 +530,15 @@ class Store:
             raise StoreError(str(e)) from e
         return added
 
+    def usage_mark(self) -> tuple[int, int]:
+        """The newest stored reply and prompt: a figure built on the same mark is still current,
+        whichever process stored the rows."""
+        rows = self._query(
+            "SELECT (SELECT max(rowid) FROM claude_replies),"
+            " (SELECT max(rowid) FROM claude_prompts)"
+        )
+        return (rows[0][0] or 0, rows[0][1] or 0)
+
     def transcript_offsets(self) -> dict[str, tuple[int, int]]:
         """path -> (inode, offset) of every transcript a pass has read."""
         rows = self._query("SELECT path, inode, offset FROM transcript_offsets")
