@@ -291,8 +291,8 @@ class LiveSource:
 
     def _with_spend(self, snap: DeckSnapshot) -> DeckSnapshot:
         spend = self._spend()
-        if spend is None:
-            return snap
+        if spend is None or spend.since != month_start(self._clock()):
+            return snap  # not counted yet, or a stalled counter's figure from last month
         by_group = self._spend_by_group(spend)
         groups = tuple(
             g if g.kind == "waiting" else replace(g, spend_usd=by_group.get((g.kind, g.key)))

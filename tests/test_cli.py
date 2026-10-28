@@ -45,7 +45,7 @@ def test_deck_starts_the_spend_counter(monkeypatch: pytest.MonkeyPatch, tmp_path
     from cardak.core import spend
     from cardak.core.spend import MonthSpend
 
-    month = MonthSpend(0.0, 3.0, {}, ())
+    month = MonthSpend(0.0, 3.0, {}, ())  # handed through as is: the source judges its month
     stop = threading.Event()
     calls: list[object] = []
     monkeypatch.setattr(spend, "background", lambda log: calls.append(log) or (lambda: month, stop))

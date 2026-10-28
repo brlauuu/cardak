@@ -231,3 +231,26 @@ def test_step_reads_big_files_in_chunks(
     assert max(sizes) <= 700 + longest  # never a whole file: a chunk, read on to a line's end
     assert len(sizes) > 3  # session.jsonl alone took several reads
     assert total == pytest.approx(counter(tmp_path, root, "whole.db").step().total)
+
+
+def test_run_counts_before_downloading_prices(
+    tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # a download that hangs (DNS, slow network) must not hold up the count
+    c = counter(tmp_path, root)
+    stop = threading.Event()
+    order: list[str] = []
+    real_step = c.step
+
+    def step() -> MonthSpend:
+        order.append("step")
+        return real_step()
+
+    def refresh() -> None:
+        order.append("refresh")
+        stop.set()
+
+    monkeypatch.setattr(c, "step", step)
+    monkeypatch.setattr(c.prices, "refresh", refresh)
+    spend.run(c, stop, lambda _m: None)
+    assert order == ["step", "refresh"]

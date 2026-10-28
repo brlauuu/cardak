@@ -105,8 +105,8 @@ class SpendCounter:
 def run(counter: SpendCounter, stop: threading.Event, log: Callable[[str], None]) -> None:
     while not stop.is_set():
         try:
+            counter.step()  # first: a download hanging on DNS must not hold up the count
             counter.prices.refresh()
-            counter.step()
         except Exception as e:  # a pass that fails is retried on the next one
             with contextlib.suppress(Exception):  # nor may a log that can't be written stop it
                 log(f"monthly spend: {e!r}")

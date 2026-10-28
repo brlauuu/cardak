@@ -1,4 +1,5 @@
 import threading
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -301,9 +302,10 @@ def test_build_source_passes_spend(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     from cardak.collectors.wezterm import WeztermUnavailable
     from cardak.core.daemon import build_source
     from cardak.core.spend import MonthSpend
+    from cardak.core.summary import month_start
 
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-    month = MonthSpend(0.0, 12.0, {}, ())
+    month = MonthSpend(month_start(time.time()), 12.0, {}, ())
     for agents in (False, True):
         source = build_source(tmp_path / "projects.toml", agents=agents, spend=lambda: month)
 

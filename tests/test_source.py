@@ -1,5 +1,7 @@
 import threading
+import time
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -16,7 +18,7 @@ from cardak.core.snapshot import DeckSnapshot
 from cardak.core.source import LiveSource
 from cardak.core.spend import MonthSpend
 from cardak.core.store import StoreError
-from cardak.core.summary import SummaryInfo
+from cardak.core.summary import SummaryInfo, month_start
 
 HOME = Path("/home/user")
 
@@ -588,8 +590,9 @@ def spending(cfg: Path, spend: MonthSpend | None, list_panes=panes, git=no_git) 
 
 
 WEBSHOP_CFG = f'[[project]]\nname = "webshop"\npath = "{HOME}/repos/webshop"\n'
+THIS_MONTH = month_start(time.time())
 MONTH = MonthSpend(
-    0.0,
+    THIS_MONTH,
     60.0,
     {
         f"{HOME}/repos/webshop": 10.0,
@@ -624,14 +627,14 @@ def test_spend_none_before_first_pass(tmp_path: Path) -> None:
 def test_spend_left_off_groups_without_any(tmp_path: Path) -> None:
     cfg = tmp_path / "p.toml"
     cfg.write_text(WEBSHOP_CFG)
-    only_webshop = MonthSpend(0.0, 1.0, {f"{HOME}/repos/webshop": 1.0}, ())
+    only_webshop = MonthSpend(THIS_MONTH, 1.0, {f"{HOME}/repos/webshop": 1.0}, ())
     spent = {g.name: g.spend_usd for g in spending(cfg, only_webshop).poll().groups}
     assert spent == {"webshop": 1.0, "Other": None}
 
 
 def test_spend_never_on_waiting_group(tmp_path: Path) -> None:
     source = agent_source(tmp_path, FakeStore(WAITING))
-    source._spend = lambda: MONTH
+    source._spend = lambda: replace(MONTH, since=month_start(102.0))  # its clock
     snap = source.poll()
     assert [(g.kind, g.spend_usd) for g in snap.groups] == [("waiting", None), ("other", 60.0)]
 
@@ -652,10 +655,21 @@ def test_spend_with_wezterm_down(tmp_path: Path) -> None:
 
 
 def test_unpriced_warning(tmp_path: Path) -> None:
-    month = MonthSpend(0.0, 1.0, {}, ("claude-opus-5-5 (fast mode)", "claude-x"))
+    month = MonthSpend(THIS_MONTH, 1.0, {}, ("claude-opus-5-5 (fast mode)", "claude-x"))
     snap = spending(tmp_path / "p.toml", month).poll()
     assert snap.spend_unpriced == ("claude-opus-5-5 (fast mode)", "claude-x")
     assert (
         "no API price for claude-opus-5-5 (fast mode), claude-x; left out of this month's figure"
         in snap.config_warnings
     )
+
+
+def test_spend_from_last_month_is_not_shown(tmp_path: Path) -> None:
+    # a counter that keeps failing past the 1st must not show last month's figure as this month's
+    now = datetime(2026, 11, 1, 9, 0).timestamp()
+    october = MonthSpend(datetime(2026, 10, 1).timestamp(), 899.0, {None: 899.0}, ())
+    source = spending(tmp_path / "p.toml", october)
+    source._clock = lambda: now
+    snap = source.poll()
+    assert snap.month_spend is None
+    assert all(g.spend_usd is None for g in snap.groups)
