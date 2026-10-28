@@ -8,13 +8,11 @@ from typing import Literal
 from cardak.core.resources import GIB, Thresholds
 from cardak.core.snapshot import DeckSnapshot
 from cardak.core.store import DayPeak, MinuteRow
+from cardak.core.trends import DAYS, OTHER, PROJECT_KINDS
 
 Metric = Literal["ram", "cpu"]
 SORTS = ("peak", "now", "median", "alerts", "name")
-DAYS = 30
 CELLS = "░▒▓▓█"
-OTHER = "other"
-PROJECT_KINDS = ("config", "git")
 
 
 def _live(snap: DeckSnapshot) -> list[tuple[str, str, int, float]]:
