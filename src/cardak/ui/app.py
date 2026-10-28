@@ -522,14 +522,20 @@ class DeckApp(App[None]):
             self.call_from_thread(self.notify, f"Sent /checkpoint to pane {pane_id}.")
             self.call_from_thread(self.action_refresh)
 
-    def _type(self, send: Callable[[int, str], None], pane_id: int, text: str) -> bool:
+    def _type(
+        self,
+        send: Callable[[int, str], None],
+        pane_id: int,
+        text: str,
+        failed: str = "Couldn't send",
+    ) -> bool:
         """Type text, then Enter as its own keystroke; a failure is a notice, not a crash."""
         try:
             send(pane_id, text)
             time.sleep(checkpoint.ENTER_DELAY_S)
             send(pane_id, checkpoint.ENTER)
         except Exception as e:  # a WezTerm failure (or any bug)
-            self.call_from_thread(self.notify, escape(f"Couldn't send: {e}"), severity="error")
+            self.call_from_thread(self.notify, escape(f"{failed}: {e}"), severity="error")
             return False
         return True
 
@@ -538,7 +544,8 @@ class DeckApp(App[None]):
         send, open_tab = self.send, self.open_tab
         if send is None or open_tab is None or node is None or node.data is None:
             return
-        found = cleanup.place(node.data.group, node.data.row)
+        groups = self.raw.groups if self.raw else ()
+        found = cleanup.place(node.data.group, node.data.row, groups)
         if isinstance(found, str):
             self.notify(escape(found), severity="warning")
             return
@@ -568,9 +575,10 @@ class DeckApp(App[None]):
                 self.notify, escape(f"Couldn't open a tab: {e}"), severity="error"
             )
             return
-        if self._type(send, pane_id, cleanup.COMMAND):
+        failed = f"Opened pane {pane_id} but couldn't type into it"
+        if self._type(send, pane_id, cleanup.COMMAND, failed):
             self.call_from_thread(self.notify, f"Started /repo-cleanup in pane {pane_id}.")
-            self.call_from_thread(self.jump, pane_id)
+        self.call_from_thread(self.jump, pane_id)  # the tab is open either way
 
     def action_recap(self) -> None:
         node = self.deck_tree.cursor_node

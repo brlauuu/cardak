@@ -39,4 +39,11 @@ def test_project_without_panes_opens_in_the_decks_window() -> None:
 
 def test_other_and_waiting_are_not_projects() -> None:
     assert place(group("other", row(4), key=None), None) == NOT_A_PROJECT
-    assert place(group("waiting", row(4), key=None), row(4)) == NOT_A_PROJECT
+    assert place(group("waiting", row(4), key=None), None) == NOT_A_PROJECT
+
+
+def test_waiting_row_opens_in_its_project() -> None:
+    waiting, project = group("waiting", row(9), key=None), group("config", row(4), row(9))
+    other = group("other", row(5), key=None)
+    assert place(waiting, row(9), (waiting, project)) == Place(KEY, 9)
+    assert place(waiting, row(5), (waiting, project, other)) == NOT_A_PROJECT

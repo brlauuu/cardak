@@ -61,7 +61,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 - Read-only by default: the deck observes and focuses panes; it does not launch or drive agents.
   Two exceptions, each after the user confirms it in a dialog: `c` (M6) types `/checkpoint` into
   an agent pane, and `x` (#65) opens a shell tab in a project (`wezterm cli spawn --cwd`, in the
-  window of the project's first or selected pane, else the deck's) and types
+  window of the project's first or selected pane, else the deck's, else a new window outside
+  WezTerm; a row under "Waiting on you" counts as its project's) and types
   `claude /repo-cleanup` into it. Typing into the shell, rather than spawning `claude` directly,
   gives Claude the user's PATH and rc files and leaves the tab open when it exits.
 - Never edit `~/.config/wezterm/wezterm.lua`, `~/.claude/settings.json` or anything else
