@@ -1,6 +1,7 @@
 """Run the real cardak.lua (Lua 5.4, as embedded in WezTerm) against a fake `wezterm` API."""
 
 import json
+from collections.abc import Mapping
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -231,8 +232,8 @@ def test_focus_is_harmless_without_a_state_dir(
     assert not (tmp_path / "missing").exists()
 
 
-def test_module_version_3() -> None:
-    assert MODULE.splitlines()[1] == "-- cardak-module: 3"
+def test_module_version_4() -> None:
+    assert MODULE.splitlines()[1] == "-- cardak-module: 4"
 
 
 def record_opens(wez: Wez) -> Any:
@@ -261,3 +262,179 @@ def test_focus_tmp_without_procinfo(state: Path) -> None:
     focus(wez, wez.window(1, "/r"), True, 1000)
     assert str(state) + ".tmp" in list(opened.values())
     assert state.read_text().splitlines() == [FOCUS_HEADER, "10 1000"]
+
+
+TABS = """
+fake.truncate_right = function(s, n) return s:sub(1, (utf8.offset(s, n + 1) or #s + 1) - 1) end
+function tab(cwd, title, opts)
+  opts = opts or {}
+  return {
+    tab_index = opts.index or 0,
+    tab_title = opts.tab_title or '',
+    active_pane = { title = title, current_working_dir = cwd and ('file://host' .. cwd) or nil },
+  }
+end
+function title_of(t, config, width)
+  local fn = (handlers['format-tab-title'] or {})[1]
+  if not fn then return 'NO HANDLER' end
+  return fn(t, { t }, {}, config or { show_tab_index_in_tab_bar = false }, false, width or 60)
+end
+"""
+
+
+class Tabs(Wez):
+    def __init__(self, data: str | None, apply: str = "M.apply({})") -> None:
+        self.lua = LuaRuntime(unpack_returned_tuples=True)
+        g: Any = self.lua.globals()
+        self.g = g
+        g.py_json = lambda s: self.lua.table_from(json.loads(s))
+        g.DATA = data
+        self.lua.execute(HARNESS + TABS)
+        g.M = self.lua.execute(MODULE)
+        self.lua.execute(apply)
+
+    def title(
+        self,
+        cwd: str | None,
+        pane_title: str = "zsh",
+        width: int = 60,
+        config: Mapping[str, object] | None = None,
+        **opts: object,
+    ) -> str | None:
+        t = self.g.tab(cwd, pane_title, self.lua.table_from(opts))
+        cfg = self.lua.table_from(
+            {"show_tab_index_in_tab_bar": False} if config is None else config
+        )
+        return self.g.title_of(t, cfg, width)
+
+
+API = Project(name="api", path=Path("/r/api"))  # no theme: still named
+
+
+def test_tab_title_leads_with_the_project() -> None:
+    tabs = Tabs(data(WEB, API))
+    assert tabs.title("/r/web/src", "✳ Fix the cart") == " web · ✳ Fix the cart "
+    assert tabs.title("/r/api", "zsh") == " api · zsh "
+
+
+def test_tab_title_does_not_repeat_the_project() -> None:
+    tabs = Tabs(data(WEB))
+    assert tabs.title("/r/web", "web") == " web "
+    assert tabs.title("/r/web", "") == " web "
+
+
+def test_tab_title_outside_a_project_is_wezterms() -> None:
+    tabs = Tabs(data(WEB))
+    assert tabs.title("/elsewhere", "zsh") is None
+    assert tabs.title(None, "zsh") is None  # no OSC 7 yet
+
+
+def test_a_title_the_user_set_is_kept() -> None:
+    assert Tabs(data(WEB)).title("/r/web", "zsh", tab_title="deploy") is None
+
+
+def test_tab_title_follows_wezterms_tab_index_settings() -> None:
+    tabs = Tabs(data(WEB))
+    assert tabs.title("/r/web", "zsh", config={}, index=2) == " 3: web · zsh "  # default: shown
+    shown = {"show_tab_index_in_tab_bar": True, "tab_and_split_indices_are_zero_based": True}
+    assert tabs.title("/r/web", "zsh", config=shown, index=2) == " 2: web · zsh "
+
+
+def test_tab_title_fits_the_tab() -> None:
+    assert Tabs(data(WEB)).title("/r/web", "✳ Fix the cart", width=12) == " web · ✳ Fi "
+
+
+def test_tab_title_names_a_git_repo_like_the_deck(tmp_path: Path) -> None:
+    repo = tmp_path / "shop"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "src").mkdir()
+    worktree = tmp_path / "shop-fix"
+    worktree.mkdir()
+    (worktree / ".git").write_text("gitdir: elsewhere\n")  # a worktree's .git is a file
+    tabs = Tabs(data(WEB))
+    assert tabs.title(str(repo / "src"), "zsh") == " shop · zsh "
+    assert tabs.title(str(worktree), "zsh") == " shop-fix · zsh "
+    assert tabs.title(str(tmp_path), "zsh") is None
+
+
+def test_configured_project_wins_over_its_git_repo(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    named = Project(name="named", path=tmp_path)
+    assert Tabs(data(named)).title(str(tmp_path), "zsh") == " named · zsh "
+
+
+def test_tab_titles_can_be_turned_off() -> None:
+    tabs = Tabs(data(WEB), "M.apply({}, { tab_titles = false })")
+    assert tabs.title("/r/web", "zsh") == "NO HANDLER"
+
+
+def test_old_data_without_names_still_themes_and_titles() -> None:
+    tabs = Tabs("return { projects = { { path = '/r/web', scheme = 'Nord' } } }")
+    w = tabs.window(1, "/r/web")
+    tabs.status(w)
+    assert tabs.scheme(w) == "Nord"
+    assert tabs.title("/r/web", "zsh") is None  # no name, no git repo: WezTerm's title
+
+
+def test_an_unthemed_project_keeps_the_default_scheme() -> None:
+    wez = Wez(data(API, default="Dflt"))
+    w = wez.window(1, "/r/api")
+    wez.status(w)
+    assert wez.scheme(w) == "Dflt"
+
+
+class Url:  # WezTerm 20230712+ hands PaneInformation's cwd over as a Url object
+    def __init__(self, file_path: str) -> None:
+        self.file_path = file_path
+
+
+def test_tab_title_reads_a_url_object_cwd() -> None:
+    tabs = Tabs(data(WEB))
+    t = tabs.g.tab(None, "zsh", tabs.lua.table_from({}))
+    t.active_pane.current_working_dir = Url("/r/web/src")
+    cfg = tabs.lua.table_from({"show_tab_index_in_tab_bar": False})
+    assert tabs.g.title_of(t, cfg, 60) == " web · zsh "
+
+
+def test_a_broken_tab_record_falls_back_to_wezterms_title() -> None:
+    tabs = Tabs(data(WEB))
+    broken = tabs.lua.eval(
+        "{ tab_title = '', active_pane = { title = 'zsh', current_working_dir = 'file:///r/web' } }"
+    )
+    assert tabs.g.title_of(broken, tabs.lua.table_from({}), 60) is None  # no tab_index
+
+
+def test_nested_projects_take_the_innermost_name() -> None:
+    inner = Project(name="cart", path=Path("/r/web/cart"))
+    tabs = Tabs(data(WEB, inner))
+    assert tabs.title("/r/web/cart/src") == " cart · zsh "
+    assert tabs.title("/r/web/api") == " web · zsh "
+
+
+def test_tab_title_with_a_trailing_slash(tmp_path: Path) -> None:
+    (tmp_path / "shop" / ".git").mkdir(parents=True)
+    tabs = Tabs(data(WEB))
+    assert tabs.title(f"{tmp_path}/shop/") == " shop · zsh "
+    assert tabs.title("/r/web/") == " web · zsh "
+
+
+def test_no_repository_is_looked_up_again_later(tmp_path: Path) -> None:
+    tabs = Tabs(data())
+    tabs.lua.execute("real_time = os.time; os.time = function() return CLOCK end")
+    tabs.g.CLOCK = 1000
+    assert tabs.title(str(tmp_path)) is None
+    (tmp_path / ".git").mkdir()
+    assert tabs.title(str(tmp_path)) is None  # cached for a while
+    tabs.g.CLOCK = 1031
+    assert tabs.title(str(tmp_path)) == f" {tmp_path.name} · zsh "
+
+
+def test_module_3_still_themes_from_new_data() -> None:
+    old = (Path(__file__).parent / "fixtures" / "cardak_module_3.lua").read_text()  # v0.10.0
+    wez = Wez(data(WEB, API, default="Dflt"))
+    wez.g.M = wez.lua.execute(old)
+    wez.lua.eval("M.apply({})")
+    themed, plain = wez.window(1, "/r/web"), wez.window(2, "/r/api")
+    wez.status(themed)
+    wez.status(plain)
+    assert (wez.scheme(themed), wez.scheme(plain)) == ("Nord", "Dflt")

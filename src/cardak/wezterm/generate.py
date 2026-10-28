@@ -11,7 +11,7 @@ from cardak.core.themes import Scheme, project_tint
 from cardak.wezterm.files import write_atomic
 from cardak.wezterm.install import MARKER
 
-MODULE_VERSION = 3
+MODULE_VERSION = 4
 ZSH_MARKER = "# cardak: generated"
 PROJECTS_FILE = "cardak_projects.lua"
 TINTS_FILE = "tints"
@@ -99,14 +99,15 @@ def render_projects_lua(config: Config, known: Collection[str] | None) -> tuple[
             lines.append(f"  default = {lua_str(default)},")
     lines.append("  projects = {")
     for p in projects:
-        if p.theme is None:
-            continue
-        if known is not None and p.theme not in known:
+        # every project, themed or not: the module names tabs after it (#31)
+        scheme = ""
+        if p.theme is not None and known is not None and p.theme not in known:
             problems.append(f'unknown scheme "{p.theme}" for {p.name}')
-            continue
+        elif p.theme is not None:
+            scheme = f", scheme = {lua_str(p.theme)}"
         # a symlinked project under its real path too: WezTerm may see either (#14)
         for path in dict.fromkeys((str(p.path), str(real_path(p.path)))):
-            lines.append(f"    {{ path = {lua_str(path)}, scheme = {lua_str(p.theme)} }},")
+            lines.append(f"    {{ path = {lua_str(path)}, name = {lua_str(p.name)}{scheme} }},")
     lines += ["  },", "}"]
     return "\n".join(lines) + "\n", problems
 
