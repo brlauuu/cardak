@@ -252,7 +252,9 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   stored offset (files modified this month only; a replaced or shorter file is read from 0) and
   stores replies with `INSERT OR IGNORE`, so the two never double the figure. At most 500 replies
   per transaction, for the hooks' 2 s busy timeout. The first pass over a month of transcripts
-  took 3.8 s (~480 MB); later ones ~70 ms. Nothing in `cardak hook` imports any of it.
+  took 3.8 s (~480 MB); later ones ~70 ms. Transcripts are read 4 MiB at a time (the biggest is ~80 MB;
+  reading them whole took the daemon to 128 MB, chunked it peaks at 50 MB against 38 MB without
+  the counter, 0.3% of one core). Nothing in `cardak hook` imports any of it.
 - Measured on 2026-10-28 (Claude Code 2.1.3xx): a reply is written once per content block, each
   line repeating `message.id`, `requestId` and `usage` (21k lines, 10k replies); the key is both
   ids, which also dedupes replies copied into a resumed session's file. `usage.iterations` is one

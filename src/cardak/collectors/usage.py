@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+READ_LIMIT = 4 * 2**20  # bytes per read: a month's biggest transcript is ~80 MB
+
 
 @dataclass(frozen=True)
 class Reply:
@@ -146,18 +148,31 @@ def _record(line: bytes) -> Reply | Prompt | None:
     return _prompt(record, ts) if record.get("type") == "user" else None
 
 
-def read_usage(path: Path, offset: int) -> tuple[Usage, int]:
-    """Replies and prompts from `offset` to the last complete line, and where that line ends."""
+def _complete_lines(path: Path, offset: int, limit: int) -> bytes:
+    """Up to `limit` bytes from offset, cut after the last newline; a longer line is read whole.
+    Raises OSError."""
+    with path.open("rb") as f:
+        f.seek(offset)
+        data = f.read(limit)
+        while b"\n" not in data and len(data) % limit == 0 and data:
+            more = f.read(limit)  # one line longer than limit: read on to its end
+            if not more:
+                break
+            data += more
+    return data[: data.rfind(b"\n") + 1]
+
+
+def read_usage(path: Path, offset: int, limit: int = READ_LIMIT) -> tuple[Usage, int]:
+    """Replies and prompts in at most `limit` bytes from `offset`, cut at the last complete
+    line, and where that line ends: call again from there until it stops moving."""
     try:
-        with path.open("rb") as f:
-            f.seek(offset)
-            data = f.read()
+        data = _complete_lines(path, offset, limit)
     except OSError:
         return Usage(), offset
-    end = data.rfind(b"\n") + 1
+    end = len(data)
     replies: dict[str, Reply] = {}
     prompts: list[Prompt] = []
-    for line in data[:end].splitlines():
+    for line in data.splitlines():
         found = _record(line)
         if isinstance(found, Reply):
             replies.setdefault(found.key, found)

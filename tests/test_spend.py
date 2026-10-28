@@ -74,7 +74,7 @@ def test_step_reads_only_appended(
     first = c.step().total
     reads: list[Path] = []
     real = usage_mod.read_usage
-    monkeypatch.setattr(spend, "read_usage", lambda p, o: reads.append(p) or real(p, o))
+    monkeypatch.setattr(spend, "read_usage", lambda p, o, n: reads.append(p) or real(p, o, n))
     assert c.step().total == pytest.approx(first)
     assert reads == []
     session = root / "-home-user-webshop" / "session.jsonl"
@@ -209,3 +209,25 @@ def test_run_survives_a_broken_log(
     monkeypatch.setattr(spend, "PASS_EVERY_S", 0.0)
     spend.run(c, stop, log)
     assert len(steps) == 2
+
+
+def test_step_reads_big_files_in_chunks(
+    tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(spend, "READ_LIMIT", 700)
+    sizes: list[int] = []
+    real = usage_mod.read_usage
+
+    def tracked(path: Path, offset: int, limit: int) -> tuple:
+        usage, end = real(path, offset, limit)
+        sizes.append(end - offset)
+        return usage, end
+
+    monkeypatch.setattr(spend, "read_usage", tracked)
+    total = counter(tmp_path, root).step().total
+    longest = max(
+        len(line) + 1 for f in root.rglob("*.jsonl") for line in f.read_bytes().splitlines()
+    )
+    assert max(sizes) <= 700 + longest  # never a whole file: a chunk, read on to a line's end
+    assert len(sizes) > 3  # session.jsonl alone took several reads
+    assert total == pytest.approx(counter(tmp_path, root, "whole.db").step().total)

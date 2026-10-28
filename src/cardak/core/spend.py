@@ -15,7 +15,14 @@ from pathlib import Path
 
 from cardak.collectors import usage as usage_mod
 from cardak.collectors.prices import ModelPrice
-from cardak.collectors.usage import Reply, TranscriptFile, Usage, read_usage, transcript_files
+from cardak.collectors.usage import (
+    READ_LIMIT,
+    Reply,
+    TranscriptFile,
+    Usage,
+    read_usage,
+    transcript_files,
+)
 from cardak.core.config import cache_dir
 from cardak.core.prices import CACHE_NAME, PriceBook, lookup, priced, reply_cost
 from cardak.core.store import Store, StoreError, db_path
@@ -75,15 +82,16 @@ class SpendCounter:
         inode, offset = stored or (f.inode, 0)
         if inode != f.inode or f.size < offset:  # replaced or cut: read it again from the top
             offset = 0
-        if stored == (f.inode, f.size):
-            return
-        usage, end = read_usage(f.path, offset)
-        path = str(f.path)
-        chunks = _chunks(usage)
-        for i, chunk in enumerate(chunks):
-            # the offset moves with the last chunk only: a pass cut short reads the rest again
-            done = end if i == len(chunks) - 1 else offset
-            self.store.record_usage(path, f.inode, done, chunk)
+        while offset < f.size:  # a few MB at a time: a first pass meets 80 MB transcripts
+            usage, end = read_usage(f.path, offset, READ_LIMIT)
+            if end == offset:
+                return  # only a line still being written
+            chunks = _chunks(usage)
+            for i, chunk in enumerate(chunks):
+                # the offset moves with the last batch only: a pass cut short reads it again
+                done = end if i == len(chunks) - 1 else offset
+                self.store.record_usage(str(f.path), f.inode, done, chunk)
+            offset = end
 
     def step(self) -> MonthSpend:
         since = month_start(self._clock())

@@ -104,3 +104,26 @@ def test_transcript_files_any_depth_and_since(tmp_path: Path) -> None:
     st = session.path.stat()
     assert (session.size, session.inode, session.mtime) == (st.st_size, st.st_ino, st.st_mtime)
     assert transcript_files(tmp_path / "nowhere", since=0.0) == []
+
+
+def test_read_usage_reads_at_most_limit(tmp_path: Path) -> None:
+    data = SESSION.read_bytes()
+    offset, keys = 0, []
+    while offset < len(data):
+        usage, end = read_usage(SESSION, offset, limit=1500)
+        assert end > offset  # always progresses
+        longest = max(len(line) + 1 for line in data.splitlines())
+        assert end - offset <= 1500 + longest  # a chunk, read on to the end of a line
+        keys += [r.key for r in usage.replies]
+        offset = end
+    # a reply's lines can fall in two chunks: the store keeps it once
+    assert list(dict.fromkeys(keys)) == ["msg_u1:req_u1", "msg_u2:req_u2"]
+
+
+def test_read_usage_line_longer_than_limit(tmp_path: Path) -> None:
+    path = tmp_path / "long.jsonl"
+    first = SESSION.read_text().splitlines()[1]  # the first prompt, ~400 bytes
+    path.write_text(first + "\n" + first.replace("p-1", "p-9") + "\n")
+    usage, end = read_usage(path, 0, limit=50)
+    assert [p.key for p in usage.prompts] == ["p-1"]
+    assert end == len(first) + 1
