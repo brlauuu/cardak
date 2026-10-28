@@ -60,6 +60,7 @@ def _project(g: Group) -> Json:
         "cpu_pct": g.cpu_pct,
         "ram_spark": g.ram_spark,
         "over": g.over,
+        "spend_usd": g.spend_usd,
         "docker": [{"label": d.label, "rss": d.rss, "cpu_pct": d.cpu_pct} for d in g.docker],
         "panes": [_pane(r) for r in g.panes],
     }
@@ -108,6 +109,8 @@ def snapshot_json(snap: DeckSnapshot, ts: float, now: float) -> Json:
         "internal": snap.internal,
         "warnings": warnings,
         "machine": _machine(snap),
+        "month_spend": snap.month_spend,
+        "spend_unpriced": bool(snap.spend_unpriced),
         "waiting": waiting,
         "projects": [_project(g) for g in snap.groups if g.kind != "waiting"],
     }

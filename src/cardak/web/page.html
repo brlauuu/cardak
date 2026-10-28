@@ -25,7 +25,7 @@ body {
 }
 header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 10px; }
 header h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
-#machine { color: var(--muted); font-size: 13px; }
+#machine, #spend { color: var(--muted); font-size: 13px; }
 #machine.warning { color: var(--waiting); }
 #machine.critical { color: var(--over); }
 #fresh { width: 100%; color: var(--muted); font-size: 12px; }
@@ -84,6 +84,7 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
 <header>
   <h1>cardak</h1>
   <span id="machine"></span>
+  <span id="spend"></span>
   <span id="fresh">connecting…</span>
 </header>
 <div id="notice"></div>
@@ -134,6 +135,11 @@ function share(bytes, total) {
   return v > 0 && v < 0.5 ? " (<1%)" : " (" + Math.round(v) + "%)";
 }
 function ram(bytes, total) { return gb(bytes) + share(bytes, total); }
+// as the deck's fmt_usd: "$0.42" under $10, then whole dollars ("$1,204"); nothing is "$0"
+function usd(v) {
+  if (v === 0) return "$0";
+  return v < 10 ? "$" + v.toFixed(2) : "$" + Math.round(v).toLocaleString("en-US");
+}
 function pct(v) { return v === null || v === undefined ? "–" : Math.round(v) + "%"; }
 function clock(ts) {
   const d = new Date(ts * 1000);
@@ -166,6 +172,12 @@ function renderMachine(m) {
     share(m.mem_used, m.mem_total) + " · CPU " + pct(m.cpu_pct);
   if (m.swap_full) text += " · swap full";
   box.textContent = text;
+}
+
+function renderSpend(snap) {
+  const box = $("spend");
+  box.textContent = snap.month_spend === null || snap.month_spend === undefined ? "" :
+    usd(snap.month_spend) + (snap.spend_unpriced ? "+" : "") + " this month at API prices";
 }
 
 function renderFresh(snap) {
@@ -219,6 +231,7 @@ function projectCard(g, now, total) {
   add(card, head);
   const shells = g.panes.length - agents.length;
   const parts = [];
+  if (g.spend_usd) parts.push(usd(g.spend_usd) + " this month");
   if (agents.length) parts.push(agents.length + (agents.length === 1 ? " agent" : " agents"));
   if (shells) parts.push(shells + (shells === 1 ? " pane" : " panes"));
   if (g.docker.length) parts.push(g.docker.length + " docker");
@@ -243,6 +256,7 @@ function projectCard(g, now, total) {
 
 function render(snap) {
   renderMachine(snap.machine);
+  renderSpend(snap);
   renderFresh(snap);
   $("main").classList.remove("dim");
   if (snap.error) {

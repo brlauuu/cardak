@@ -101,3 +101,19 @@ def test_every_ram_figure_carries_its_share() -> None:
         'let text = "RAM " + (m.mem_used / 2 ** 30).toFixed(1) + " / " + gb(m.mem_total) +',
     ]
     assert "share(m.mem_used, m.mem_total)" in PAGE
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_usd_matches_the_deck() -> None:
+    from cardak.ui.widgets import fmt_usd
+
+    values = [0.421, 9.994, 37.4, 1204.6, 0.0, 12345.0]
+    script = _js_function("usd") + f"console.log(JSON.stringify({values}.map(usd)));"
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) == [fmt_usd(v) for v in values]
+
+
+def test_page_shows_spend() -> None:
+    assert '<span id="spend"></span>' in PAGE
+    assert '" this month at API prices"' in PAGE
+    assert "g.spend_usd" in PAGE

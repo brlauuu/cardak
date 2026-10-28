@@ -132,3 +132,17 @@ def test_find_agent_ignores_waiting_group_duplicates() -> None:
     assert find_agent(s, "nope") is None
     only_waiting = DeckSnapshot((s.groups[0],))
     assert find_agent(only_waiting, "s1") is None
+
+
+def test_snapshot_json_spend() -> None:
+    from dataclasses import replace
+
+    base = snap()
+    groups = (base.groups[0], replace(base.groups[1], spend_usd=37.5), base.groups[2])
+    spent = replace(base, groups=groups, month_spend=412.0, spend_unpriced=("claude-x",))
+    out = snapshot_json(spent, 1.0, 2.0)
+    assert out["month_spend"] == 412.0 and out["spend_unpriced"] is True
+    assert [p["spend_usd"] for p in out["projects"]] == [37.5, None]
+    blank = snapshot_json(base, 1.0, 2.0)
+    assert blank["month_spend"] is None and blank["spend_unpriced"] is False
+    json.dumps(out)
