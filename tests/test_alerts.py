@@ -252,3 +252,14 @@ def test_cut_then_escaped() -> None:
     reason = "a" * 100 + " & " + "b" * 20  # the label is 15 chars: the & lands just before the cut
     body = notification_argv("x", Ping("s1", 7, None, "finished", reason))[-1]
     assert body.endswith("…") and "&am…" not in body and "&amp;" in body
+
+
+def test_off_reads_no_packs(monkeypatch: pytest.MonkeyPatch) -> None:
+    # the hook's ping path with sound off does no pack work at all (#91)
+    def boom(*_a: object) -> None:
+        raise AssertionError("packs read")
+
+    monkeypatch.setattr("cardak.core.alerts.read_packs", boom)
+    spawned: list[list[str]] = []
+    alert("notes", PING, NotifySettings(desktop=False, sound="off"), spawn=spawned.append)
+    assert spawned == []

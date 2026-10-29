@@ -701,3 +701,22 @@ def test_grouped_trends_are_cached(tmp_path: Path) -> None:
     source = spending(tmp_path / "p.toml", trending(date.today()))
     first, second = source.poll(), source.poll()
     assert first.usage_trends is not None and first.usage_trends is second.usage_trends
+
+
+def test_broken_sound_pack_becomes_a_warning(tmp_path: Path, packs_dir: Path) -> None:
+    # the deck reads the test's own packs folder, never the user's (#91)
+    (packs_dir / "bad").mkdir()
+    (packs_dir / "bad" / "openpeon.json").write_text("{")
+    source = LiveSource(
+        tmp_path / "p.toml",
+        env={},
+        list_panes=panes,
+        sample=sample,
+        claude_lookup=lambda p: None,
+        git=no_git,
+        home=HOME,
+        machine=no_machine,
+        docker=no_docker,
+    )
+    (warning,) = source.poll().config_warnings
+    assert warning.startswith("sound pack bad: openpeon.json unreadable")

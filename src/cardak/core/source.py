@@ -14,10 +14,11 @@ from cardak.collectors.docker import DockerSampler, DockerWork
 from cardak.collectors.machine import MachineSample, MachineSampler
 from cardak.collectors.processes import PaneProcs, ProcessSampler
 from cardak.collectors.soundpacks import read_packs
+from cardak.core import alerts
 from cardak.core import config as config_mod
 from cardak.core.accounting import account
 from cardak.core.agents import FocusChange, SessionState, focus_seen_at, mark_seen
-from cardak.core.alerts import SOUND_EXTS, bundled_sounds, check, pack_root
+from cardak.core.alerts import SOUND_EXTS, bundled_sounds, check
 from cardak.core.config import Config, ConfigError
 from cardak.core.recent import Recent, decorate
 from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
@@ -135,7 +136,7 @@ class LiveSource:
             self._config_error = str(e)
             self._warnings = ()
         self._config = cfg
-        packs = read_packs(pack_root(), SOUND_EXTS)
+        packs = read_packs(alerts.pack_root(), SOUND_EXTS)  # looked up late: tests replace it
         self._notify_warnings = tuple(check(cfg.notify, bundled_sounds(), packs))
         self._resolver = ProjectResolver(cfg, self._git)
         if self._config_error is None:

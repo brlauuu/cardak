@@ -176,6 +176,8 @@ def resource_alert(
 def _play(
     theme: Theme, settings: NotifySettings, spawn: Spawn, rng: random.Random | None, which: Which
 ) -> None:
+    if settings.theme_sound(theme) == "off":
+        return  # before reading any pack: the hook pings on its synchronous path
     packs = read_packs(pack_root(), SOUND_EXTS)
     sound = choose_sound(theme, settings, bundled_sounds(), packs, rng or random.Random())
     if sound is not None and (argv := player_argv(sound, which)):
