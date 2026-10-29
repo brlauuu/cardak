@@ -32,3 +32,14 @@ def no_transcripts_or_downloads(
         raise OSError("tests never download")
 
     monkeypatch.setattr(prices, "fetch", offline)
+
+
+@pytest.fixture(autouse=True)
+def packs_dir(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Sound packs come from an empty folder of the test's own, never the user's packs in
+    src/cardak/sounds/packs (#91)."""
+    from cardak.core import alerts
+
+    root = tmp_path_factory.mktemp("packs")
+    monkeypatch.setattr(alerts, "pack_root", lambda: root)
+    return root
