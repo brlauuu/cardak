@@ -28,6 +28,7 @@ src/cardak/
   core/{checkpoint, recap}.py                          # M6: checkpoint & recap
   core/{prices, spend}.py                              # #29: this month at API prices
   core/trends.py                                       # #88: usage per project and day
+  core/context.py                                      # #86: each session's context over the window
   core/cleanup.py                                      # #65: where `x` opens /repo-cleanup
   core/detail.py                                       # how `i` and the web view word a session
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
@@ -35,6 +36,7 @@ src/cardak/
   collectors/{usage, prices}.py                        # #29: per-reply usage, LiteLLM's price list
   collectors/soundpacks.py                             # #91: the user's openpeon sound packs
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
+  ui/context_plot.py                                   # #86: one project's sessions over a day
   web/{view, server, key, lan}.py, page.html          # M7: the read-only page for phones
   wezterm/{cardak.lua, generate.py, install.py, schemes.py, files.py, tint.zsh}
   claude/install.py       # M4: cardak's hooks in ~/.claude/settings.json
@@ -130,7 +132,7 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   | `~/.config/cardak/anthropic_key` | the user (cardak only reads it, in `cardak summarize`; refused with group/other bits) | the Anthropic API key for waiting summaries |
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
   | `~/.cache/cardak/prices.json` | the deck and `cardak daemon`, at most daily while one runs (#29) | the Anthropic entries of LiteLLM's price list |
-  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`); the deck and the daemon (`claude_replies`, `claude_prompts`, `transcript_offsets`, #29) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days); one row per Claude Code reply and per typed prompt (62 days; both feed the usage trends, #88) and how far each transcript was read. `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
+  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`); the deck and the daemon (`claude_replies`, `claude_prompts`, `transcript_offsets`, #29) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days); one row per Claude Code reply and per typed prompt (62 days; both feed the usage trends, #88) and how far each transcript was read; the keys of the replies that were a subagent's and the one-time passes that filled them in (`claude_sidechain_replies`, `usage_backfills`, #86). `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
   | `~/.local/state/cardak/focus` | `cardak.lua` (module 3), via `focus.tmp.<gui pid>` (`wezterm.procinfo.pid()`, checked on 20240203) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>`; several GUIs share it, last writer wins (#43) |
   | `~/.local/state/cardak/wezterm_dir` | `cardak wezterm install [--dir]` | the directory `cardak.lua` was installed to; the deck, `themes apply` and `themes zsh` use it while `cardak.lua` is there, else `~/.config/wezterm` (#19) |
   | `~/.local/state/cardak/daemon.lock` | `cardak daemon` | empty; locked while a daemon runs, so a second one exits |
@@ -318,6 +320,35 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   30 s while it's open. Checked in headless Chrome at 390×844 and 1180×820 against a scratch
   daemon on 2026-10-28.
 
+### Context usage (#86)
+- A reply's context is its request's whole input (fresh, cache read, both cache writes); 0-token
+  replies (errors) are dropped. **Subagent replies share their parent's `session_id`** and live in
+  `<session>/subagents/agent-*.jsonl` with `isSidechain: true`, at tens of k, so a session's line
+  would zigzag through them: `Reply.sidechain` comes from that field, and the store keeps those keys
+  in `claude_sidechain_replies` (a new table, schema 6, `MIN_READER` still 1). Spend and the usage
+  trends still count subagents: they cost money.
+- Replies stored before #86 had no flag. The counter's first pass reads the window's transcripts
+  once more and flags what it finds (`spend.SIDECHAINS` in `usage_backfills`); it stores no reply,
+  so spend and trends are untouched, and an empty store just records it done.
+- Compactions and clears are never recorded: a **drop** is a reply under half of the previous one
+  when that was over 100k (`context.drop_indices`). Measured on 2026-10-29 over 30 days of the
+  developer's main-thread replies, it matched Claude Code's own `compact_boundary` record 29 of 30
+  times once 0-token replies were dropped; all 30 were automatic, at 205k–597k, which is why no
+  "max" line is drawn. A session **ends** on the day of its last reply once that is an hour old, so
+  the counter also rebuilds every 10 minutes (`built_on` has `now // 600`).
+- `LiveSource` groups the series per project (`group_context`, cached on the series and the
+  resolver) onto `DeckSnapshot.usage_context` and puts each agent's latest context on
+  `AgentView.context`. The history screen's `c` ends on **context** (fixed bands 50k/100k/200k/400k),
+  the highlighted cell's day goes to the hint line, Enter opens `ContextPlotScreen`.
+- `/api/trends` carries `context`: per project the day numbers and each session's points (at most
+  `view.MAX_POINTS`, both sides of every drop kept) as seconds from the window's first midnight,
+  with `day_starts` for each local midnight: a 30-day window can cross a DST change, and cutting days
+  at i × 86,400 s put a 09:00 session at 10:00 (seen live). No session ids or paths go out. The page
+  draws it as inline SVG; `test_page_is_self_contained` allows SVG's namespace string, never fetched.
+- Checked on 2026-10-29 against a scratch daemon on synthetic transcripts with subagent files, in
+  headless Chrome at 390×844 and 1180×820, and the deck headless. A screenshot script that only
+  changes the URL's `#k=` fragment does not reload the page: reload explicitly.
+
 ## Web view (M7)
 - `cardak daemon` serves it when `[web] enabled = true` (`cardak web setup`), on `host:port`
   (default `0.0.0.0:8765`): `GET /` is a static page with no data, `GET /api/snapshot`,
@@ -488,6 +519,16 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   (11: `_theme_sounds`). Accepted: the nested-loop reports on `read_packs` and `_clips` (packs →
   categories → clips, a walk from parents to their children over a few dozen files), and
   `LiveSource._reload_if_changed` at fan-out 11 (one more step: the packs' warnings).
+- **#86 (context usage)** split `plot_text` (14: `_merged`, `_hours`), `trends_json` (14:
+  `_usage_figures`), `context_json` (13: `_context_row`), `HistoryScreen._open_day` (11:
+  `_open_context`) and `SpendCounter._backfill` (`_sidechain_keys`). Accepted: `day_context` at 10
+  (one pass over each session's points, its drops and its end), `LiveSource._with_spend` at 10 (one
+  more step: the context); `history._first_day` at fan-in 8; the coordinators
+  `SpendCounter._backfill` (3 × 8), `ContextPlotScreen._draw` (5 × 7) and
+  `HistoryScreen._fill_context` (3 × 9); `core/context` in `exported-surface`; and the nested-loop
+  and call-in-loop reports on `_backfill` (files → chunks → keys, once per install),
+  `day_context` and `context_rows` (sessions → points, projects → days), `plot_text` and
+  `_merged` (sessions → rows → characters of one plot), `braille_cells` and `_fill_context`.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

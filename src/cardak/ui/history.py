@@ -342,6 +342,11 @@ class HistoryScreen(Screen[None]):
         found = next(p for p in grouped.rows if p.subject == subject)
         return _first_day(grouped.today) + timedelta(days=index), found
 
+    def _open_context(self, row: int, index: int) -> None:
+        found = self._context_day(row, index)
+        if found is not None:
+            self.app.push_screen(ContextPlotScreen(found[1], found[0], self._today))
+
     @on(DataTable.CellHighlighted)
     def _note_context(self, event: DataTable.CellHighlighted) -> None:
         if self._mode != "context":
@@ -376,11 +381,7 @@ class HistoryScreen(Screen[None]):
         if index < 0:
             return
         if self._mode == "context":
-            found = self._context_day(event.coordinate.row, index)
-            if found is not None:
-                day, p = found
-                self.app.push_screen(ContextPlotScreen(p, day, self._today))
-            return None
+            return self._open_context(event.coordinate.row, index)
         if self._mode not in ("ram", "cpu"):
             return self._note_day(event.coordinate.row, index)
         if event.coordinate.row >= len(self._rows):

@@ -70,6 +70,19 @@ def _chunks(usage: Usage) -> list[Usage]:
     ]
 
 
+def _sidechain_keys(f: TranscriptFile) -> list[str]:
+    """The keys of a transcript's subagent replies, read a few MB at a time."""
+    keys: list[str] = []
+    offset = 0
+    while offset < f.size:
+        usage, end = read_usage(f.path, offset, READ_LIMIT)
+        if end == offset:
+            break
+        keys += [r.key for r in usage.replies if r.sidechain]
+        offset = end
+    return keys
+
+
 class SpendCounter:
     def __init__(
         self,
@@ -111,14 +124,7 @@ class SpendCounter:
             return
         if self.store.usage_mark() != (0, 0):  # an empty store: the normal pass flags them
             for f in transcript_files(self._root, window_start(today)):
-                keys: list[str] = []
-                offset = 0
-                while offset < f.size:
-                    usage, end = read_usage(f.path, offset, READ_LIMIT)
-                    if end == offset:
-                        break
-                    keys += [r.key for r in usage.replies if r.sidechain]
-                    offset = end
+                keys = _sidechain_keys(f)
                 for i in range(0, len(keys), BATCH):
                     self.store.flag_sidechains(keys[i : i + BATCH])
         self.store.mark_backfilled(SIDECHAINS, now)

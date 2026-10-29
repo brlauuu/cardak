@@ -66,11 +66,11 @@ def session_text(line: SessionLine, day: date) -> str:
     )
 
 
-def plot_text(lines: Sequence[SessionLine], day: date, width: int) -> Text:
-    """The sessions' lines over the day, with the log scale's gridlines. Colors go by order
-    among the sessions with a point that day, as the list under the plot numbers them."""
+def _merged(
+    lines: Sequence[SessionLine], day: date, width: int
+) -> tuple[list[list[int]], list[list[int]]]:
+    """Every session's dots in one grid, and which session set each character last."""
     start = _midnight(day)
-    lines = [ln for ln in lines if day_points(ln, day)]
     bits = [[0] * width for _ in range(PLOT_HEIGHT)]
     owner = [[-1] * width for _ in range(PLOT_HEIGHT)]
     for i, ln in enumerate(lines):
@@ -80,6 +80,22 @@ def plot_text(lines: Sequence[SessionLine], day: date, width: int) -> Text:
                 if b:
                     bits[y][x] |= b
                     owner[y][x] = i  # a shared character takes the later session's color
+    return bits, owner
+
+
+def _hours(width: int) -> str:
+    axis = [" "] * (LABEL + width)
+    for hour in (0, 6, 12, 18):
+        label = f"{hour:02d}:00"
+        at = LABEL + hour * width // 24
+        axis[at : at + len(label)] = label
+    return "".join(axis).rstrip()
+
+
+def plot_text(lines: Sequence[SessionLine], day: date, width: int) -> Text:
+    """The sessions' lines over the day, with the log scale's gridlines. Colors go by order
+    among the sessions with a point that day, as the list under the plot numbers them."""
+    bits, owner = _merged([ln for ln in lines if day_points(ln, day)], day, width)
     grid = {level_row(position(t), 1.0, PLOT_HEIGHT): TICK_LABELS[t] for t in TICKS}
     plot = Text()
     for y in range(PLOT_HEIGHT):
@@ -87,17 +103,10 @@ def plot_text(lines: Sequence[SessionLine], day: date, width: int) -> Text:
         for x in range(width):
             if bits[y][x]:
                 plot.append(chr(0x2800 + bits[y][x]), style=PALETTE[owner[y][x] % len(PALETTE)])
-            elif y in grid:
-                plot.append("─", style="dim")
             else:
-                plot.append(BLANK)
+                plot.append("─" if y in grid else BLANK, style="dim" if y in grid else "")
         plot.append("\n")
-    axis = [" "] * (LABEL + width)
-    for hour in (0, 6, 12, 18):
-        label = f"{hour:02d}:00"
-        at = LABEL + hour * width // 24
-        axis[at : at + len(label)] = label
-    return plot.append("".join(axis).rstrip(), style="dim")
+    return plot.append(_hours(width), style="dim")
 
 
 class ContextPlotScreen(Screen[None]):

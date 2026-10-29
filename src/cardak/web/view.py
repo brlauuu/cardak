@@ -8,7 +8,14 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from cardak.core.agents import SessionState
-from cardak.core.context import TICKS, DayContext, GroupedContext, Point, drop_indices
+from cardak.core.context import (
+    TICKS,
+    DayContext,
+    GroupedContext,
+    Point,
+    ProjectContext,
+    drop_indices,
+)
 from cardak.core.detail import shown_path, turn_text, words
 from cardak.core.snapshot import AgentView, DeckSnapshot, Group, PaneRow
 from cardak.core.summary import TAGS
@@ -203,53 +210,37 @@ def _day(d: DayContext | None) -> Json | None:
     }
 
 
+def _context_row(p: ProjectContext, start: float) -> Json:
+    kind = "all" if p.subject == ALL else "other" if p.subject == OTHER else "project"
+    used = [d for d in p.days if d is not None]
+    return {
+        "name": p.name,
+        "kind": kind,
+        "peak": max((d.peak for d in used), default=None),
+        "drops": sum(d.drops for d in used),
+        "days": [_day(d) for d in p.days],
+        "lines": [[[ts - start, ctx] for ts, ctx in thin(ln.points)] for ln in p.lines],
+    }
+
+
 def context_json(grouped: GroupedContext) -> Json:
     """Context per project (#86): numbers and names only. A line's times are seconds since the
     window's first midnight; no session id or folder goes out."""
     start = window_start(grouped.today)
-    rows = []
-    for p in grouped.rows:
-        kind = "all" if p.subject == ALL else "other" if p.subject == OTHER else "project"
-        used = [d for d in p.days if d is not None]
-        rows.append(
-            {
-                "name": p.name,
-                "kind": kind,
-                "peak": max((d.peak for d in used), default=None),
-                "drops": sum(d.drops for d in used),
-                "days": [_day(d) for d in p.days],
-                "lines": [[[ts - start, ctx] for ts, ctx in thin(ln.points)] for ln in p.lines],
-            }
-        )
     first = first_day(grouped.today)
     days = (
         datetime.combine(first + timedelta(days=i), datetime.min.time()) for i in range(DAYS + 1)
     )
-    midnights = [d.timestamp() for d in days]
     return {
         "start": start,
-        "day_starts": [m - start for m in midnights],  # not i * 86,400: DST changes move them
+        "day_starts": [d.timestamp() - start for d in days],  # not i × 86,400: DST moves them
         "ticks": list(TICKS),
-        "rows": rows,
+        "rows": [_context_row(p, start) for p in grouped.rows],
     }
 
 
-def trends_json(grouped: GroupedTrends | None, context: GroupedContext | None = None) -> Json:
-    """The Trends view (#88): names and numbers per project and day, nothing that identifies a
-    folder or a session; with each session's context when it has been counted (#86)."""
-    figures = [{"key": f, "label": LABELS[f]} for f in FIGURES]
-    if context is not None and context.rows:
-        figures.append({"key": "context", "label": "context"})
-    shown = context_json(context) if context is not None and context.rows else None
-    if grouped is None:
-        return {
-            "today": None,
-            "first": None,
-            "figures": figures,
-            "unpriced": [],
-            "rows": [],
-            "context": shown,
-        }
+def _usage_figures(grouped: GroupedTrends) -> list[Json]:
+    """Each project's figures, keyed by figure, in the grouped order."""
     rows: dict[str, Json] = {}
     for f in FIGURES:
         found = usage_rows(grouped, f)
@@ -259,11 +250,21 @@ def trends_json(grouped: GroupedTrends | None, context: GroupedContext | None = 
             kind = "all" if r.subject == ALL else "other" if r.subject == OTHER else "project"
             row = rows.setdefault(r.subject, {"name": r.name, "kind": kind, "figures": {}})
             row["figures"][f] = _figure(r, top_all if kind == "all" else top)
+    return list(rows.values())
+
+
+def trends_json(grouped: GroupedTrends | None, context: GroupedContext | None = None) -> Json:
+    """The Trends view (#88): names and numbers per project and day, nothing that identifies a
+    folder or a session; with each session's context when it has been counted (#86)."""
+    figures = [{"key": f, "label": LABELS[f]} for f in FIGURES]
+    shown = context is not None and bool(context.rows)
+    if shown:
+        figures.append({"key": "context", "label": "context"})
     return {
-        "today": grouped.today.isoformat(),
-        "first": first_day(grouped.today).isoformat(),
+        "today": grouped.today.isoformat() if grouped else None,
+        "first": first_day(grouped.today).isoformat() if grouped else None,
         "figures": figures,
-        "unpriced": list(grouped.unpriced),
-        "rows": list(rows.values()),
-        "context": shown,
+        "unpriced": list(grouped.unpriced) if grouped else [],
+        "rows": _usage_figures(grouped) if grouped else [],
+        "context": context_json(context) if context is not None and shown else None,
     }
