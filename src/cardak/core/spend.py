@@ -32,6 +32,7 @@ from cardak.core.trends import UsageTrends, build_trends, window_start
 
 PASS_EVERY_S = 30.0
 BATCH = 500  # replies per transaction: a hook waiting on the write lock has 2 s
+SIDECHAINS = "sidechains"  # the backfill of claude_sidechain_replies (#86)
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ class SpendCounter:
         self._clock = clock
         self.latest: MonthSpend | None = None  # read from other threads; replaced whole
         self._built_on: tuple[object, ...] | None = None  # what latest was built from
+        self._backfilled = False
 
     def _read(self, f: TranscriptFile, stored: tuple[int, int] | None) -> None:
         inode, offset = stored or (f.inode, 0)
@@ -97,9 +99,33 @@ class SpendCounter:
                 self.store.record_usage(str(f.path), f.inode, done, chunk)
             offset = end
 
+    def _backfill(self, today: date, now: float) -> None:
+        """Flag the subagent replies stored before cardak recorded the flag (#86), once: reads
+        the window's transcripts again, flags what it finds and stores no reply."""
+        if self._backfilled:
+            return
+        if self.store.backfilled(SIDECHAINS):
+            self._backfilled = True
+            return
+        if self.store.usage_mark() != (0, 0):  # an empty store: the normal pass flags them
+            for f in transcript_files(self._root, window_start(today)):
+                keys: list[str] = []
+                offset = 0
+                while offset < f.size:
+                    usage, end = read_usage(f.path, offset, READ_LIMIT)
+                    if end == offset:
+                        break
+                    keys += [r.key for r in usage.replies if r.sidechain]
+                    offset = end
+                for i in range(0, len(keys), BATCH):
+                    self.store.flag_sidechains(keys[i : i + BATCH])
+        self.store.mark_backfilled(SIDECHAINS, now)
+        self._backfilled = True
+
     def step(self) -> MonthSpend:
         now = self._clock()
         since, today = month_start(now), date.fromtimestamp(now)
+        self._backfill(today, now)
         stored = self.store.transcript_offsets()
         for f in transcript_files(self._root, since):
             self._read(f, stored.get(str(f.path)))

@@ -314,3 +314,53 @@ def test_step_rebuilds_when_prices_change(tmp_path: Path, root: Path) -> None:
     c.prices._loaded = (None, cheaper)  # a download with new prices replaces the table
     second = c.step()
     assert second is not first and second.total < first.total
+
+
+def store_unflagged(store: Store, root: Path) -> None:
+    """Rows as a cardak before #86 stored them: every reply, no flags, offsets at the end."""
+    for path in root.rglob("*.jsonl"):
+        u, end = read_usage(path, 0)
+        plain = tuple(replace(r, sidechain=False) for r in u.replies)
+        store.record_usage(str(path), path.stat().st_ino, end, Usage(plain, u.prompts))
+
+
+def test_backfill_flags_replies_stored_before_the_flag(tmp_path: Path, root: Path) -> None:
+    c = counter(tmp_path, root)
+    store_unflagged(c.store, root)
+    stored = c.store.replies_since(0.0)
+    before = month_spend(stored, BUILTIN, month_start(NOW))
+    c.step()
+    flagged = {r.key for r in c.store.replies_since(0.0) if r.sidechain}
+    assert flagged and flagged == {k for k, r in all_replies(root).items() if r.sidechain}
+    assert c.latest is not None and c.latest.total == before.total  # spend unchanged
+    assert c.store.usage_mark() == (len(stored), c.store.usage_mark()[1])  # no reply added
+    assert c.store.backfilled(spend.SIDECHAINS)
+
+
+def test_backfill_runs_once(tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    c = counter(tmp_path, root)
+    store_unflagged(c.store, root)
+    c.step()
+    calls: list[Path] = []
+    real = spend.read_usage
+
+    def counting(path: Path, offset: int, limit: int = usage_mod.READ_LIMIT) -> tuple[Usage, int]:
+        calls.append(path)
+        return real(path, offset, limit)
+
+    monkeypatch.setattr(spend, "read_usage", counting)
+    again = SpendCounter(c.store, offline(tmp_path), root, clock=lambda: NOW)
+    again.step()
+    assert calls == []  # done in the database: a new counter doesn't read it again
+
+
+def test_backfill_on_an_empty_store_reads_nothing(
+    tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    c = counter(tmp_path, root)
+    flagged: list[list[str]] = []
+    monkeypatch.setattr(c.store, "flag_sidechains", lambda keys: flagged.append(list(keys)))
+    c.step()
+    assert flagged == []  # nothing stored before: the normal pass flags as it stores
+    assert c.store.backfilled(spend.SIDECHAINS)
+    assert any(r.sidechain for r in c.store.replies_since(0.0))
