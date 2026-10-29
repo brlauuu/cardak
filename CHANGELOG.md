@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.13.0 — 2026-10-29
+
 ### Added
 - See how your Claude Code use changes day by day over the last 30 days, per project and for all projects together: cost at API prices, tokens, prompts, sessions, average prompt length, average reply length and tokens per session. In the deck, press `h` and then `c` to step from RAM and CPU through these figures, and select a day to see all of its numbers. On the phone page, tap Trends. It counts from 0.12.0 on, since that's when cardak started recording. (#88)
 
