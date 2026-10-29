@@ -19,8 +19,10 @@ def test_page_has_no_html_injection_sinks() -> None:
 
 
 def test_page_is_self_contained() -> None:
+    # SVG's namespace is a name, never fetched (#86); nothing else may look like a URL
+    page = PAGE.replace('"http://www.w3.org/2000/svg"', "", 1)
     for ref in ("http://", "https://", "//cdn", "<script src"):
-        assert ref not in PAGE, ref
+        assert ref not in page, ref
     assert re.findall(r"<link[^>]*>", PAGE) == ['<link rel="icon" href="data:,">']
     assert PAGE.count("<script>") == 1 and PAGE.count("<style>") == 1
 
@@ -132,3 +134,21 @@ def test_count_matches_the_deck() -> None:
     script = _js_function("count") + f"console.log(JSON.stringify({values}.map(count)));"
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert json.loads(out.stdout) == [fmt_count(v) for v in values]
+
+
+def test_page_has_context_view() -> None:
+    assert 'figure === "context"' in PAGE and "createElementNS" in PAGE
+    assert '" ended without one"' in PAGE
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_log_position_matches_the_deck() -> None:
+    from cardak.core.context import position
+
+    values = [0, 5, 10_000, 31_623, 100_000, 400_000, 1_000_000, 5_000_000]
+    consts = re.search(r"^const LOG_LOW = .*$", PAGE, re.MULTILINE)
+    assert consts is not None
+    script = consts.group(0) + "\n" + _js_function("ctxPos")
+    script += f"console.log(JSON.stringify({values}.map(ctxPos)));"
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) == pytest.approx([position(v) for v in values])

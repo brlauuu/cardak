@@ -125,7 +125,7 @@ def make_server(
                 return self._json(503, {"starting": True})
             snap, ts = current
             if path == "/api/trends":
-                return self._json(200, trends_json(snap.usage_trends))
+                return self._json(200, trends_json(snap.usage_trends, snap.usage_context))
             if found is None:
                 return self._json(200, snapshot_json(snap, ts, clock()))
             agent = find_agent(snap, found.group(1))
