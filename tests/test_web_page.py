@@ -139,6 +139,7 @@ def test_count_matches_the_deck() -> None:
 def test_page_has_context_view() -> None:
     assert 'figure === "context"' in PAGE and "createElementNS" in PAGE
     assert '" ended without one"' in PAGE
+    assert '"/api/trends" + (figure === "context" ? "?context=1" : "")' in PAGE
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node")

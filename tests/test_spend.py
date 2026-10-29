@@ -351,18 +351,41 @@ def test_backfill_runs_once(tmp_path: Path, root: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr(spend, "read_usage", counting)
     again = SpendCounter(c.store, offline(tmp_path), root, clock=lambda: NOW)
     again.step()
-    assert calls == []  # done in the database: a new counter doesn't read it again
+    # done in the database: a new counter re-checks only the subagents' files
+    assert calls and all("sub" in p.parts for p in calls)
+    calls.clear()
+    again.step()
+    assert calls == []  # and only when it starts
 
 
-def test_backfill_on_an_empty_store_reads_nothing(
+def test_new_counter_flags_what_an_older_cardak_stored_since(tmp_path: Path, root: Path) -> None:
+    # an older daemon still running after the upgrade stores subagent replies with no flag
+    c = counter(tmp_path, root)
+    c.step()
+    assert c.store.backfilled(spend.SIDECHAINS)
+    c.store._con.execute("DELETE FROM claude_sidechain_replies")
+    restarted = SpendCounter(c.store, offline(tmp_path), root, clock=lambda: NOW)
+    restarted.step()
+    flagged = {r.key for r in c.store.replies_since(0.0) if r.sidechain}
+    assert flagged and flagged == {k for k, r in all_replies(root).items() if r.sidechain}
+
+
+def test_backfill_on_an_empty_store_reads_only_subagents(
     tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     c = counter(tmp_path, root)
-    flagged: list[list[str]] = []
-    monkeypatch.setattr(c.store, "flag_sidechains", lambda keys: flagged.append(list(keys)))
-    c.step()
-    assert flagged == []  # nothing stored before: the normal pass flags as it stores
+    calls: list[Path] = []
+    real = spend.read_usage
+
+    def counting(path: Path, offset: int, limit: int = usage_mod.READ_LIMIT) -> tuple[Usage, int]:
+        calls.append(path)
+        return real(path, offset, limit)
+
+    monkeypatch.setattr(spend, "read_usage", counting)
+    c._backfill(date.fromtimestamp(NOW), NOW)
+    assert calls and all("sub" in p.parts for p in calls)  # nothing stored: no full pass
     assert c.store.backfilled(spend.SIDECHAINS)
+    c.step()
     assert any(r.sidechain for r in c.store.replies_since(0.0))
 
 

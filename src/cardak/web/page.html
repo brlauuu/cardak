@@ -500,6 +500,7 @@ function ctxNote(d) {
 
 function contextRow(r, c) {
   const ticks = c.ticks, at = c.day_starts;  // each local midnight, in seconds from the start
+  const lines = r.lines.map((i) => c.lines[i]);  // each session's points are sent once
   const box = el("div", "trend" + (r.kind === "all" ? " all" : ""));
   const peak = r.peak === null ? "-" : count(r.peak);
   add(box, add(el("div", "row"), el("b", "grow ellipsis", r.name),
@@ -516,7 +517,7 @@ function contextRow(r, c) {
   add(box, strip);
   const days = r.days.length;
   const pick = picked === undefined ? null : [at[picked], at[picked + 1]];
-  const month = ctxPlot(r.lines, 0, at[days], ticks,
+  const month = ctxPlot(lines, 0, at[days], ticks,
     [[0, dayName(0)], [0.5, dayName(Math.floor(days / 2))], [1, dayName(days - 1)]], pick);
   month.addEventListener("click", (e) => {
     const b = month.getBoundingClientRect();
@@ -530,7 +531,7 @@ function contextRow(r, c) {
   add(box, month);
   if (picked !== undefined) {
     add(box, el("div", "line small", dayName(picked) + ": " + ctxNote(r.days[picked])));
-    add(box, ctxPlot(r.lines, at[picked], at[picked + 1], ticks,
+    add(box, ctxPlot(lines, at[picked], at[picked + 1], ticks,
       [[0, "00:00"], [0.25, "06:00"], [0.5, "12:00"], [0.75, "18:00"]], null));
   }
   return box;
@@ -549,12 +550,16 @@ function renderTrends() {
     o.selected = f.key === figure;
     add(pick, o);
   }
-  pick.addEventListener("change", () => { figure = pick.value; renderTrends(); });
+  pick.addEventListener("change", () => {
+    figure = pick.value;
+    renderTrends();
+    if (figure === "context" && !trends.context) loadTrends();
+  });
   add(body, pick);
   if (!trends.rows.length) { add(body, el("p", "muted", NO_USAGE)); return; }
   add(body, add(el("div", "row muted small"), el("span", "grow", trends.first), el("span", null, trends.today)));
   if (figure === "context") {
-    if (!trends.context) { add(body, el("p", "muted", NO_USAGE)); return; }
+    if (!trends.context) { add(body, el("p", "muted", "loading…")); return; }
     add(body, el("p", "muted small", "peak context per day, log scale · tap a day for its sessions"));
     for (const r of trends.context.rows) add(body, contextRow(r, trends.context));
     panel.scrollTop = scroll;
@@ -571,7 +576,7 @@ async function loadTrends() {
   if (!trendsOpen || document.visibilityState !== "visible") return;
   let r;
   try {
-    r = await get("/api/trends");
+    r = await get("/api/trends" + (figure === "context" ? "?context=1" : ""));  // context only when shown
   } catch (e) {
     return; // the list says the computer can't be reached
   }

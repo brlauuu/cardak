@@ -115,19 +115,20 @@ class SpendCounter:
             offset = end
 
     def _backfill(self, today: date, now: float) -> None:
-        """Flag the subagent replies stored before cardak recorded the flag (#86), once: reads
-        the window's transcripts again, flags what it finds and stores no reply."""
+        """Flag subagent replies stored without the flag (#86); stores no reply. Once ever, over
+        every transcript of the window: replies stored before cardak recorded it. And at every
+        counter start, over the subagents' files only (the files below a session's): an older
+        cardak still running, e.g. the daemon right after an upgrade, stores them unflagged."""
         if self._backfilled:
             return
-        if self.store.backfilled(SIDECHAINS):
-            self._backfilled = True
-            return
-        if self.store.usage_mark() != (0, 0):  # an empty store: the normal pass flags them
-            for f in transcript_files(self._root, window_start(today)):
+        full = not self.store.backfilled(SIDECHAINS) and self.store.usage_mark() != (0, 0)
+        for f in transcript_files(self._root, window_start(today)):
+            if full or len(f.path.relative_to(self._root).parts) > 2:
                 keys = _sidechain_keys(f)
                 for i in range(0, len(keys), BATCH):
                     self.store.flag_sidechains(keys[i : i + BATCH])
-        self.store.mark_backfilled(SIDECHAINS, now)
+        if not self.store.backfilled(SIDECHAINS):
+            self.store.mark_backfilled(SIDECHAINS, now)
         self._backfilled = True
 
     def step(self) -> MonthSpend:

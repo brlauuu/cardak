@@ -228,8 +228,9 @@ def test_context_json_days_and_lines() -> None:
         "ended": 1,
         "ended_clean": 1,
     }
-    first = datetime(2026, 10, 28, 12).timestamp() - start
-    assert web["lines"] == [[[first, 50_000], [first + 1, 50_001], [first + 2, 50_002]]]
+    first = round(datetime(2026, 10, 28, 12).timestamp() - start)
+    assert out["lines"] == [[[first, 50_000], [first + 1, 50_001], [first + 2, 50_002]]]
+    assert web["lines"] == every["lines"] == [0]  # each session's points go out once
 
 
 def test_context_json_has_no_ids_or_paths() -> None:
@@ -252,8 +253,27 @@ def test_trends_json_lists_context_only_with_data() -> None:
     assert "context" not in [f["key"] for f in trends_json(grouped())["figures"]]
     out = trends_json(grouped(), context())
     assert out["figures"][-1] == {"key": "context", "label": "context"}
-    assert out["context"]["rows"][0]["name"] == "webshop"
-    assert trends_json(grouped())["context"] is None
+    assert out["context"] is None  # listed, but sent only when asked for
+    asked = trends_json(grouped(), context(), with_context=True)
+    assert asked["context"]["rows"][0]["name"] == "webshop"
+    assert trends_json(grouped(), with_context=True)["context"] is None
+
+
+def test_busy_month_stays_small() -> None:
+    today = date(2026, 10, 28)
+    start = datetime.combine(today, datetime.min.time()).timestamp() - 20 * 86_400
+    lines = [
+        SessionLine(f"s{i}", f"/home/user/p{i % 5}",
+                    tuple((start + i * 30_000 + k * 37.123, 40_000 + k * 150) for k in range(2000)))
+        for i in range(60)
+    ]  # fmt: skip
+    rows = tuple(
+        ProjectContext(f"project:/home/user/p{j}", f"p{j}", tuple(lines[j::5]), (None,) * DAYS)
+        for j in range(5)
+    ) + (ProjectContext("all", "All projects", tuple(lines), (None,) * DAYS),)
+    out = context_json(GroupedContext(today, start + 30 * 86_400, rows))
+    size = len(json.dumps(out, separators=(",", ":")))  # as the server sends it
+    assert size < 300_000, size
 
 
 def test_context_json_sends_each_local_midnight() -> None:

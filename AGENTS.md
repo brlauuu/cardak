@@ -329,7 +329,9 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   trends still count subagents: they cost money.
 - Replies stored before #86 had no flag. The counter's first pass reads the window's transcripts
   once more and flags what it finds (`spend.SIDECHAINS` in `usage_backfills`); it stores no reply,
-  so spend and trends are untouched, and an empty store just records it done.
+  so spend and trends are untouched. An older cardak still running (the daemon right after an
+  upgrade) keeps storing subagent replies unflagged, so every counter start also re-reads the
+  window's subagent files, the ones below a session's own (~110 MB, ~1 s on the dev machine).
 - Compactions and clears are never recorded: a **drop** is a reply under half of the previous one
   when that was over 100k (`context.drop_indices`). Measured on 2026-10-29 over 30 days of the
   developer's main-thread replies, it matched Claude Code's own `compact_boundary` record 29 of 30
@@ -340,8 +342,10 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   resolver) onto `DeckSnapshot.usage_context` and puts each agent's latest context on
   `AgentView.context`. The history screen's `c` ends on **context** (fixed bands 50k/100k/200k/400k),
   the highlighted cell's day goes to the hint line, Enter opens `ContextPlotScreen`.
-- `/api/trends` carries `context`: per project the day numbers and each session's points (at most
-  `view.MAX_POINTS`, both sides of every drop kept) as seconds from the window's first midnight,
+- `/api/trends?context=1` carries `context` (without the query it is `null`, though the figure is
+  listed: it is most of the bytes, and the page asks only while that figure is shown): per project
+  the day numbers and indices into one `lines` list, each session's points sent once (at most
+  `view.MAX_POINTS`, both sides of every drop kept) as whole seconds from the window's first midnight,
   with `day_starts` for each local midnight: a 30-day window can cross a DST change, and cutting days
   at i × 86,400 s put a 09:00 session at 10:00 (seen live). No session ids or paths go out. The page
   draws it as inline SVG; `test_page_is_self_contained` allows SVG's namespace string, never fetched.
