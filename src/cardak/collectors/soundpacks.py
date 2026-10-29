@@ -50,13 +50,19 @@ def read_packs(root: Path, exts: tuple[str, ...]) -> Packs:
 def _clips(folder: Path, categories: dict[object, object], exts: tuple[str, ...]) -> list[Clip]:
     found: dict[Path, set[str]] = {}
     base = folder.resolve()
-    for category, entry in categories.items():
-        sounds = entry.get("sounds") if isinstance(entry, dict) else None
-        for sound in sounds if isinstance(sounds, list) else ():
-            file = sound.get("file") if isinstance(sound, dict) else None
-            if not isinstance(file, str) or not isinstance(category, str):
-                continue
+    named = ((c, e) for c, e in categories.items() if isinstance(c, str))
+    for category, entry in named:
+        for file in _files(entry):
             path = (folder / file).resolve()
             if path.is_relative_to(base) and path.suffix.lower() in exts and path.is_file():
                 found.setdefault(path, set()).add(category)
     return [Clip(f"{folder.name}/{p.stem}", p, frozenset(c)) for p, c in found.items()]
+
+
+def _files(entry: object) -> list[str]:
+    """A category's `sounds[].file` values, skipping anything of another shape."""
+    sounds = entry.get("sounds") if isinstance(entry, dict) else None
+    if not isinstance(sounds, list):
+        return []
+    files = (s.get("file") if isinstance(s, dict) else None for s in sounds)
+    return [f for f in files if isinstance(f, str)]

@@ -484,6 +484,10 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   state); the coordinators `HistoryScreen._fill_resources` (3 × 12, the old `_fill` for RAM/CPU)
   and `_fill_usage` (3 × 11), the RAM/CPU and usage halves of one screen; and the nested-loop
   reports on both, a row per project times 30 day cells.
+- **#91 (notification sounds)** split `soundpacks._clips` (12: `_files`) and `config._notify`
+  (11: `_theme_sounds`). Accepted: the nested-loop reports on `read_packs` and `_clips` (packs →
+  categories → clips, a walk from parents to their children over a few dozen files), and
+  `LiveSource._reload_if_changed` at fan-out 11 (one more step: the packs' warnings).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.
