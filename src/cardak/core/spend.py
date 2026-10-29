@@ -25,6 +25,7 @@ from cardak.collectors.usage import (
     transcript_files,
 )
 from cardak.core.config import cache_dir
+from cardak.core.context import ContextSeries, build_context
 from cardak.core.prices import CACHE_NAME, PriceBook, lookup, priced, reply_cost
 from cardak.core.store import Store, StoreError, db_path
 from cardak.core.summary import month_start
@@ -42,6 +43,7 @@ class MonthSpend:
     by_cwd: Mapping[str | None, float]
     unpriced: tuple[str, ...]  # models with no price, "<model> (fast mode)" for fast mode
     trends: UsageTrends | None = None  # the history window's days (#88)
+    context: ContextSeries | None = None  # each session's context over the window (#86)
 
 
 def month_spend(
@@ -131,15 +133,17 @@ class SpendCounter:
             self._read(f, stored.get(str(f.path)))
         prices = self.prices.current()
         # rebuilt only when a row was stored (by this process or the other one), the day
-        # changed or the prices did: most passes add nothing
-        built_on = (self.store.usage_mark(), today, prices)
+        # changed, the prices did, or ten minutes passed (a session counts as ended once its
+        # last reply is an hour old, with nothing new stored): most passes add nothing
+        built_on = (self.store.usage_mark(), today, prices, int(now // 600))
         if self.latest is not None and built_on == self._built_on:
             return self.latest
         window = window_start(today)
         replies = self.store.replies_since(min(since, window))
         spend = month_spend(replies, prices, since)
         trends = build_trends(replies, self.store.prompts_since(window), prices, today)
-        self.latest = replace(spend, trends=trends)
+        context = build_context(replies, today, now)
+        self.latest = replace(spend, trends=trends, context=context)
         self._built_on = built_on
         return self.latest
 

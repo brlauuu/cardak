@@ -10,6 +10,7 @@ from cardak.collectors.machine import MachineSample
 from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane
 from cardak.core.agents import SessionState, Status, WaitKind
+from cardak.core.context import GroupedContext
 from cardak.core.resolver import Kind, ProjectResolver, Resolved
 from cardak.core.resources import MemoryLevel, Thresholds
 from cardak.core.trends import GroupedTrends
@@ -30,6 +31,7 @@ class AgentView:
     current_tool: str | None
     project: str
     summary: str | None = None  # the current wait's summary, when one was written
+    context: int | None = None  # its last main-thread reply's context (#86)
 
 
 @dataclass(frozen=True)
@@ -103,6 +105,7 @@ class DeckSnapshot:
     month_spend: float | None = None  # all Claude Code use this month; None: not counted yet
     spend_unpriced: tuple[str, ...] = ()  # models left out of month_spend: no price for them
     usage_trends: GroupedTrends | None = None  # the history window's days per project (#88)
+    usage_context: GroupedContext | None = None  # each session's context, per project (#86)
 
     @property
     def n_projects(self) -> int:

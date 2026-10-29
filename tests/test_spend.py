@@ -364,3 +364,22 @@ def test_backfill_on_an_empty_store_reads_nothing(
     assert flagged == []  # nothing stored before: the normal pass flags as it stores
     assert c.store.backfilled(spend.SIDECHAINS)
     assert any(r.sidechain for r in c.store.replies_since(0.0))
+
+
+def test_step_builds_context(tmp_path: Path, root: Path) -> None:
+    built = counter(tmp_path, root).step().context
+    assert built is not None and built.today == date(2026, 10, 28)
+    subagent = {r.ts for r in all_replies(root).values() if r.sidechain}
+    drawn = {p[0] for ln in built.lines for p in ln.points}
+    assert subagent and drawn and not subagent & drawn  # the fixture's subagent is left out
+
+
+def test_step_rebuilds_context_every_ten_minutes(tmp_path: Path, root: Path) -> None:
+    now = [NOW]
+    c = SpendCounter(Store(tmp_path / "c.db"), offline(tmp_path), root, clock=lambda: now[0])
+    first = c.step()
+    now[0] += 60
+    assert c.step() is first  # nothing new
+    now[0] += 601
+    later = c.step()
+    assert later is not first and later.context is not None and later.context.built_at == now[0]
