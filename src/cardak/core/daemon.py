@@ -16,13 +16,13 @@ from pathlib import Path
 from typing import IO, TYPE_CHECKING, Protocol
 
 from cardak.collectors.journal import JournalEntry
-from cardak.core.config import Config, NotifySettings
+from cardak.core.config import Config, NotifySettings, Theme
 from cardak.core.crash import JOURNAL_BEFORE_S, CrashWatch, Gone
 from cardak.core.history import Rollup
 from cardak.core.resources import Thresholds, derive
 from cardak.core.snapshot import DeckSnapshot
 from cardak.core.store import MinuteRow, ResourceEvent, StoreError
-from cardak.core.watch import ResourceAlert, Watcher
+from cardak.core.watch import AlertKind, ResourceAlert, Watcher
 
 if TYPE_CHECKING:
     from cardak.core.source import LiveSource
@@ -32,7 +32,15 @@ INTERVAL = 2.0
 ALREADY_RUNNING = 3  # the unit's RestartPreventExitStatus: systemd must not retry it
 PRUNE_EVERY_S = 3600.0
 
-Notify = Callable[[str, str, str, NotifySettings], None]  # level, title, text, settings
+Notify = Callable[[str, str, str, NotifySettings, Theme], None]  # level, title, text, …
+# which sounds an alert plays (#91): everything about RAM is memory; the crash report too
+THEME_BY_KIND: Mapping[AlertKind, Theme] = {
+    "memory": "memory",
+    "big": "memory",
+    "growth": "memory",
+    "busy": "other",
+    "machine_busy": "other",
+}
 Journal = Callable[[float, float], tuple[list[JournalEntry] | None, list[JournalEntry]]]
 Guis = Callable[[], Mapping[int, str | None]]
 Publish = Callable[[DeckSnapshot, float], None]  # the web view's copy of each snapshot (M7)
@@ -120,7 +128,8 @@ class Daemon:
         for a in alerts:
             self._event(ResourceEvent(a.ts, a.kind, a.level, a.subject, a.text, a.notify))
             if a.notify:
-                self.notify(a.level, a.title, a.text, config.notify)
+                theme = THEME_BY_KIND.get(a.kind, "other")
+                self.notify(a.level, a.title, a.text, config.notify, theme)
         for gone in self.crashes.due(now):
             self._crash(gone, t, now, config.notify)
         return alerts
@@ -145,7 +154,7 @@ class Daemon:
         level = "critical" if rep.loud else "info"
         self._event(ResourceEvent(now, "crash", level, f"wezterm:{gone.pid}", rep.text, rep.loud))
         if rep.loud:
-            self.notify(level, rep.title, rep.text, settings)
+            self.notify(level, rep.title, rep.text, settings, "memory")
 
     def prune(self, now: float) -> None:
         self._store("prune", lambda s: s.prune(now))
@@ -180,10 +189,10 @@ def run(
     daemon.stopped(clock())
 
 
-def _notify(level: str, title: str, text: str, settings: NotifySettings) -> None:
+def _notify(level: str, title: str, text: str, settings: NotifySettings, theme: Theme) -> None:
     from cardak.core.alerts import resource_alert
 
-    resource_alert(level, title, text, settings)
+    resource_alert(level, title, text, settings, theme=theme)
 
 
 def build_source(

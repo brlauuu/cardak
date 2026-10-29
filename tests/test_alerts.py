@@ -194,7 +194,8 @@ def test_resource_alert_spawns_notification_and_sound() -> None:
     spawned: list[list[str]] = []
     which = {"pw-play": "/usr/bin/pw-play"}.get
     resource_alert(
-        "critical", "t", "b", NotifySettings(), spawn=spawned.append, rng=random.Random(0),
+        "critical", "t", "b", NotifySettings(), theme="memory",
+        spawn=spawned.append, rng=random.Random(0),
         which=which,
     )  # fmt: skip
     assert [argv[0] for argv in spawned] == ["notify-send", "/usr/bin/pw-play"]
@@ -224,12 +225,13 @@ def test_resource_alert_follows_notify_settings() -> None:
     spawned: list[list[str]] = []
     which = {"pw-play": "/usr/bin/pw-play"}.get
     resource_alert(
-        "warning", "t", "b", NotifySettings(desktop=False, sound="off"), spawn=spawned.append,
+        "warning", "t", "b", NotifySettings(desktop=False, sound="off"), theme="memory",
+        spawn=spawned.append,
         which=which,
     )  # fmt: skip
     assert spawned == []
     resource_alert(
-        "warning", "t", "b", NotifySettings(desktop=False), spawn=spawned.append,
+        "warning", "t", "b", NotifySettings(desktop=False), theme="other", spawn=spawned.append,
         rng=random.Random(0), which=which,
     )  # fmt: skip
     assert [argv[0] for argv in spawned] == ["/usr/bin/pw-play"]

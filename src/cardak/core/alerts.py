@@ -163,7 +163,7 @@ def resource_alert(
     body: str,
     settings: NotifySettings,
     *,
-    theme: Theme = "other",
+    theme: Theme,
     spawn: Spawn = spawn_detached,
     rng: random.Random | None = None,
     which: Which = shutil.which,
