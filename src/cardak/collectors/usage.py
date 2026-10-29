@@ -27,6 +27,7 @@ class Reply:
     cache_write_5m_tokens: int
     cache_write_1h_tokens: int
     speed: str | None  # "standard", "fast" (fast mode), or absent
+    sidechain: bool = False  # a subagent's reply, filed under its parent's session (#86)
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,7 @@ def _reply(record: dict, ts: float) -> Reply | None:
         cache_write_5m_tokens=write_5m,
         cache_write_1h_tokens=write_1h,
         speed=_str(usage.get("speed")),
+        sidechain=record.get("isSidechain") is True,
     )
 
 

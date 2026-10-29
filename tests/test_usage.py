@@ -127,3 +127,10 @@ def test_read_usage_line_longer_than_limit(tmp_path: Path) -> None:
     usage, end = read_usage(path, 0, limit=50)
     assert [p.key for p in usage.prompts] == ["p-1"]
     assert end == len(first) + 1
+
+
+def test_sidechain_replies_are_flagged() -> None:
+    sub = read_usage(FIXTURES / "sub" / "agent-x.jsonl", 0)[0].replies
+    main = read_usage(FIXTURES / "session.jsonl", 0)[0].replies
+    assert sub and all(r.sidechain for r in sub)
+    assert main and not any(r.sidechain for r in main)
