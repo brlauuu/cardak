@@ -1,0 +1,21 @@
+{
+  "cesp_version": "1.0",
+  "name": "demo",
+  "display_name": "Demo Pack",
+  "version": "1.0.0",
+  "author": {"name": "nobody"},
+  "license": "CC0-1.0",
+  "language": "en",
+  "categories": {
+    "input.required": {
+      "sounds": [
+        {"file": "sounds/A.wav", "label": "Over here.", "sha256": "00"}
+      ]
+    },
+    "resource.limit": {
+      "sounds": [
+        {"file": "sounds/B.mp3", "label": "Running low.", "sha256": "00"}
+      ]
+    }
+  }
+}
