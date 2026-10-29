@@ -1,4 +1,4 @@
-from cardak.ui.plot import BLANK, braille, level_row
+from cardak.ui.plot import BLANK, braille, braille_cells, level_row
 
 LEFT = 0x01 | 0x02 | 0x04 | 0x40
 RIGHT = 0x08 | 0x10 | 0x20 | 0x80
@@ -38,3 +38,9 @@ def test_level_row() -> None:
     assert level_row(5.0, 10.0, 3) == 1
     assert level_row(0.0, 10.0, 3) == 2
     assert level_row(99.0, 10.0, 3) == 0
+
+
+def test_braille_cells_are_the_braille_lines() -> None:
+    values = [0.0, 0.5, None, 1.0, 0.2]
+    cells = braille_cells(values, 1.0, 3, 2)
+    assert ["".join(chr(0x2800 + b) for b in line) for line in cells] == braille(values, 1.0, 3, 2)

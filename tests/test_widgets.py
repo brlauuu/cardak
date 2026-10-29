@@ -268,3 +268,9 @@ def test_group_label_spend() -> None:
     assert text.plain == "webshop  ~/r/w  $37 this month  RAM 1.2G  CPU 12%"
     for nothing in (None, 0.0):
         assert "this month" not in group_label(replace(group(), spend_usd=nothing)).plain
+
+
+def test_agent_row_shows_its_context() -> None:
+    row = claude_row(replace(view("idle"), context=312_000))
+    assert pane_label(row, NOW).plain.endswith("idle 12m  ctx 312k")
+    assert "ctx" not in pane_label(claude_row(view("idle")), NOW).plain

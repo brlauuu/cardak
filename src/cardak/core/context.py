@@ -161,3 +161,31 @@ def position(v: float) -> float:
     if v <= LOW:
         return 0.0
     return min(math.log10(v / LOW) / math.log10(HIGH / LOW), 1.0)
+
+
+@dataclass(frozen=True)
+class ContextRow:
+    """A history-table row: named as `trends.UsageRow` is, so both sort the same way."""
+
+    subject: str
+    name: str
+    today: int | None  # today's peak
+    per_day: float | None  # mean of the daily peaks
+    peak: int | None
+    window: int  # drops over the window
+    days: tuple[int | None, ...]  # each day's peak
+
+
+def context_rows(grouped: GroupedContext) -> list[ContextRow]:
+    """One row per project with a session in the window, in the grouped order."""
+    rows = []
+    for p in grouped.rows:
+        peaks = tuple(d.peak if d is not None else None for d in p.days)
+        seen = [v for v in peaks if v is not None]
+        if not seen:
+            continue
+        drops = sum(d.drops for d in p.days if d is not None)
+        rows.append(
+            ContextRow(p.subject, p.name, peaks[-1], sum(seen) / len(seen), max(seen), drops, peaks)
+        )
+    return rows

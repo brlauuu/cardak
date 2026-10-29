@@ -8,12 +8,14 @@ from textual.widgets import DataTable, Static
 
 from cardak.collectors.machine import MachineSample
 from cardak.core.config import ResourceSettings
+from cardak.core.context import DayContext, GroupedContext, ProjectContext, SessionLine, day_context
 from cardak.core.resources import derive
 from cardak.core.snapshot import DeckSnapshot
 from cardak.core.store import DayPeak, ResourceEvent
 from cardak.core.trends import DAYS, LABELS, DayUsage, GroupedTrends, ProjectTrend
 from cardak.ui.app import DeckApp
-from cardak.ui.history import HistoryScreen, PlotScreen
+from cardak.ui.context_plot import PALETTE, ContextPlotScreen, plot_text
+from cardak.ui.history import HistoryScreen, PlotScreen, context_note
 
 GIB = 2**30
 WEB = "project:/home/user/repos/webshop"
@@ -197,7 +199,7 @@ async def test_cycle_through_every_figure_and_back() -> None:
         assert "cost" in title(screen) and "[c] next: tokens" in title(screen)
         table = screen.query_one(DataTable)
         assert headers(table) == ["project", "today", "per day", "peak", "30 d"]
-        for _ in range(7):
+        for _ in range(8):  # the seven usage figures, then context (#86)
             await pilot.press("c")
         await pilot.pause()
         assert "RAM" in title(screen).split("[")[0]
@@ -262,3 +264,114 @@ async def test_all_projects_scaled_on_its_own() -> None:
         assert str(webshop[-4]) == "█"  # $8, three days ago: the busiest project cell
         assert str(everything[-1]) == "█"  # $40 today: All projects' own busiest
         assert str(everything[-4]) != "█"
+
+
+def at(d: date, hour: float) -> float:
+    return datetime.combine(d, datetime.min.time()).timestamp() + hour * 3600
+
+
+def context_live() -> DeckSnapshot:
+    today = date.today()
+    points = ((at(today, 1), 300_000), (at(today, 2), 80_000), (at(today, 3), 150_000))
+    a = SessionLine("a", "/home/user/repos/webshop", points)
+    b = SessionLine("b", "/home/user/repos/webshop", ((at(today, 4), 40_000),))
+    old = SessionLine(
+        "c", "/home/user/repos/webshop", ((at(today - timedelta(days=2), 9), 500_000),)
+    )
+    lines = (old, a, b)
+    now = at(today, 6)
+    rows = (
+        ProjectContext(WEB, "webshop", lines, day_context(lines, today, now)),
+        ProjectContext("all", "All projects", lines, day_context(lines, today, now)),
+    )
+    return replace(live(), usage_context=GroupedContext(today, now, rows))
+
+
+async def to_context(pilot, app: DeckApp) -> HistoryScreen:  # noqa: ANN001
+    await settle(app, pilot)
+    await pilot.press("h", *["c"] * 9)
+    await pilot.pause()
+    screen = app.screen
+    assert isinstance(screen, HistoryScreen)
+    return screen
+
+
+def test_context_note_copy() -> None:
+    d = date(2026, 10, 28)
+    assert context_note("webshop", d, DayContext(597_000, 5, 4, 3, 2)) == (
+        "webshop · Oct 28: 5 sessions · peak 597k · 4 drops · 2 ended without one"
+    )
+    assert context_note("webshop", d, DayContext(40_000, 1, 1, 0, 0)) == (
+        "webshop · Oct 28: 1 session · peak 40k · 1 drop · 0 ended without one"
+    )
+    assert context_note("webshop", d, None) == "webshop · Oct 28: no sessions"
+
+
+async def test_c_reaches_context_mode() -> None:
+    app = DeckApp(StubSource(context_live()), interval=3600, log=log())
+    async with app.run_test(size=(120, 30)) as pilot:
+        screen = await to_context(pilot, app)
+        assert title(screen).split("·")[2].strip().startswith("context")
+        assert "[c] next: RAM" in title(screen)
+        table = screen.query_one(DataTable)
+        assert headers(table) == ["project", "today", "per day", "peak", "drops"]
+        assert names(table) == ["webshop", "All projects"]
+        row = [str(x).strip() for x in table.get_row_at(0)[:5]]
+        assert row == ["webshop", "300k", "400k", "500k", "1"]
+        legend = str(screen.query_one("#legend", Static).render())
+        assert (
+            legend == "peak context per day:  ░ <50k  ▒ 50k–100k  ▓ 100k–200k  ▓ 200k–400k  █ 400k+"
+        )
+
+
+async def test_context_cells_use_fixed_log_bands() -> None:
+    app = DeckApp(StubSource(context_live()), interval=3600, log=log())
+    async with app.run_test(size=(120, 30)) as pilot:
+        screen = await to_context(pilot, app)
+        cells = [str(c) for c in screen.query_one(DataTable).get_row_at(0)[5:]]
+        assert cells[-1] == "▓" and cells[-3] == "█" and cells[-2] == " "
+
+
+async def test_highlight_shows_the_day_note() -> None:
+    app = DeckApp(StubSource(context_live()), interval=3600, log=log())
+    async with app.run_test(size=(120, 30)) as pilot:
+        screen = await to_context(pilot, app)
+        table = screen.query_one(DataTable)
+        table.move_cursor(row=0, column=len(table.columns) - 1)
+        await pilot.pause()
+        hint = str(screen.query_one("#hint", Static).render())
+        day = f"{date.today():%b %-d}"
+        assert hint == f"webshop · {day}: 2 sessions · peak 300k · 1 drop · 1 ended without one"
+
+
+async def test_enter_opens_the_day_plot_and_arrows_move() -> None:
+    app = DeckApp(StubSource(context_live()), interval=3600, log=log())
+    async with app.run_test(size=(120, 40)) as pilot:
+        screen = await to_context(pilot, app)
+        table = screen.query_one(DataTable)
+        table.move_cursor(row=0, column=len(table.columns) - 1)
+        await pilot.press("enter")
+        await pilot.pause()
+        plot = app.screen
+        assert isinstance(plot, ContextPlotScreen)
+        head = str(plot.query_one("#plot-title", Static).render())
+        assert head == f"webshop · context · {date.today():%a %b %-d}"
+        drawn = str(plot.query_one("#plot", Static).render())
+        assert drawn.splitlines()[0].startswith("  1M ─")
+        assert drawn.splitlines()[-1].lstrip().startswith("00:00")
+        sessions = str(plot.query_one("#day", Static).render()).splitlines()
+        assert sessions[0].startswith("● 01:00–03:00  peak 300k · 1 drop · last 150k")
+        await pilot.press("left", "left")
+        head = str(plot.query_one("#plot-title", Static).render())
+        assert head.endswith(f"{date.today() - timedelta(days=2):%a %b %-d}")
+        await pilot.press("escape")
+        assert isinstance(app.screen, HistoryScreen)
+
+
+def test_plot_text_colors_each_session() -> None:
+    lines = context_live().usage_context.rows[0].lines  # type: ignore[union-attr]
+    drawn = plot_text(lines, date.today(), 60)
+    colors = {str(s.style) for s in drawn.spans if str(s.style) in PALETTE}
+    assert colors == {PALETTE[0], PALETTE[1]}  # the two sessions with points today
+    rows = drawn.plain.splitlines()
+    assert [r[:5] for r in rows[:12] if r[:5].strip()] == ["  1M ", "100k ", " 10k "]

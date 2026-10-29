@@ -25,8 +25,18 @@ def _columns(values: Sequence[float | None], n: int) -> list[float | None]:
 
 
 def braille(values: Sequence[float | None], top: float, width: int, height: int) -> list[str]:
+    return [
+        "".join(chr(0x2800 + bits) for bits in line)
+        for line in braille_cells(values, top, width, height)
+    ]
+
+
+def braille_cells(
+    values: Sequence[float | None], top: float, width: int, height: int
+) -> list[list[int]]:
+    """`braille`'s dots as bit masks per character, so several lines can share one plot."""
     if top <= 0 or not values:
-        return [BLANK * width for _ in range(height)]
+        return [[0] * width for _ in range(height)]
     rows = height * 4
     cells = [[0] * width for _ in range(height)]
     previous: int | None = None
@@ -39,7 +49,7 @@ def braille(values: Sequence[float | None], top: float, width: int, height: int)
         for dot in range(low, high + 1):
             cells[dot // 4][x // 2] |= _DOTS[x % 2][dot % 4]
         previous = y
-    return ["".join(chr(0x2800 + bits) for bits in line) for line in cells]
+    return cells
 
 
 def level_row(value: float, top: float, height: int) -> int:

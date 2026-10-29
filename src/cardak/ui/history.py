@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from rich.text import Text
 from textual import on
@@ -13,6 +13,14 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
 from cardak.core.config import ResourceSettings
+from cardak.core.context import (
+    EDGES,
+    ContextRow,
+    DayContext,
+    GroupedContext,
+    ProjectContext,
+    context_rows,
+)
 from cardak.core.eventlog import line_text, log_lines
 from cardak.core.history import (
     CELLS,
@@ -42,13 +50,15 @@ from cardak.core.trends import (
     usage_rows,
     value,
 )
+from cardak.ui.context_plot import ContextPlotScreen
 from cardak.ui.plot import BLANK, braille, level_row
 from cardak.ui.widgets import fmt_count, fmt_usd
 
 FIXED = (("project", 14), ("now", 9), ("median", 9), ("peak", 9), ("alerts", 9))
 USAGE_FIXED = (("project", 14), ("today", 9), ("per day", 9), ("peak", 9), ("30 d", 9))
-Mode = Metric | Figure
-MODES: tuple[Mode, ...] = ("ram", "cpu", *FIGURES)
+CONTEXT_FIXED = (("project", 14), ("today", 9), ("per day", 9), ("peak", 9), ("drops", 9))
+Mode = Metric | Figure | Literal["context"]
+MODES: tuple[Mode, ...] = ("ram", "cpu", *FIGURES, "context")
 USAGE_SORTS = {"peak": "peak", "now": "today", "median": "per_day", "alerts": "window"}
 BAND_STYLES = ("dim", "", "yellow", "dark_orange", "bold red")
 EMPTY = "No history yet: the daemon records it (cardak resources install)."
@@ -111,7 +121,7 @@ def _usage_line(r: UsageRow, figure: Figure, e: Sequence[float]) -> list[Text]:
     return [Text(x) for x in fixed] + days  # Text: names are free text, not markup
 
 
-def sort_usage(rows: Sequence[UsageRow], key: str) -> list[UsageRow]:
+def sort_usage[R: (UsageRow, ContextRow)](rows: Sequence[R], key: str) -> list[R]:
     """As `sort_rows`: biggest first, Other and then All projects last."""
     if key == "name":
         ordered = sorted(rows, key=lambda r: r.name.lower())
@@ -125,7 +135,30 @@ def sort_usage(rows: Sequence[UsageRow], key: str) -> list[UsageRow]:
 
 
 def _mode_name(mode: Mode) -> str:
+    if mode == "context":
+        return "context"
     return mode.upper() if mode in ("ram", "cpu") else LABELS[cast(Figure, mode)]
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def context_note(name: str, day: date, d: DayContext | None) -> str:
+    """The highlighted context cell's day, under the table."""
+    if d is None:
+        return f"{name} · {day:%b %-d}: no sessions"
+    return (
+        f"{name} · {day:%b %-d}: {_plural(d.sessions, 'session')} · peak {fmt_count(d.peak)}"
+        f" · {_plural(d.drops, 'drop')} · {d.ended_clean} ended without one"
+    )
+
+
+CONTEXT_LEGEND = "peak context per day:  " + "  ".join(
+    [f"{CELLS[0]} <{fmt_count(EDGES[0])}"]
+    + [f"{CELLS[i]} {fmt_count(EDGES[i - 1])}–{fmt_count(EDGES[i])}" for i in range(1, 4)]
+    + [f"{CELLS[-1]} {fmt_count(EDGES[-1])}+"]
+)
 
 
 def _day_note(name: str, day: date, d: DayUsage | None) -> str:
@@ -178,6 +211,7 @@ class HistoryScreen(Screen[None]):
         self._sort = SORTS[0]
         self._rows: list[HistoryRow] = []
         self._usage: list[UsageRow] = []
+        self._context_rows: list[ContextRow] = []
         self._error: str | None = None
         try:
             self._days = log.history_days(self._since)
@@ -205,6 +239,10 @@ class HistoryScreen(Screen[None]):
     def _trends(self) -> GroupedTrends | None:
         return self._live.usage_trends if self._live is not None else None
 
+    @property
+    def _grouped_context(self) -> GroupedContext | None:
+        return self._live.usage_context if self._live is not None else None
+
     def _columns(self, fixed: Sequence[tuple[str, int]]) -> None:
         table = self.query_one(DataTable)
         table.clear(columns=True)
@@ -224,6 +262,8 @@ class HistoryScreen(Screen[None]):
     def _fill(self) -> None:
         if self._mode in ("ram", "cpu"):
             self._fill_resources(cast(Metric, self._mode))
+        elif self._mode == "context":
+            self._fill_context()
         else:
             self._fill_usage(cast(Figure, self._mode))
         self._title()
@@ -278,6 +318,41 @@ class HistoryScreen(Screen[None]):
         text = _usage_legend(e, figure, unpriced) if self._usage else ""
         self.query_one("#legend", Static).update(Text(text))
 
+    def _fill_context(self) -> None:
+        self._columns(CONTEXT_FIXED)
+        grouped = self._grouped_context
+        self._context_rows = sort_usage(context_rows(grouped) if grouped else [], self._sort)
+        self.query_one("#hint", Static).update(Text("" if self._context_rows else NO_USAGE))
+        table = self.query_one(DataTable)
+        for r in self._context_rows:
+            fixed = [r.name[:13].ljust(14)] + [
+                (fmt_count(v) if v is not None else "-").rjust(9)
+                for v in (r.today, r.per_day, r.peak, r.window)
+            ]
+            days = [Text(CELLS[b], style=BAND_STYLES[b]) if (b := band(v, EDGES)) >= 0
+                    else Text(" ") for v in r.days]  # fmt: skip
+            table.add_row(*(Text(x) for x in fixed), *days, key=r.subject)
+        self.query_one("#legend", Static).update(Text(CONTEXT_LEGEND if self._context_rows else ""))
+
+    def _context_day(self, row: int, index: int) -> tuple[date, ProjectContext] | None:
+        grouped = self._grouped_context
+        if grouped is None or not 0 <= row < len(self._context_rows) or index < 0:
+            return None
+        subject = self._context_rows[row].subject
+        found = next(p for p in grouped.rows if p.subject == subject)
+        return _first_day(grouped.today) + timedelta(days=index), found
+
+    @on(DataTable.CellHighlighted)
+    def _note_context(self, event: DataTable.CellHighlighted) -> None:
+        if self._mode != "context":
+            return
+        found = self._context_day(event.coordinate.row, event.coordinate.column - len(FIXED))
+        if found is None:
+            return
+        day, p = found
+        note = context_note(p.name, day, p.days[event.coordinate.column - len(FIXED)])
+        self.query_one("#hint", Static).update(Text(note))
+
     def action_metric(self) -> None:
         self._mode = MODES[(MODES.index(self._mode) + 1) % len(MODES)]
         self._fill()
@@ -300,6 +375,12 @@ class HistoryScreen(Screen[None]):
         index = event.coordinate.column - len(FIXED)
         if index < 0:
             return
+        if self._mode == "context":
+            found = self._context_day(event.coordinate.row, index)
+            if found is not None:
+                day, p = found
+                self.app.push_screen(ContextPlotScreen(p, day, self._today))
+            return None
         if self._mode not in ("ram", "cpu"):
             return self._note_day(event.coordinate.row, index)
         if event.coordinate.row >= len(self._rows):

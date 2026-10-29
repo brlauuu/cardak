@@ -187,6 +187,8 @@ def pane_label(r: PaneRow, now: float | None = None, total: int | None = None) -
                 text.append(f"  {agent.current_tool}", style="dim")
         else:
             text.append(f"  idle {age(now - agent.since)}", style="dim")
+        if agent.context:
+            text.append(f"  ctx {fmt_count(agent.context)}", style="dim")
     return text
 
 
