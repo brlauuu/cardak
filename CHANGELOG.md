@@ -9,6 +9,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+- Waiting sessions, memory alerts and everything else can each have their own sound: random, off (the notification still shows) or one you name. Copy sound packs in the openpeon format into `src/cardak/sounds/packs/` and random plays their voice lines: "input required" clips when a session waits, "resource limit" clips on memory alerts, a chime for the rest. Packs stay on your machine; mp3 clips play too. (#91)
+
 ## 0.13.0 — 2026-10-29
 
 ### Added

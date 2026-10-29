@@ -72,9 +72,20 @@ deck closed. You get none if you're already looking at that pane. Configure it i
 ```toml
 [notify]
 desktop = true                 # notify-send
-sound = "random"               # "random", "off", or a name: chime, pluck, bell, blip, drop
-sounds_dir = "~/sounds/cardak" # optional: your own .wav/.oga/.ogg files join the pool
+waiting_sound = "random"       # a session waiting on you
+memory_sound = "random"        # memory alerts, and WezTerm closed for lack of memory
+other_sound = "random"         # every other alert: a chime
+sounds_dir = "~/sounds/cardak" # optional: your own .wav/.oga/.ogg/.mp3 files join the waiting pool
 ```
+
+Each sound is `"random"`, `"off"` (the notification still shows) or a name: a built-in one
+(chime, pluck, bell, blip, drop), a file in `sounds_dir`, or a pack clip as `<pack folder>/<file
+name without extension>`. The older `sound` key still works and stands for `waiting_sound`.
+
+**Sound packs.** Copy packs in the openpeon format (a folder with `openpeon.json` and its clips)
+into `src/cardak/sounds/packs/` of an editable install. That folder is git-ignored and left out
+of builds. Random then plays the packs' "input required" clips when a session waits, their
+"resource limit" clips on memory alerts (else `bell`), and `chime` for the rest.
 
 cardak keeps its state in `~/.local/state/cardak/`.
 

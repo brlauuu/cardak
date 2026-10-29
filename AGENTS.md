@@ -33,6 +33,7 @@ src/cardak/
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
   collectors/{handoff, git}.py                         # M6: the handoff note, read-only git
   collectors/{usage, prices}.py                        # #29: per-reply usage, LiteLLM's price list
+  collectors/soundpacks.py                             # #91: the user's openpeon sound packs
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
   web/{view, server, key, lan}.py, page.html          # M7: the read-only page for phones
   wezterm/{cardak.lua, generate.py, install.py, schemes.py, files.py, tint.zsh}
@@ -61,7 +62,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   (session files), `collectors/hooks.py` (hook payloads), `collectors/transcripts.py` and
   `collectors/usage.py` (token usage and prompts, #29).
   Nothing else touches raw `wezterm cli` output or reads files under `~/.claude/`; the one
-  writer there is `claude/install.py`. Neither format is a stable API.
+  writer there is `claude/install.py`. Neither format is a stable API. Sound packs'
+  `openpeon.json` is read only in `collectors/soundpacks.py` (#91).
 - Read-only by default: the deck observes and focuses panes; it does not launch or drive agents.
   Two exceptions, each after the user confirms it in a dialog: `c` (M6) types `/checkpoint` into
   an agent pane, and `x` (#65) opens a shell tab in a project (`wezterm cli spawn --cwd`, in the
@@ -177,6 +179,23 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   test that builds its own env passes both too: a ping with the real key reachable spawns a
   detached `cardak summarize`. A manual `cardak hook` run must set `XDG_STATE_HOME`,
   `XDG_CONFIG_HOME` and `CARDAK_CONFIG` to scratch paths.
+
+## Notification sounds (#91)
+- Three themes, each `[notify] <theme>_sound` = `"random"`, `"off"` or a name: **waiting** (the
+  hook's ping), **memory** (`core/daemon.THEME_BY_KIND`: the `memory`, `big` and `growth` alerts,
+  and a loud crash report) and **other** (`busy`, `machine_busy`). The old `sound` key stands for
+  waiting; a `sound = "off"` with no theme key set silences all three.
+- Random's pool (`alerts.theme_pool`): the packs' `input.required` clips plus `sounds_dir` for
+  waiting (the five bundled sounds only when no pack has one, which is the pre-#91 pool),
+  `resource.limit` clips or `bell` for memory, and `chime` for other. A named sound is a bundled
+  stem, a `sounds_dir` file name or `<pack folder>/<stem>`, any category.
+- **Packs are the user's, never ours to publish.** They go in `src/cardak/sounds/packs/<folder>/`
+  (`alerts.pack_root`), which `.gitignore` lists and `[tool.uv.build-backend]` leaves out of the
+  wheel and sdist (`tests/test_packaging.py`). `collectors/soundpacks.py` only reads them: a clip
+  outside its pack, missing or of another type is skipped; an unreadable manifest becomes a deck
+  warning. They're read once per sound played (the hook only when pinging) and when the deck
+  reloads its config. Tests point `pack_root` at an empty folder (`tests/conftest.py`).
+- `pw-play` plays mp3 through libsndfile ≥ 1.1 (1.2.2 here, checked 2026-10-29).
 
 ## Claude Code hooks (measured in M4, Claude Code 2.1.306)
 - Fixtures: `tests/fixtures/hooks/` (recorded with `spikes/04_record_hooks.py` and
