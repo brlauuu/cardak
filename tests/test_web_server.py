@@ -2,9 +2,10 @@ import json
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 
 import pytest
-from test_web_view import snap
+from test_web_view import grouped, snap
 
 from cardak.core.agents import SessionState
 from cardak.web.server import Latest, csp, make_server, start
@@ -157,3 +158,12 @@ def test_idle_connection_is_closed(serve) -> None:
     port = int(base.rsplit(":", 1)[1])
     with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
         assert s.recv(1) == b""  # the server gave up on a client that never sent a request
+
+
+def test_trends_needs_the_key(serve) -> None:
+    base, latest = serve()
+    assert get(base + "/api/trends")[0] == 503
+    latest.publish(replace(snap(), usage_trends=grouped()), 100.0)
+    assert get(base + "/api/trends", key=None)[0] == 401
+    status, _, body = get(base + "/api/trends")
+    assert status == 200 and [r["name"] for r in json.loads(body)["rows"]][0] == "webshop"

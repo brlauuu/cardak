@@ -10,7 +10,8 @@ import contextlib
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 
 from cardak.collectors import usage as usage_mod
@@ -27,6 +28,7 @@ from cardak.core.config import cache_dir
 from cardak.core.prices import CACHE_NAME, PriceBook, lookup, priced, reply_cost
 from cardak.core.store import Store, StoreError, db_path
 from cardak.core.summary import month_start
+from cardak.core.trends import UsageTrends, build_trends, window_start
 
 PASS_EVERY_S = 30.0
 BATCH = 500  # replies per transaction: a hook waiting on the write lock has 2 s
@@ -38,6 +40,7 @@ class MonthSpend:
     total: float  # USD, priced replies only
     by_cwd: Mapping[str | None, float]
     unpriced: tuple[str, ...]  # models with no price, "<model> (fast mode)" for fast mode
+    trends: UsageTrends | None = None  # the history window's days (#88)
 
 
 def month_spend(
@@ -77,6 +80,7 @@ class SpendCounter:
         self._root = root or usage_mod.default_root()
         self._clock = clock
         self.latest: MonthSpend | None = None  # read from other threads; replaced whole
+        self._built_on: tuple[object, ...] | None = None  # what latest was built from
 
     def _read(self, f: TranscriptFile, stored: tuple[int, int] | None) -> None:
         inode, offset = stored or (f.inode, 0)
@@ -94,11 +98,23 @@ class SpendCounter:
             offset = end
 
     def step(self) -> MonthSpend:
-        since = month_start(self._clock())
+        now = self._clock()
+        since, today = month_start(now), date.fromtimestamp(now)
         stored = self.store.transcript_offsets()
         for f in transcript_files(self._root, since):
             self._read(f, stored.get(str(f.path)))
-        self.latest = month_spend(self.store.replies_since(since), self.prices.current(), since)
+        prices = self.prices.current()
+        # rebuilt only when a row was stored (by this process or the other one), the day
+        # changed or the prices did: most passes add nothing
+        built_on = (self.store.usage_mark(), today, prices)
+        if self.latest is not None and built_on == self._built_on:
+            return self.latest
+        window = window_start(today)
+        replies = self.store.replies_since(min(since, window))
+        spend = month_spend(replies, prices, since)
+        trends = build_trends(replies, self.store.prompts_since(window), prices, today)
+        self.latest = replace(spend, trends=trends)
+        self._built_on = built_on
         return self.latest
 
 

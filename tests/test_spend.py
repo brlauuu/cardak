@@ -3,13 +3,13 @@ import shutil
 import threading
 import time
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 
 from cardak.collectors import usage as usage_mod
-from cardak.collectors.usage import Reply, read_usage
+from cardak.collectors.usage import Reply, Usage, read_usage
 from cardak.core import spend
 from cardak.core.prices import BUILTIN, PriceBook, lookup, reply_cost
 from cardak.core.spend import MonthSpend, SpendCounter, month_spend
@@ -254,3 +254,63 @@ def test_run_counts_before_downloading_prices(
     monkeypatch.setattr(c.prices, "refresh", refresh)
     spend.run(c, stop, lambda _m: None)
     assert order == ["step", "refresh"]
+
+
+def test_step_builds_trends(tmp_path: Path, root: Path) -> None:
+    trends = counter(tmp_path, root).step().trends
+    assert trends is not None
+    assert trends.today == date(2026, 10, 28)
+    # Sep 29 is the window's first day: Oct 20 and 21 are days 21 and 22
+    assert {k for k in trends.cells} == {("/home/user/webshop", 21), ("/home/user/webshop", 22)}
+
+
+def test_trends_reach_back_into_last_month(tmp_path: Path) -> None:
+    now = datetime(2026, 11, 3, 12, 0).timestamp()
+    store = Store(tmp_path / "c.db")
+    old = Reply("m:r", datetime(2026, 10, 25, 9).timestamp(), "s", "/w", "claude-opus-5-5",
+                1, 1, 0, 0, 0, None)  # fmt: skip
+    store.record_usage("/x.jsonl", 1, 1, Usage((old,), ()))
+    empty = tmp_path / "none"
+    empty.mkdir()
+    result = SpendCounter(store, offline(tmp_path), empty, clock=lambda: now).step()
+    assert result.total == 0
+    assert (
+        result.trends is not None and ("/w", 20) in result.trends.cells
+    )  # the window starts Oct 5
+
+
+def test_step_reuses_figures_when_nothing_changed(tmp_path: Path, root: Path) -> None:
+    c = counter(tmp_path, root)
+    first = c.step()
+    assert c.step() is first
+
+
+def test_step_sees_rows_another_counter_stored(tmp_path: Path, root: Path) -> None:
+    deck = counter(tmp_path, root, "shared.db")
+    before = deck.step()
+    daemon = counter(tmp_path, root, "shared.db")
+    late = Reply("m:late", NOW - 60, "s9", "/home/user/notes", "claude-opus-5-5",
+                 1, 1, 0, 0, 0, None)  # fmt: skip
+    daemon.store.record_usage("/y.jsonl", 1, 1, Usage((late,), ()))
+    after = deck.step()  # nothing new in the transcripts for deck: the daemon stored it
+    assert after is not before
+    assert after.trends is not None and ("/home/user/notes", 29) in after.trends.cells
+
+
+def test_step_rebuilds_after_midnight(tmp_path: Path, root: Path) -> None:
+    now = [datetime(2026, 10, 27, 23, 59, 50).timestamp()]
+    c = SpendCounter(Store(tmp_path / "c.db"), offline(tmp_path), root, clock=lambda: now[0])
+    first = c.step()
+    now[0] = datetime(2026, 10, 28, 0, 0, 20).timestamp()  # nothing new: only the date moved
+    second = c.step()
+    assert second is not first
+    assert second.trends is not None and second.trends.today == date(2026, 10, 28)
+
+
+def test_step_rebuilds_when_prices_change(tmp_path: Path, root: Path) -> None:
+    c = counter(tmp_path, root)
+    first = c.step()
+    cheaper = {**BUILTIN, "claude-opus-5-5": BUILTIN["claude-haiku-5-5"]}
+    c.prices._loaded = (None, cheaper)  # a download with new prices replaces the table
+    second = c.step()
+    assert second is not first and second.total < first.total

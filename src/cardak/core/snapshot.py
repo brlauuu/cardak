@@ -12,6 +12,7 @@ from cardak.collectors.wezterm import Pane
 from cardak.core.agents import SessionState, Status, WaitKind
 from cardak.core.resolver import Kind, ProjectResolver, Resolved
 from cardak.core.resources import MemoryLevel, Thresholds
+from cardak.core.trends import GroupedTrends
 
 ClaudeLookup = Callable[[int], ClaudeSession | None]
 AccentFor = Callable[[Resolved], str | None]
@@ -101,6 +102,7 @@ class DeckSnapshot:
     thresholds: Thresholds | None = None  # set whenever there is a machine sample
     month_spend: float | None = None  # all Claude Code use this month; None: not counted yet
     spend_unpriced: tuple[str, ...] = ()  # models left out of month_spend: no price for them
+    usage_trends: GroupedTrends | None = None  # the history window's days per project (#88)
 
     @property
     def n_projects(self) -> int:

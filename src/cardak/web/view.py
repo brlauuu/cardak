@@ -9,6 +9,17 @@ from cardak.core.agents import SessionState
 from cardak.core.detail import shown_path, turn_text, words
 from cardak.core.snapshot import AgentView, DeckSnapshot, Group, PaneRow
 from cardak.core.summary import TAGS
+from cardak.core.trends import (
+    ALL,
+    FIGURES,
+    LABELS,
+    OTHER,
+    GroupedTrends,
+    UsageRow,
+    first_day,
+    usage_edges,
+    usage_rows,
+)
 
 Json = dict[str, Any]  # JSON-shaped; Any so callers can index nested values
 
@@ -143,4 +154,41 @@ def session_json(agent: AgentView, state: SessionState | None, now: float) -> Js
         "turn": turn_text(state) if state else None,
         "turn_files": [shown_path(p, state.cwd) for p in state.turn_files] if state else [],
         "now": now,
+    }
+
+
+def _figure(r: UsageRow, top: float) -> Json:
+    return {
+        "days": list(r.days),
+        "today": r.today,
+        "per_day": r.per_day,
+        "peak": r.peak,
+        "window": r.window,
+        "incomplete": r.incomplete,
+        "incomplete_today": r.incomplete_today,
+        "top": top if top != float("inf") else None,
+    }
+
+
+def trends_json(grouped: GroupedTrends | None) -> Json:
+    """The Trends view (#88): names and numbers per project and day, nothing that identifies a
+    folder or a session."""
+    figures = [{"key": f, "label": LABELS[f]} for f in FIGURES]
+    if grouped is None:
+        return {"today": None, "first": None, "figures": figures, "unpriced": [], "rows": []}
+    rows: dict[str, Json] = {}
+    for f in FIGURES:
+        found = usage_rows(grouped, f)
+        top = usage_edges([r for r in found if r.subject != ALL])[-1]
+        top_all = usage_edges([r for r in found if r.subject == ALL])[-1]
+        for r in found:
+            kind = "all" if r.subject == ALL else "other" if r.subject == OTHER else "project"
+            row = rows.setdefault(r.subject, {"name": r.name, "kind": kind, "figures": {}})
+            row["figures"][f] = _figure(r, top_all if kind == "all" else top)
+    return {
+        "today": grouped.today.isoformat(),
+        "first": first_day(grouped.today).isoformat(),
+        "figures": figures,
+        "unpriced": list(grouped.unpriced),
+        "rows": list(rows.values()),
     }

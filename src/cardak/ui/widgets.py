@@ -33,6 +33,14 @@ def fmt_usd(usd: float) -> str:
     return f"${usd:.2f}" if usd < 10 else f"${usd:,.0f}"
 
 
+def fmt_count(n: float) -> str:
+    """ "999", "1.2k", "340k", "1.2M", "3.4B": one decimal under 10 of a unit."""
+    for unit, size in (("B", 1e9), ("M", 1e6), ("k", 1e3)):
+        if n >= size:
+            return f"{n / size:.1f}{unit}" if n < 10 * size else f"{n / size:.0f}{unit}"
+    return f"{n:.0f}"
+
+
 def share(rss: int, total: int | None) -> str:
     """ " (32%)": rss as a share of the machine's RAM (MemTotal); "" with no total to compare."""
     if not total:
