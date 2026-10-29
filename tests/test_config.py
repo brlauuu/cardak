@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from cardak.core.config import (
+    THEMES,
     Config,
     ConfigError,
     NotifySettings,
@@ -301,6 +302,7 @@ def test_notify_parsed(tmp_path: Path, home: Path) -> None:
         "notify = 3\n",
         "[notify]\nsound = 1\n",
         "[notify]\nsounds_dir = []\n",
+        "[notify]\nmemory_sound = 2\n",
     ],
 )
 def test_notify_bad_types(tmp_path: Path, text: str) -> None:
@@ -491,3 +493,33 @@ def test_set_web_enabled_keeps_comments(tmp_path: Path) -> None:
 
 def test_web_key_path(tmp_path: Path) -> None:
     assert web_key_path({"XDG_CONFIG_HOME": str(tmp_path)}) == tmp_path / "cardak" / "web_key"
+
+
+def test_theme_keys_parsed(tmp_path: Path) -> None:
+    f = tmp_path / "p.toml"
+    f.write_text('[notify]\nwaiting_sound = "peon/A"\nmemory_sound = "off"\nother_sound = "bell"\n')
+    n = load(f).notify
+    assert [n.theme_sound(t) for t in THEMES] == ["peon/A", "off", "bell"]
+    assert n.theme_key("waiting") == "waiting_sound"
+    assert n.theme_key("memory") == "memory_sound"
+
+
+def test_theme_defaults() -> None:
+    n = NotifySettings()
+    assert [n.theme_sound(t) for t in THEMES] == ["random"] * 3
+    assert n.theme_key("waiting") == "sound"
+
+
+def test_legacy_sound_means_waiting() -> None:
+    n = NotifySettings(sound="bell")
+    assert [n.theme_sound(t) for t in THEMES] == ["bell", "random", "random"]
+
+
+def test_legacy_off_silences_all() -> None:
+    n = NotifySettings(sound="off")
+    assert [n.theme_sound(t) for t in THEMES] == ["off"] * 3
+
+
+def test_legacy_off_with_one_theme_key() -> None:
+    n = NotifySettings(sound="off", memory_sound="peon/X")
+    assert [n.theme_sound(t) for t in THEMES] == ["off", "peon/X", "random"]

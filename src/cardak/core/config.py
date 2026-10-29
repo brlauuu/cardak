@@ -6,7 +6,7 @@ import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from tomlkit.items import Table
@@ -25,11 +25,36 @@ class Project:
     tint: str | None = None
 
 
+Theme = Literal["waiting", "memory", "other"]  # which notification a sound is for (#91)
+THEMES: tuple[Theme, ...] = ("waiting", "memory", "other")
+
+
 @dataclass(frozen=True)
 class NotifySettings:
     desktop: bool = True  # notify-send when a session starts waiting
     sound: str = "random"  # "random" | "off" | a bundled name | a file name in sounds_dir
     sounds_dir: Path | None = None
+    # per theme, the same values plus "<pack>/<clip>"; unset follows `sound` (see theme_sound)
+    waiting_sound: str | None = None
+    memory_sound: str | None = None
+    other_sound: str | None = None
+
+    def theme_sound(self, theme: Theme) -> str:
+        """`sound` predates the themes: it stands for the waiting one, and an "off" with no
+        theme key set keeps every theme silent."""
+        if theme == "waiting":
+            return self.waiting_sound or self.sound
+        own = self.memory_sound if theme == "memory" else self.other_sound
+        if own is not None:
+            return own
+        untouched = self.waiting_sound is self.memory_sound is self.other_sound is None
+        return "off" if self.sound == "off" and untouched else "random"
+
+    def theme_key(self, theme: Theme) -> str:
+        """The [notify] key a theme's setting came from, for warnings."""
+        if theme == "waiting" and self.waiting_sound is None:
+            return "sound"
+        return f"{theme}_sound"
 
 
 @dataclass(frozen=True)
@@ -212,7 +237,23 @@ def _notify(path: Path, data: Mapping[str, object]) -> NotifySettings:
         raise ConfigError(path, "[notify] sound must be a string")
     if sounds_dir is not None and not isinstance(sounds_dir, str):
         raise ConfigError(path, "[notify] sounds_dir must be a string")
-    return NotifySettings(desktop, sound, Path(sounds_dir).expanduser() if sounds_dir else None)
+    return NotifySettings(
+        desktop,
+        sound,
+        Path(sounds_dir).expanduser() if sounds_dir else None,
+        *_theme_sounds(path, raw),
+    )
+
+
+def _theme_sounds(path: Path, raw: Mapping[str, object]) -> list[str | None]:
+    """`waiting_sound`, `memory_sound`, `other_sound`, in THEMES order (#91)."""
+    values: list[str | None] = []
+    for t in THEMES:
+        value = raw.get(f"{t}_sound")
+        if value is not None and not isinstance(value, str):
+            raise ConfigError(path, f"[notify] {t}_sound must be a string")
+        values.append(value)
+    return values
 
 
 def _summary(path: Path, data: Mapping[str, object]) -> SummarySettings:

@@ -2,19 +2,21 @@ import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
 from cardak.collectors.journal import JournalEntry, parse_entries
 from cardak.collectors.machine import MachineSample
 from cardak.core.config import Config, NotifySettings
-from cardak.core.daemon import Daemon, DaemonRunning, lock, run
+from cardak.core.daemon import THEME_BY_KIND, Daemon, DaemonRunning, lock, run
 from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
 from cardak.core.store import MinuteRow, ResourceEvent, StoreError
+from cardak.core.watch import AlertKind
 
 FIX = Path(__file__).parent / "fixtures" / "journal"
 SCOPE = "app-org.wezfurlong.wezterm-0123456789abcdef0123456789abcdef.scope"
-Sent = list[tuple[str, str, str, NotifySettings]]
+Sent = list[tuple[str, str, str, NotifySettings, str]]
 
 GIB = 2**30
 MACHINE = MachineSample(32 * GIB, 16 * GIB, GIB, GIB, 20.0, 16)
@@ -81,9 +83,7 @@ def test_step_records_and_notifies() -> None:
     assert [(e.kind, e.subject, e.notified) for e in store.events] == [
         ("big", "project:/home/user/repos/webshop", True)
     ]
-    assert [(level, title) for level, title, _, _ in sent] == [
-        ("warning", "cardak · webshop is big")
-    ]
+    assert [(level, title) for level, title, *_ in sent] == [("warning", "cardak · webshop is big")]
     d.step(2.0)
     assert len(store.events) == 1 and len(sent) == 1
 
@@ -93,7 +93,21 @@ def test_step_passes_notify_settings() -> None:
     source.config = Config(notify=NotifySettings(desktop=False))
     sent: Sent = []
     daemon(source, None, sent).step(0.0)
-    assert [s for *_, s in sent] == [NotifySettings(desktop=False)]
+    assert [a[3] for a in sent] == [NotifySettings(desktop=False)]
+
+
+def test_memory_alerts_play_the_memory_theme() -> None:
+    sent: Sent = []
+    daemon(FakeSource(big_snap()), None, sent).step(0.0)
+    assert [a[4] for a in sent] == ["memory"]
+
+
+def test_themes_by_kind() -> None:
+    assert {k: THEME_BY_KIND[k] for k in ("memory", "big", "growth")} == dict.fromkeys(
+        ("memory", "big", "growth"), "memory"
+    )
+    assert THEME_BY_KIND["busy"] == THEME_BY_KIND["machine_busy"] == "other"
+    assert set(THEME_BY_KIND) == set(get_args(AlertKind))
 
 
 def test_step_without_machine_does_nothing() -> None:
@@ -153,9 +167,10 @@ def test_crash_is_recorded_and_notified() -> None:
     [crash] = [e for e in store.events if e.kind == "crash"]
     assert (crash.level, crash.subject, crash.notified) == ("critical", "wezterm:7", True)
     assert crash.text.startswith("WezTerm was closed at ")
-    assert [(level, title) for level, title, _, _ in sent] == [
+    assert [(level, title) for level, title, *_ in sent] == [
         ("critical", "cardak · WezTerm closed: out of memory")
     ]
+    assert sent[0][4] == "memory"
 
 
 def test_quiet_crash_not_notified() -> None:
