@@ -318,16 +318,20 @@ def _providers(raw: Mapping[str, object]) -> tuple[str, dict[str, ProviderSettin
             except ValueError as e:
                 problems.append(str(e))
     provider = raw.get("provider", "anthropic")
+    problem = _provider_problem(provider, providers)
+    if problem and not (problems and problem.endswith("is missing")):  # a broken table says more
+        problems.insert(0, problem)
+    return provider if isinstance(provider, str) else "", providers, next(iter(problems), None)
+
+
+def _provider_problem(provider: object, providers: Mapping[str, ProviderSettings]) -> str | None:
     if not isinstance(provider, str):
-        problems.insert(0, "[summary] provider must be one name: only one provider is in use")
-        provider = ""
-    elif provider not in PROVIDERS:
-        problems.insert(0, f"[summary] provider {provider!r} is not one of {', '.join(PROVIDERS)}")
-    elif provider != "anthropic" and provider not in providers and not problems:
-        problems.insert(
-            0, f"[summary] provider is {provider!r} but [summary.{provider}] is missing"
-        )
-    return provider, providers, problems[0] if problems else None
+        return "[summary] provider must be one name: only one provider is in use"
+    if provider not in PROVIDERS:
+        return f"[summary] provider {provider!r} is not one of {', '.join(PROVIDERS)}"
+    if provider != "anthropic" and provider not in providers:
+        return f"[summary] provider is {provider!r} but [summary.{provider}] is missing"
+    return None
 
 
 def _provider(name: str, raw: object) -> ProviderSettings:

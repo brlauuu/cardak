@@ -12,7 +12,14 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, OptionList, Select, Static
 
-from cardak.core.config import KEYED, OLLAMA_URL, PROVIDERS, ProviderSettings, SummarySettings
+from cardak.core.config import (
+    KEYED,
+    NEEDS,
+    OLLAMA_URL,
+    PROVIDERS,
+    ProviderSettings,
+    SummarySettings,
+)
 from cardak.core.summary import (
     FREE,
     MODEL,
@@ -39,7 +46,6 @@ FIELDS = {
     "openai": ("url", "model", "key"),
     "codex": ("model",),
 }
-NEEDED = {"ollama": ("model",), "fireworks": ("model",), "openai": ("url", "model")}
 KEYS_HINT = "enter use · t test · n set up · e edit · del remove · esc close"
 
 
@@ -370,18 +376,22 @@ class SummariesScreen(ModalScreen[None]):
     def _form_save_and_use(self) -> None:
         self._save(use=True)
 
+    def _missing(self, name: str, settings: ProviderSettings, key: str | None) -> str | None:
+        """What the form still lacks before it can be saved, or None."""
+        missing = [f for f in NEEDS.get(name, ()) if not getattr(settings, f)]
+        if KEYED.get(name) and key is None and not self._control.has_key(name):
+            missing.append("key")
+        return f"{name} needs a {' and a '.join(missing)}" if missing else None
+
     def _save(self, use: bool) -> None:
         name = self._form_for
         if name is None:
             return
         settings = self._form_settings()
-        missing = [f for f in NEEDED.get(name, ()) if not getattr(settings, f)]
-        if missing:
-            self._say(f"{name} needs a {' and a '.join(missing)}")
-            return
         key = self.query_one("#f-key", Input).value.strip() or None
-        if KEYED.get(name) and key is None and not self._control.has_key(name):
-            self._say(f"{name} needs a key")
+        problem = self._missing(name, settings, key)
+        if problem:
+            self._say(problem)
             return
         url = settings.url if name in ("ollama", "openai") else None
         error = self._control.save_provider(name, url, settings.model, key)

@@ -608,11 +608,13 @@ input, #70).
   `config.load` by the short name and reported a fan-in of 8 that wasn't there. Nothing accepted.
 - **#47–#49 (summary providers)** split `config._provider` (12: `DEFAULT_URLS`, `NEEDS`) and
   `cli._make_summarizer` (10: one builder per provider in `SUMMARIZERS`), and dropped the
-  test-only `anthropic_key_path` for `key_file(keys_dir, name)`. Accepted: `config.config_dir`
-  at fan-in 9 and `summary.month_start` at 8 (the screen's spend line and the key paths are one
-  more reader each); `config._read` as a hotspot (6 × 4: three more writers); and the
+  test-only `anthropic_key_path` for `key_file(keys_dir, name)`; after the review,
+  `CodexSummarizer.summarize` (12: `_argv`, `_exec`), `SummariesScreen._save` (12: `_missing`)
+  and `config._providers` (10: `_provider_problem`). Accepted: `config.config_dir` at fan-in 9,
+  `config.key_file` and `summary.month_start` at 8 (every reader of a key file, and the
+  screen's spend line); `config._read` as a hotspot (6 × 4: three more writers); and the
   Summaries screen's coordinators `_refresh` (6 × 8), `_show_detail` (6 × 8) and `_save`
-  (4 × 8), each one step of the one screen.
+  (4 × 9), each one step of the one screen.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

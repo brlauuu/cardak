@@ -82,26 +82,28 @@ class CodexSummarizer:
         self.model = model
         self.run = run
 
+    def _argv(self, out: Path) -> list[str]:
+        argv = ["codex", "exec", "--ephemeral", "--sandbox", "read-only"]
+        argv += ["--skip-git-repo-check", "--ignore-rules", "--json", "-o", str(out)]
+        argv += ["-m", self.model] if self.model else []
+        return [*argv, "-"]
+
+    def _exec(self, out: Path, prompt: str) -> Any:
+        try:
+            return self.run(self._argv(out), input=prompt, cwd=str(out.parent), timeout=TIMEOUT)
+        except FileNotFoundError:
+            raise ProviderError("codex isn't installed or isn't on PATH") from None
+        except subprocess.TimeoutExpired:
+            raise ProviderError(f"codex timed out after {TIMEOUT:.0f} s") from None
+
     def summarize(self, system: str, user: str) -> Reply:
         with tempfile.TemporaryDirectory(prefix="cardak-codex-") as work:
             out = Path(work) / "last-message.txt"
-            argv = ["codex", "exec", "--ephemeral", "--sandbox", "read-only"]
-            argv += ["--skip-git-repo-check", "--ignore-rules", "--json", "-o", str(out)]
-            argv += ["-m", self.model] if self.model else []
-            argv.append("-")
-            try:
-                done = self.run(
-                    argv, input=f"{system}\n{ANSWER_ONLY}\n\n{user}", cwd=work, timeout=TIMEOUT
-                )
-            except FileNotFoundError:
-                raise ProviderError("codex isn't installed or isn't on PATH") from None
-            except subprocess.TimeoutExpired:
-                raise ProviderError(f"codex timed out after {TIMEOUT:.0f} s") from None
+            done = self._exec(out, f"{system}\n{ANSWER_ONLY}\n\n{user}")
             text = out.read_text(encoding="utf-8").strip() if out.exists() else None
-            if done.returncode != 0 or text is None:
-                why = " ".join((done.stderr or _failure(done.stdout or "") or "").split())
-                why = why[:MAX_ERROR]
-                raise ProviderError(f"codex exited {done.returncode}: {why}")
+        if done.returncode != 0 or text is None:
+            why = " ".join((done.stderr or _failure(done.stdout or "") or "").split())
+            raise ProviderError(f"codex exited {done.returncode}: {why[:MAX_ERROR]}")
         tokens_in, tokens_out = _usage(done.stdout or "")
         return Reply(text, self.model or "codex", "end_turn", tokens_in, tokens_out)
 
