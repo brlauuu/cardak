@@ -4,6 +4,8 @@ The pure parts: the tag, the input sent to the model, validation of what comes b
 and the API key file. `core/summarize.py` runs the job; providers live in `cardak.llm`.
 """
 
+import os
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -82,6 +84,19 @@ def read_key(path: Path) -> str:
     if not key:
         raise KeyProblem("missing")
     return key
+
+
+def write_key(path: Path, key: str) -> None:
+    """Save a provider's key atomically, readable by its owner only."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:  # mkstemp makes it 0600
+            f.write(key.strip() + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def key_warning(path: Path) -> str | None:

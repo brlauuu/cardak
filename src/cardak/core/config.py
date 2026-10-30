@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from tomlkit import TOMLDocument
     from tomlkit.items import Table
 
 # tomli_w and tomlkit are imported where projects.toml is written: `cardak hook` loads this
@@ -57,13 +58,32 @@ class NotifySettings:
         return f"{theme}_sound"
 
 
+PROVIDERS = ("anthropic", "ollama", "fireworks", "openai", "codex")
+KEYED = {"anthropic": True, "fireworks": True, "openai": False}  # True: the key is required
+OLLAMA_URL = "http://127.0.0.1:11434"
+FIREWORKS_URL = "https://api.fireworks.ai/inference/v1"
+
+
+@dataclass(frozen=True)
+class ProviderSettings:
+    url: str | None = None
+    model: str | None = None
+
+
 @dataclass(frozen=True)
 class SummarySettings:
     monthly_limit_usd: float = 5.0  # 0 turns waiting summaries off
+    provider: str = "anthropic"
+    providers: Mapping[str, ProviderSettings] = field(default_factory=dict)
+    error: str | None = None  # a provider problem: summaries are off, the rest of the file stands
 
     @property
     def enabled(self) -> bool:
-        return self.monthly_limit_usd > 0
+        return self.monthly_limit_usd > 0 and self.error is None
+
+    @property
+    def active(self) -> ProviderSettings:
+        return self.providers.get(self.provider, ProviderSettings())
 
 
 @dataclass(frozen=True)
@@ -126,6 +146,18 @@ def config_dir(env: Mapping[str, str] | None = None) -> Path:
 def anthropic_key_path(env: Mapping[str, str] | None = None) -> Path:
     """The Anthropic API key for waiting summaries; the user creates it, cardak only reads it."""
     return config_dir(env) / "anthropic_key"
+
+
+def provider_key_path(name: str, env: Mapping[str, str] | None = None) -> Path:
+    """A summary provider's API key; `anthropic_key` is the Anthropic one."""
+    return config_dir(env) / f"{name}_key"
+
+
+def summary_ready(summary: SummarySettings, env: Mapping[str, str] | None = None) -> bool:
+    """Whether a summary could be made now: config and a stat, cheap enough for the hook."""
+    if not summary.enabled:
+        return False
+    return not KEYED.get(summary.provider) or provider_key_path(summary.provider, env).exists()
 
 
 def web_key_path(env: Mapping[str, str] | None = None) -> Path:
@@ -263,7 +295,45 @@ def _summary(path: Path, data: Mapping[str, object]) -> SummarySettings:
     limit = raw.get("monthly_limit_usd", 5.0)
     if isinstance(limit, bool) or not isinstance(limit, int | float) or limit < 0:
         raise ConfigError(path, "[summary] monthly_limit_usd must be a number ≥ 0")
-    return SummarySettings(float(limit))
+    try:
+        provider, providers = _providers(raw)
+    except ValueError as e:
+        return SummarySettings(float(limit), error=str(e))
+    return SummarySettings(float(limit), provider, providers)
+
+
+def _providers(raw: Mapping[str, object]) -> tuple[str, dict[str, ProviderSettings]]:
+    """The provider in use and every [summary.<name>] table; ValueError says what's wrong."""
+    providers = {}
+    for name in PROVIDERS:
+        if name in raw:
+            providers[name] = _provider(name, raw[name])
+    provider = raw.get("provider", "anthropic")
+    if not isinstance(provider, str):
+        raise ValueError("[summary] provider must be one name: only one provider is in use")
+    if provider not in PROVIDERS:
+        raise ValueError(f"[summary] provider {provider!r} is not one of {', '.join(PROVIDERS)}")
+    if provider != "anthropic" and provider not in providers:
+        raise ValueError(f"[summary] provider is {provider!r} but [summary.{provider}] is missing")
+    return provider, providers
+
+
+def _provider(name: str, raw: object) -> ProviderSettings:
+    if not isinstance(raw, dict):
+        raise ValueError(f"[summary.{name}] must be a table")
+    for key in ("url", "model"):
+        if key in raw and not isinstance(raw[key], str):
+            raise ValueError(f"[summary.{name}] {key} must be a string")
+    url, model = raw.get("url"), raw.get("model")
+    if name == "ollama":
+        url = url or OLLAMA_URL
+    elif name == "fireworks":
+        url = FIREWORKS_URL
+    if name in ("ollama", "fireworks", "openai") and not model:
+        raise ValueError(f"[summary.{name}] needs a model")
+    if name == "openai" and not url:
+        raise ValueError("[summary.openai] needs a url")
+    return ProviderSettings(url, model)
 
 
 def _resources(path: Path, data: Mapping[str, object]) -> ResourceSettings:
@@ -427,6 +497,70 @@ def set_web_enabled(path: Path, enabled: bool) -> None:
     text = tomlkit.dumps(doc)
     _parse(path, text)
     _atomic_write(path, target, text)
+
+
+def _summary_doc(path: Path) -> tuple[Path, "TOMLDocument", "Table"]:
+    load(path)  # refuses a broken file before anything is written
+    target = path.resolve()
+    import tomlkit
+
+    doc = tomlkit.parse(_read(target) or "")
+    table = doc.get("summary")
+    if table is None:
+        table = tomlkit.table()
+        doc.add("summary", table)
+    return target, doc, table
+
+
+def _write_doc(path: Path, target: Path, doc: "TOMLDocument") -> None:
+    import tomlkit
+
+    text = tomlkit.dumps(doc)
+    _parse(path, text)
+    _atomic_write(path, target, text)
+
+
+def set_provider(path: Path, name: str, url: str | None, model: str | None) -> None:
+    """Write [summary.<name>], replacing what it had; None leaves that key out."""
+    import tomlkit
+
+    if name not in PROVIDERS:
+        raise ConfigError(path, f"{name!r} is not a summary provider")
+    target, doc, summary = _summary_doc(path)
+    table = tomlkit.table()
+    for key, value in (("url", url), ("model", model)):
+        if value:
+            table.add(key, value)
+    if name in summary:
+        summary[name] = table
+    else:
+        summary.add(name, table)
+    _write_doc(path, target, doc)
+
+
+def set_summary_provider(path: Path, name: str, env: Mapping[str, str] | None = None) -> None:
+    """Make `name` the provider in use; it must be set up already."""
+    summary = load(path).summary
+    if name == "anthropic":
+        if not provider_key_path(name, env).exists():
+            raise ConfigError(path, "anthropic isn't set up: anthropic_key is missing")
+    elif name not in summary.providers:
+        raise ConfigError(path, f"{name!r} isn't set up")
+    target, doc, table = _summary_doc(path)
+    _set_key(table, "provider", name)
+    _write_doc(path, target, doc)
+
+
+def remove_provider(path: Path, name: str) -> None:
+    """Remove [summary.<name>]; its key file stays. The provider in use can't be removed."""
+    summary = load(path).summary
+    if name == summary.provider:
+        raise ConfigError(path, f"{name} is in use; switch to another provider first")
+    target, doc, table = _summary_doc(path)
+    if name not in table:
+        return
+    del table[name]
+    _write_doc(path, target, doc)
 
 
 def set_project_theme(path: Path, project_path: Path, theme: str) -> None:

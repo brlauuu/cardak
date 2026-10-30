@@ -16,6 +16,7 @@ from cardak.core.summary import (
     read_key,
     turn_text,
     validate,
+    write_key,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "summaries"
@@ -139,3 +140,18 @@ class R:
 )
 def test_validate(reply: R, expected: str | None) -> None:
     assert validate(reply) == expected
+
+
+def test_write_key_is_private(tmp_path: Path) -> None:
+    path = tmp_path / "fireworks_key"
+    path.write_text("old")
+    path.chmod(0o644)
+    write_key(path, "  fw-123 \n")
+    assert path.read_text() == "fw-123\n" and path.stat().st_mode & 0o777 == 0o600
+    assert read_key(path) == "fw-123"
+
+
+def test_write_key_makes_the_directory(tmp_path: Path) -> None:
+    path = tmp_path / "cfg" / "openai_key"
+    write_key(path, "k")
+    assert path.stat().st_mode & 0o777 == 0o600
