@@ -12,11 +12,22 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from cardak.collectors.hooks import parse
+from cardak.collectors.prices import ModelPrice
 from cardak.collectors.transcripts import read_transcript
 from cardak.core.agents import SessionState
-from cardak.core.config import Config, ConfigError, anthropic_key_path, config_path, load
+from cardak.core.config import (
+    KEYED,
+    Config,
+    ConfigError,
+    ProviderSettings,
+    cache_dir,
+    config_dir,
+    config_path,
+    key_file,
+    load,
+)
 from cardak.core.hook import log_problem, project_name
-from cardak.core.prices import BUILTIN
+from cardak.core.prices import CACHE_NAME, PriceBook
 from cardak.core.store import Store, SummaryRow, db_path
 from cardak.core.summary import (
     MODEL,
@@ -31,12 +42,22 @@ from cardak.core.summary import (
     validate,
 )
 
-MakeSummarizer = Callable[[str], Summarizer]
+MakeSummarizer = Callable[[str, ProviderSettings, str | None], Summarizer]  # name, settings, key
 MAX_ERROR = 200
 KEY_ERRORS = {
-    "too open": "anthropic_key is readable by other users",
-    "missing": "anthropic_key is missing or empty",
+    "too open": "{} is readable by other users",
+    "missing": "{} is missing or empty",
 }
+
+
+def _key(name: str, keys_dir: Path) -> str | None:
+    """The provider's key; None for one that needs none. KeyProblem when a needed one is bad."""
+    if name not in KEYED:
+        return None
+    path = key_file(keys_dir, name)
+    if not KEYED[name] and not path.exists():
+        return None  # an OpenAI-compatible local server takes no key
+    return read_key(path)
 
 
 def _failed(session_id: str, wait_since: float, now: float, error: str) -> SummaryRow:
@@ -75,7 +96,8 @@ def run(
     *,
     store: Store,
     config: Config,
-    key_file: Path,
+    keys_dir: Path,
+    prices: Mapping[str, ModelPrice],
     make_summarizer: MakeSummarizer,
 ) -> None:
     if not config.summary.enabled:
@@ -85,10 +107,12 @@ def run(
         return  # answered already, or a newer wait
     if store.has_summary(session_id, wait_since):
         return
+    name, settings = config.summary.provider, config.summary.active
     try:
-        key = read_key(key_file)
+        key = _key(name, keys_dir)
     except KeyProblem as e:
-        store.add_summary(_failed(session_id, wait_since, now, KEY_ERRORS[str(e)]))
+        message = KEY_ERRORS[str(e)].format(key_file(keys_dir, name).name)
+        store.add_summary(_failed(session_id, wait_since, now, message))
         return
     if store.spend_since(month_start(now)) >= config.summary.monthly_limit_usd:
         return
@@ -97,7 +121,7 @@ def run(
         project_name(state.cwd, config), state, assistant_text=assistant_text, tool=tool
     )
     try:
-        reply = make_summarizer(key).summarize(SYSTEM_PROMPT, user)
+        reply = make_summarizer(name, settings, key).summarize(SYSTEM_PROMPT, user)
     except Exception as e:
         message = " ".join(str(getattr(e, "message", e)).split())
         store.add_summary(_failed(session_id, wait_since, now, f"{type(e).__name__}: {message}"))
@@ -111,13 +135,8 @@ def run(
             input_tokens=reply.input_tokens,
             output_tokens=reply.output_tokens,
             cost_usd=cost(
-                "anthropic",
-                config.summary.active,
-                reply.model,
-                reply.input_tokens,
-                reply.output_tokens,
-                BUILTIN,
-            ),  # fmt: skip
+                name, settings, reply.model, reply.input_tokens, reply.output_tokens, prices
+            ),
             created_at=now,
         )
     )
@@ -141,7 +160,8 @@ def main(
                 time.time(),
                 store=store,
                 config=config,
-                key_file=anthropic_key_path(env),
+                keys_dir=config_dir(env),
+                prices=PriceBook(cache_dir(env) / CACHE_NAME).current(),  # the cache, no download
                 make_summarizer=make_summarizer,
             )
         finally:

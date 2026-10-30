@@ -19,7 +19,7 @@ from cardak.core import config as config_mod
 from cardak.core.accounting import account
 from cardak.core.agents import FocusChange, SessionState, focus_seen_at, mark_seen
 from cardak.core.alerts import SOUND_EXTS, bundled_sounds, check
-from cardak.core.config import Config, ConfigError
+from cardak.core.config import Config, ConfigError, key_file, summary_ready
 from cardak.core.context import ContextSeries, GroupedContext, group_context
 from cardak.core.limits import Stored, limits_view, load_limits
 from cardak.core.recent import Recent, decorate
@@ -76,7 +76,7 @@ class LiveSource:
         store: AgentStore | None = None,
         focus_history: Callable[[], Sequence[FocusChange]] = lambda: [],
         clock: Callable[[], float] = time.time,
-        key_file: Path | None = None,
+        keys_dir: Path | None = None,
         machine: Callable[[], MachineSample | None] | None = None,
         docker: Callable[[], Sequence[DockerWork]] | None = None,
         write_seen: bool = True,
@@ -99,7 +99,7 @@ class LiveSource:
         self._focus_history = focus_history
         self._write_seen = write_seen  # False: show focus-seen waits as seen, write nothing (M7)
         self._clock = clock
-        self._key_file = key_file  # None: no waiting summaries in this deck
+        self._keys_dir = keys_dir  # None: no waiting summaries in this deck
         self._machine = machine or MachineSampler().sample
         self._docker = docker or DockerSampler().sample
         self._spend = spend  # the counter's latest figure (core/spend.py), read every poll
@@ -214,10 +214,8 @@ class LiveSource:
 
     def _summary_store(self) -> AgentStore | None:
         """The store to read summaries from, or None when this deck shows none."""
-        if self._key_file is None or not self._config.summary.enabled:
-            return None
-        if not self._key_file.exists():  # no key, no summaries: no spend line either (#52)
-            return None
+        if self._keys_dir is None or not summary_ready(self._config.summary, self._keys_dir):
+            return None  # e.g. no key, no summaries: no spend line either (#52)
         return self._store
 
     def _summaries(self, live: Sequence[SessionState]) -> tuple[dict[str, str], bool]:
@@ -279,8 +277,13 @@ class LiveSource:
 
     def _warnings_now(self, spend: MonthSpend | None = None) -> tuple[str, ...]:
         extra = (self._store_warning,) if self._store_warning else ()
-        key = key_warning(self._key_file) if self._key_file is not None else None
+        key = None
+        broken = self._config.summary.error
+        if self._keys_dir is not None:
+            key = key_warning(key_file(self._keys_dir, self._config.summary.provider))
         summary = (self._summary_warning,) if self._summary_warning else ()
+        if self._keys_dir is not None and broken:
+            summary = (f"waiting summaries off: {broken}", *summary)
         unpriced = (
             (f"no API price for {', '.join(spend.unpriced)}; left out of this month's figure",)
             if spend is not None and spend.unpriced

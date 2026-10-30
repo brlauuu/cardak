@@ -16,7 +16,6 @@ from cardak.core.config import (
     Config,
     ConfigError,
     WebSettings,
-    anthropic_key_path,
     config_dir,
     config_path,
     load,
@@ -26,8 +25,10 @@ from cardak.core.config import (
 if TYPE_CHECKING:
     import argparse
 
+    from cardak.core.config import ProviderSettings
     from cardak.core.daemon import Publish, WebStart
     from cardak.core.source import LiveSource
+    from cardak.core.summary import Summarizer
     from cardak.core.themes import SchemeStore
 
 
@@ -789,12 +790,30 @@ def _setup(args: argparse.Namespace) -> int:
     return _themes_zsh(args.config, args.force)
 
 
-def _summarize(session_id: str, wait_since: str) -> int:
-    from cardak.core import summarize
+def _make_summarizer(name: str, settings: ProviderSettings, key: str | None) -> Summarizer:
+    """The summarizer for one provider's settings; each provider's module is imported here."""
+    if name == "ollama":
+        from cardak.llm.ollama import OllamaSummarizer
+
+        return OllamaSummarizer(settings.url or "", settings.model or "")
+    if name in ("fireworks", "openai"):
+        from cardak.llm.openai import OpenAISummarizer
+
+        return OpenAISummarizer(settings.url or "", key, settings.model or "")
+    if name == "codex":
+        from cardak.llm.codex import CodexSummarizer
+
+        return CodexSummarizer(settings.model)
     from cardak.core.summary import MODEL
     from cardak.llm.anthropic import AnthropicSummarizer
 
-    return summarize.main([session_id, wait_since], lambda key: AnthropicSummarizer(key, MODEL))
+    return AnthropicSummarizer(key or "", settings.model or MODEL)
+
+
+def _summarize(session_id: str, wait_since: str) -> int:
+    from cardak.core import summarize
+
+    return summarize.main([session_id, wait_since], _make_summarizer)
 
 
 def _deck(config_arg: str | None) -> int:
@@ -834,7 +853,7 @@ def _deck(config_arg: str | None) -> int:
         schemes=store.get,
         store=agents,
         focus_history=lambda: read_history(focus_path()),
-        key_file=anthropic_key_path(),
+        keys_dir=config_dir(),
     )
     DeckApp(
         source,

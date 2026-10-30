@@ -27,9 +27,6 @@ MAX_PROMPT = 2000
 MAX_ASSISTANT = 4000
 MAX_TOOL = 2000
 MAX_FILES = 10
-KEY_WARNING = (
-    "anthropic_key is readable by other users; run chmod 600 ~/.config/cardak/anthropic_key"
-)
 
 SYSTEM_PROMPT = """\
 You summarize a Claude Code session that is waiting for its user.
@@ -104,9 +101,12 @@ def write_key(path: Path, key: str) -> None:
 
 def key_warning(path: Path) -> str | None:
     try:
-        return KEY_WARNING if path.stat().st_mode & 0o077 else None
+        open_ = path.stat().st_mode & 0o077
     except OSError:
         return None
+    if not open_:
+        return None
+    return f"{path.name} is readable by other users; run chmod 600 ~/.config/cardak/{path.name}"
 
 
 FREE = {"ollama": "local, $0", "codex": "your Codex plan, $0"}

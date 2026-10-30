@@ -150,14 +150,19 @@ def anthropic_key_path(env: Mapping[str, str] | None = None) -> Path:
 
 def provider_key_path(name: str, env: Mapping[str, str] | None = None) -> Path:
     """A summary provider's API key; `anthropic_key` is the Anthropic one."""
-    return config_dir(env) / f"{name}_key"
+    return key_file(config_dir(env), name)
 
 
-def summary_ready(summary: SummarySettings, env: Mapping[str, str] | None = None) -> bool:
+def key_file(keys_dir: Path, name: str) -> Path:
+    """A provider's key in a keys dir (config_dir, or a test's)."""
+    return keys_dir / f"{name}_key"
+
+
+def summary_ready(summary: SummarySettings, keys_dir: Path) -> bool:
     """Whether a summary could be made now: config and a stat, cheap enough for the hook."""
     if not summary.enabled:
         return False
-    return not KEYED.get(summary.provider) or provider_key_path(summary.provider, env).exists()
+    return not KEYED.get(summary.provider) or key_file(keys_dir, summary.provider).exists()
 
 
 def web_key_path(env: Mapping[str, str] | None = None) -> Path:
@@ -538,11 +543,11 @@ def set_provider(path: Path, name: str, url: str | None, model: str | None) -> N
     _write_doc(path, target, doc)
 
 
-def set_summary_provider(path: Path, name: str, env: Mapping[str, str] | None = None) -> None:
+def set_summary_provider(path: Path, name: str, keys_dir: Path) -> None:
     """Make `name` the provider in use; it must be set up already."""
     summary = load(path).summary
     if name == "anthropic":
-        if not provider_key_path(name, env).exists():
+        if not key_file(keys_dir, name).exists():
             raise ConfigError(path, "anthropic isn't set up: anthropic_key is missing")
     elif name not in summary.providers:
         raise ConfigError(path, f"{name!r} isn't set up")

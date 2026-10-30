@@ -407,7 +407,7 @@ def test_set_provider_keeps_comments(tmp_path: Path) -> None:
     path = tmp_path / "p.toml"
     path.write_text("# mine\n[summary] # cap\nmonthly_limit_usd = 2\n")
     set_provider(path, "ollama", None, "gemma4:e4b")
-    set_summary_provider(path, "ollama")
+    set_summary_provider(path, "ollama", tmp_path)
     text = path.read_text()
     assert "# mine" in text and "# cap" in text
     cfg = load(path)
@@ -425,17 +425,17 @@ def test_set_provider_on_empty_file_and_replace(tmp_path: Path) -> None:
 def test_set_summary_provider_refuses_unset(tmp_path: Path) -> None:
     path = tmp_path / "p.toml"
     path.write_text("# mine\n")
-    env = {"XDG_CONFIG_HOME": str(tmp_path / "cfg")}
+    keys = tmp_path / "cfg"
     with pytest.raises(ConfigError, match="codex"):
-        set_summary_provider(path, "codex", env)
+        set_summary_provider(path, "codex", keys)
     with pytest.raises(ConfigError, match="anthropic"):
-        set_summary_provider(path, "anthropic", env)  # no key file
+        set_summary_provider(path, "anthropic", keys)  # no key file
     with pytest.raises(ConfigError, match="nope"):
-        set_summary_provider(path, "nope", env)
+        set_summary_provider(path, "nope", keys)
     assert path.read_text() == "# mine\n"
-    provider_key_path("anthropic", env).parent.mkdir(parents=True)
-    provider_key_path("anthropic", env).write_text("k")
-    set_summary_provider(path, "anthropic", env)
+    keys.mkdir()
+    (keys / "anthropic_key").write_text("k")
+    set_summary_provider(path, "anthropic", keys)
     assert load(path).summary.provider == "anthropic"
 
 
@@ -443,7 +443,7 @@ def test_remove_provider(tmp_path: Path) -> None:
     path = tmp_path / "p.toml"
     set_provider(path, "codex", None, None)
     set_provider(path, "ollama", None, "m")
-    set_summary_provider(path, "codex")
+    set_summary_provider(path, "codex", tmp_path)
     with pytest.raises(ConfigError, match="in use"):
         remove_provider(path, "codex")
     remove_provider(path, "ollama")
@@ -452,10 +452,10 @@ def test_remove_provider(tmp_path: Path) -> None:
 
 
 def test_summary_ready(tmp_path: Path) -> None:
-    env = {"XDG_CONFIG_HOME": str(tmp_path / "cfg")}
+    keys = tmp_path / "cfg"
 
     def ready(body: str) -> bool:
-        return summary_ready(_summary_cfg(tmp_path, body).summary, env)
+        return summary_ready(_summary_cfg(tmp_path, body).summary, keys)
 
     assert not ready("")  # anthropic, no key
     assert ready('[summary]\nprovider = "ollama"\n[summary.ollama]\nmodel = "m"\n')
@@ -464,8 +464,8 @@ def test_summary_ready(tmp_path: Path) -> None:
     assert not ready(fw)
     oa = '[summary]\nprovider = "openai"\n[summary.openai]\nurl = "u"\nmodel = "m"\n'
     assert ready(oa)
-    provider_key_path("fireworks", env).parent.mkdir(parents=True)
-    provider_key_path("fireworks", env).write_text("k")
+    keys.mkdir()
+    (keys / "fireworks_key").write_text("k")
     assert ready(fw)
     assert not ready(fw.replace("[summary]\n", "[summary]\nmonthly_limit_usd = 0\n"))
     assert not ready('[summary]\nprovider = "gpt"\n')

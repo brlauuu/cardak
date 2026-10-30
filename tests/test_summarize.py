@@ -6,10 +6,12 @@ import pytest
 from hookfix import text
 
 from cardak.core import hook
-from cardak.core.config import Config, SummarySettings
+from cardak.core.config import Config, ProviderSettings, SummarySettings, load
+from cardak.core.prices import BUILTIN
 from cardak.core.store import Store, SummaryRow
 from cardak.core.summarize import main, run
 from cardak.core.summary import MODEL, SYSTEM_PROMPT
+from cardak.llm.http import ProviderError
 
 FIXTURES = Path(__file__).parent / "fixtures" / "summaries"
 QUIET = '[notify]\ndesktop = false\nsound = "off"\n'
@@ -28,9 +30,11 @@ class R:
 class Stub:
     reply: R = field(default_factory=lambda: R("Did x; nothing asked"))
     calls: list[tuple[str, str]] = field(default_factory=list)
-    keys: list[str] = field(default_factory=list)
+    keys: list[str | None] = field(default_factory=list)
+    made: list[tuple[str, ProviderSettings]] = field(default_factory=list)
 
-    def make(self, key: str) -> "Stub":
+    def make(self, name: str, settings: ProviderSettings, key: str | None) -> "Stub":
+        self.made.append((name, settings))
         self.keys.append(key)
         return self
 
@@ -59,7 +63,7 @@ def seed(store: Store, config: Path, *steps: tuple[str, dict]) -> tuple[str, flo
             store=store,
             config_file=config,
             focus_file=config.parent / "focus",
-            key_file=config.parent / "no-key",
+            keys_dir=config.parent / "no-keys",
             spawn=lambda _argv: None,
         )
     [state] = store.live_sessions()
@@ -90,7 +94,8 @@ def do(store: Store, key: Path, stub: Stub, sid: str, since: float, config: Conf
         since + 1,
         store=store,
         config=config or Config(),
-        key_file=key,
+        keys_dir=key.parent,
+        prices=BUILTIN,
         make_summarizer=stub.make,
     )
 
@@ -223,8 +228,8 @@ def test_api_error_is_recorded_and_not_retried(setup: tuple[Store, Path, Path]) 
             raise RuntimeError("x" * 500)
 
     def attempt() -> None:
-        run(sid, since, since + 1, store=store, config=Config(), key_file=key,
-            make_summarizer=lambda _k: Boom())  # fmt: skip
+        run(sid, since, since + 1, store=store, config=Config(), keys_dir=key.parent,
+            prices=BUILTIN, make_summarizer=lambda *_a: Boom())  # fmt: skip
 
     with pytest.raises(RuntimeError):  # main() logs it
         attempt()
@@ -277,7 +282,7 @@ def test_main_logs_api_errors_silently(tmp_path: Path, capsys: pytest.CaptureFix
         def summarize(self, system: str, user: str) -> R:
             raise RuntimeError("boom")
 
-    assert main([sid, repr(since)], lambda _key: Boom(), env) == 0
+    assert main([sid, repr(since)], lambda *_a: Boom(), env) == 0
     assert capsys.readouterr() == ("", "")
     log = (tmp_path / "state" / "cardak" / "hook.log").read_text()
     assert "summarize:" in log and "boom" in log
@@ -312,3 +317,77 @@ def test_unknown_returned_model_still_records_the_cost(setup: tuple[Store, Path,
     do(store, key, Stub(R("Did x; nothing asked", model="claude-haiku-5-5-20261001")), sid, since)
     assert store.summaries_for([(sid, since)]) == {sid: "Did x; nothing asked"}
     assert store.spend_since(0.0) == pytest.approx(0.000165)
+
+
+def _cfg(tmp_path: Path, body: str) -> Config:
+    path = tmp_path / "summary.toml"
+    path.write_text(body)
+    return load(path)
+
+
+OLLAMA = '[summary]\nprovider = "ollama"\n[summary.ollama]\nmodel = "gemma4:e4b"\n'
+FIREWORKS = '[summary]\nprovider = "fireworks"\n[summary.fireworks]\nmodel = "accounts/f/m"\n'
+
+
+def test_run_uses_active_provider(setup: tuple[Store, Path, Path], tmp_path: Path) -> None:
+    store, config, key = setup
+    sid, since = seed(store, config, ("stop-finished", {}))
+    stub = Stub(R("Did x; nothing asked", model="gemma4:e4b"))
+    do(store, key, stub, sid, since, _cfg(tmp_path, OLLAMA))
+    assert stub.made == [("ollama", ProviderSettings("http://127.0.0.1:11434", "gemma4:e4b"))]
+    assert stub.keys == [None]
+    assert store.summaries_for([(sid, since)]) == {sid: "Did x; nothing asked"}
+    assert store.spend_since(0.0) == 0.0
+
+
+def test_run_reads_provider_key(setup: tuple[Store, Path, Path], tmp_path: Path) -> None:
+    store, config, key = setup
+    sid, since = seed(store, config, ("stop-finished", {}))
+    fw = key.parent / "fireworks_key"
+    fw.write_text("fw-1\n")
+    fw.chmod(0o600)
+    stub = Stub()
+    do(store, key, stub, sid, since, _cfg(tmp_path, FIREWORKS))
+    assert stub.keys == ["fw-1"] and stub.made[0][0] == "fireworks"
+
+
+def test_run_missing_provider_key(setup: tuple[Store, Path, Path], tmp_path: Path) -> None:
+    store, config, key = setup
+    sid, since = seed(store, config, ("stop-finished", {}))
+    stub = Stub()
+    do(store, key, stub, sid, since, _cfg(tmp_path, FIREWORKS))
+    assert stub.calls == []
+    assert store.latest_error_since(0.0) == "fireworks_key is missing or empty"
+
+
+def test_run_openai_without_key(setup: tuple[Store, Path, Path], tmp_path: Path) -> None:
+    store, config, key = setup
+    sid, since = seed(store, config, ("stop-finished", {}))
+    stub = Stub()
+    body = '[summary]\nprovider = "openai"\n[summary.openai]\nurl = "http://h/v1"\nmodel = "m"\n'
+    do(store, key, stub, sid, since, _cfg(tmp_path, body))
+    assert stub.keys == [None] and len(stub.calls) == 1
+
+
+def test_run_records_provider_error(setup: tuple[Store, Path, Path], tmp_path: Path) -> None:
+    store, config, key = setup
+    sid, since = seed(store, config, ("stop-finished", {}))
+
+    class Down:
+        def summarize(self, system: str, user: str) -> R:
+            raise ProviderError("can't reach http://127.0.0.1:11434/api/chat: refused")
+
+    with pytest.raises(ProviderError):
+        run(sid, since, since + 1, store=store, config=_cfg(tmp_path, OLLAMA),
+            keys_dir=key.parent, prices=BUILTIN, make_summarizer=lambda *_a: Down())  # fmt: skip
+    assert store.latest_error_since(0.0) == (
+        "ProviderError: can't reach http://127.0.0.1:11434/api/chat: refused"
+    )
+
+
+def test_run_skips_broken_summary_config(setup: tuple[Store, Path, Path], tmp_path: Path) -> None:
+    store, config, key = setup
+    sid, since = seed(store, config, ("stop-finished", {}))
+    stub = Stub()
+    do(store, key, stub, sid, since, _cfg(tmp_path, '[summary]\nprovider = "gpt"\n'))
+    assert stub.calls == [] and not store.has_summary(sid, since)
