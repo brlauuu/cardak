@@ -78,3 +78,15 @@ def test_exec_large_input_still_reaches_original(tmp_path: Path) -> None:
     data = PLAN[:-2] + b', "pad": "' + b"x" * PIPE_MAX + b'"}\n'
     done = _cardak(["statusline", "--then", "wc -c"], data, tmp_path)
     assert done.returncode == 0 and int(done.stdout) == len(data)
+
+
+def test_exec_gives_original_default_signals(tmp_path: Path) -> None:
+    # Python ignores SIGPIPE and SIGXFSZ; exec keeps ignored signals, so `yes | head` would print
+    # "Broken pipe" in the user's status line
+    done = _cardak(["statusline", "--then", "grep SigIgn /proc/self/status"], PLAN, tmp_path)
+    assert int(done.stdout.split()[1], 16) & ((1 << 12) | (1 << 24)) == 0, done.stdout
+
+
+def test_pipe_threshold_fits_the_smallest_pipe() -> None:
+    # a user over pipe-user-pages-soft gets one-page (4 KiB) pipes; writing more would hang
+    assert PIPE_MAX <= 4096

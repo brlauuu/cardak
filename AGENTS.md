@@ -367,8 +367,10 @@ input, #70).
   `statusLine.command` `<cardak> statusline --then '<original>'`. The `/usage` endpoint is
   undocumented and is not used. Replace this when Claude Code offers a supported way.
 - `cardak statusline` is dispatched before argparse like the hook, and runs the original by
-  `os.execvp("sh", …)` with the input on a pipe (inputs over 60 KB use a subprocess), so its stdout,
-  stderr and exit code are the original's; a subprocess cost ~35 ms more per refresh. Nothing in
+  `os.execvp("sh", …)` with the input on a pipe (inputs over 4 KiB, one pipe page, use a
+  subprocess), so its stdout, stderr and exit code are the original's; a subprocess cost ~35 ms more
+  per refresh. SIGPIPE and SIGXFSZ go back to default first: Python ignores them and exec would pass
+  that on. Claude Code itself runs the command with `/bin/sh -c` (checked 2026-10-30, 2.1.314). Nothing in
   cardak's part (parse, merge, write) can stop the original running; problems go to `hook.log`
   (`core/hooklog.py`). `tests/test_cli.py::test_statusline_imports_only_what_it_needs` keeps
   Textual, SQLite and the store out. Measured 2026-10-30 at load ~6 (the

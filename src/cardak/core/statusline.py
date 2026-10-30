@@ -8,6 +8,7 @@ from running: problems go to hook.log.
 """
 
 import os
+import signal
 import time
 import traceback
 from collections.abc import Callable, Mapping
@@ -17,7 +18,7 @@ from cardak.collectors.limits import parse_statusline
 from cardak.core.hooklog import log_problem
 from cardak.core.limits import limits_path, record
 
-PIPE_MAX = 60_000  # an input is ~2 KB; one past a pipe's buffer would block the write
+PIPE_MAX = 4096  # an input is ~2 KB; a pipe holds at least one page (pipe-user-pages-soft)
 
 
 def _save(data: bytes, env: Mapping[str, str], now: float) -> None:
@@ -41,6 +42,8 @@ def _exec(command: str, data: bytes) -> int:
     os.close(write)
     os.dup2(read, 0)
     os.close(read)
+    for sig in (signal.SIGPIPE, signal.SIGXFSZ):  # Python ignores these; exec would keep that
+        signal.signal(sig, signal.SIG_DFL)
     os.execvp("sh", ["sh", "-c", command])
 
 
@@ -49,7 +52,7 @@ def main(
     stdin: BinaryIO,
     env: Mapping[str, str] | None = None,
     clock: Callable[[], float] = time.time,
-    run: Callable[[str, bytes], int] = _exec,
+    run: Callable[[str, bytes], int] | None = None,
 ) -> int:
     env = os.environ if env is None else env
     data = stdin.read()
@@ -57,4 +60,4 @@ def main(
         log_problem(env, f"statusline: ignored arguments {argv!r}")
         return 0
     _save(data, env, clock())
-    return run(argv[1], data) if argv else 0
+    return (run or _exec)(argv[1], data) if argv else 0
