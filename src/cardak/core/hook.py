@@ -20,10 +20,11 @@ from cardak.core.agents import HANDLERS, IGNORED_EVENTS, Ping, apply
 from cardak.core.config import (
     Config,
     ConfigError,
-    anthropic_key_path,
+    config_dir,
     config_path,
     load,
     real_path,
+    summary_ready,
 )
 from cardak.core.focus import focus_path, focused_pane, read_history
 from cardak.core.hooklog import log_problem
@@ -69,14 +70,14 @@ def run(
     store: Store,
     config_file: Path,
     focus_file: Path,
-    key_file: Path,
+    keys_dir: Path,
     spawn: Spawn | None = None,
 ) -> None:
     event = parse(text)
     if event is None:
         return
     _record(event, text, env, now, store=store, config_file=config_file, focus_file=focus_file,
-            key_file=key_file, spawn=spawn)  # fmt: skip
+            keys_dir=keys_dir, spawn=spawn)  # fmt: skip
 
 
 def _record(
@@ -88,7 +89,7 @@ def _record(
     store: Store,
     config_file: Path,
     focus_file: Path,
-    key_file: Path,
+    keys_dir: Path,
     spawn: Spawn | None = None,
 ) -> None:
     if event.name not in HANDLERS and event.name not in IGNORED_EVENTS:
@@ -102,11 +103,11 @@ def _record(
         return
     if pane is not None and focused_pane(read_history(focus_file)) == pane:
         return  # the user is looking at it already
-    _ping(ping, now, config_file=config_file, key_file=key_file, spawn=spawn)
+    _ping(ping, now, config_file=config_file, keys_dir=keys_dir, spawn=spawn)
 
 
 def _ping(
-    ping: Ping, now: float, *, config_file: Path, key_file: Path, spawn: Spawn | None
+    ping: Ping, now: float, *, config_file: Path, keys_dir: Path, spawn: Spawn | None
 ) -> None:
     """A session started waiting: notification, sound, and a summary when that's on."""
     try:
@@ -119,7 +120,7 @@ def _ping(
     spawn = spawn or spawn_detached
     if not ping.quiet:
         alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn)
-    if config.summary.enabled and key_file.exists():
+    if summary_ready(config.summary, keys_dir):
         spawn(summarize_argv(ping.session_id, now))  # `now` is the new wait's status_since
 
 
@@ -141,7 +142,7 @@ def main(stdin: TextIO, env: Mapping[str, str] | None = None) -> int:
                 store=store,
                 config_file=config_path(None, env),
                 focus_file=focus_path(env),
-                key_file=anthropic_key_path(env),
+                keys_dir=config_dir(env),
             )
         finally:
             store.close()

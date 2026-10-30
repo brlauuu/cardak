@@ -8,16 +8,21 @@ from cardak.core.config import (
     ConfigError,
     NotifySettings,
     Project,
+    ProviderSettings,
     ResourceSettings,
     SummarySettings,
     WebSettings,
     add_project,
-    anthropic_key_path,
     config_dir,
     config_path,
+    key_file,
     load,
+    remove_provider,
     set_project_theme,
+    set_provider,
+    set_summary_provider,
     set_web_enabled,
+    summary_ready,
     web_key_path,
     write_resource_defaults,
 )
@@ -353,8 +358,116 @@ def test_summary_rejects_bad_values(tmp_path: Path, body: str) -> None:
         _summary_cfg(tmp_path, body)
 
 
-def test_anthropic_key_path() -> None:
-    assert anthropic_key_path({"XDG_CONFIG_HOME": "/x"}) == Path("/x/cardak/anthropic_key")
+def test_key_file() -> None:
+    assert key_file(config_dir({"XDG_CONFIG_HOME": "/x"}), "anthropic") == Path(
+        "/x/cardak/anthropic_key"
+    )
+    assert key_file(Path("/k"), "fireworks") == Path("/k/fireworks_key")
+
+
+def test_summary_defaults_to_anthropic(tmp_path: Path) -> None:
+    cfg = _summary_cfg(tmp_path, "[summary]\nmonthly_limit_usd = 3\n")
+    assert cfg.summary.provider == "anthropic" and cfg.summary.error is None
+    assert cfg.summary.active == ProviderSettings()
+
+
+def test_summary_provider_tables(tmp_path: Path) -> None:
+    body = '[summary]\nprovider = "ollama"\n[summary.ollama]\nmodel = "m"\n'
+    cfg = _summary_cfg(tmp_path, body)
+    assert cfg.summary.active == ProviderSettings(url="http://127.0.0.1:11434", model="m")
+    assert cfg.summary.enabled
+
+
+def test_summary_fireworks_url_is_fixed(tmp_path: Path) -> None:
+    body = '[summary]\nprovider = "fireworks"\n[summary.fireworks]\nmodel = "f"\nurl = "x"\n'
+    active = _summary_cfg(tmp_path, body).summary.active
+    assert active == ProviderSettings(url="https://api.fireworks.ai/inference/v1", model="f")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '[summary]\nprovider = ["ollama", "codex"]\n',
+        '[summary]\nprovider = "gpt"\n',
+        '[summary]\nprovider = "fireworks"\n',
+        '[summary]\nprovider = "openai"\n[summary.openai]\nmodel = "m"\n',
+        '[summary]\nprovider = "ollama"\n[summary.ollama]\nurl = "u"\n',
+        "[summary.ollama]\nmodel = 3\n",
+        '[summary]\nollama = "x"\n',
+    ],
+)
+def test_bad_provider_keeps_projects(tmp_path: Path, text: str) -> None:
+    cfg = _summary_cfg(tmp_path, '[[project]]\nname = "webshop"\npath = "/w"\n' + text)
+    assert cfg.projects[0].name == "webshop"
+    assert cfg.summary.error and not cfg.summary.enabled
+
+
+def test_set_provider_keeps_comments(tmp_path: Path) -> None:
+    path = tmp_path / "p.toml"
+    path.write_text("# mine\n[summary] # cap\nmonthly_limit_usd = 2\n")
+    set_provider(path, "ollama", None, "gemma4:e4b")
+    set_summary_provider(path, "ollama", tmp_path)
+    text = path.read_text()
+    assert "# mine" in text and "# cap" in text
+    cfg = load(path)
+    assert cfg.summary.provider == "ollama" and cfg.summary.monthly_limit_usd == 2.0
+    assert cfg.summary.active.model == "gemma4:e4b"
+
+
+def test_set_provider_on_empty_file_and_replace(tmp_path: Path) -> None:
+    path = tmp_path / "p.toml"
+    set_provider(path, "openai", "http://127.0.0.1:8080/v1", "a")
+    set_provider(path, "openai", "http://127.0.0.1:8080/v1", "b")
+    assert load(path).summary.providers["openai"].model == "b"
+
+
+def test_set_summary_provider_refuses_unset(tmp_path: Path) -> None:
+    path = tmp_path / "p.toml"
+    path.write_text("# mine\n")
+    keys = tmp_path / "cfg"
+    with pytest.raises(ConfigError, match="codex"):
+        set_summary_provider(path, "codex", keys)
+    with pytest.raises(ConfigError, match="anthropic"):
+        set_summary_provider(path, "anthropic", keys)  # no key file
+    with pytest.raises(ConfigError, match="nope"):
+        set_summary_provider(path, "nope", keys)
+    assert path.read_text() == "# mine\n"
+    keys.mkdir()
+    (keys / "anthropic_key").write_text("k")
+    set_summary_provider(path, "anthropic", keys)
+    assert load(path).summary.provider == "anthropic"
+
+
+def test_remove_provider(tmp_path: Path) -> None:
+    path = tmp_path / "p.toml"
+    set_provider(path, "codex", None, None)
+    set_provider(path, "ollama", None, "m")
+    set_summary_provider(path, "codex", tmp_path)
+    with pytest.raises(ConfigError, match="in use"):
+        remove_provider(path, "codex")
+    remove_provider(path, "ollama")
+    remove_provider(path, "ollama")  # already gone: nothing to do
+    assert set(load(path).summary.providers) == {"codex"}
+
+
+def test_summary_ready(tmp_path: Path) -> None:
+    keys = tmp_path / "cfg"
+
+    def ready(body: str) -> bool:
+        return summary_ready(_summary_cfg(tmp_path, body).summary, keys)
+
+    assert not ready("")  # anthropic, no key
+    assert ready('[summary]\nprovider = "ollama"\n[summary.ollama]\nmodel = "m"\n')
+    assert ready('[summary]\nprovider = "codex"\n[summary.codex]\n')
+    fw = '[summary]\nprovider = "fireworks"\n[summary.fireworks]\nmodel = "m"\n'
+    assert not ready(fw)
+    oa = '[summary]\nprovider = "openai"\n[summary.openai]\nurl = "u"\nmodel = "m"\n'
+    assert ready(oa)
+    keys.mkdir()
+    (keys / "fireworks_key").write_text("k")
+    assert ready(fw)
+    assert not ready(fw.replace("[summary]\n", "[summary]\nmonthly_limit_usd = 0\n"))
+    assert not ready('[summary]\nprovider = "gpt"\n')
 
 
 def test_resources_default_to_derived(tmp_path: Path) -> None:
@@ -523,3 +636,23 @@ def test_legacy_off_silences_all() -> None:
 def test_legacy_off_with_one_theme_key() -> None:
     n = NotifySettings(sound="off", memory_sound="peon/X")
     assert [n.theme_sound(t) for t in THEMES] == ["off", "peon/X", "random"]
+
+
+def test_bad_provider_keeps_the_valid_tables(tmp_path: Path) -> None:
+    body = (
+        '[summary]\nprovider = "nope"\n'
+        '[summary.ollama]\nmodel = "m"\n[summary.openai]\nmodel = "x"\n'
+    )
+    summary = _summary_cfg(tmp_path, body).summary
+    assert summary.error and not summary.enabled
+    assert set(summary.providers) == {"ollama"}  # openai has no url: left out, ollama still usable
+    path = tmp_path / "p.toml"
+    set_summary_provider(path, "ollama", tmp_path)
+    assert load(path).summary.provider == "ollama"
+
+
+def test_dotted_summary_keys_are_refused_not_crashed(tmp_path: Path) -> None:
+    path = tmp_path / "p.toml"
+    path.write_text("summary.monthly_limit_usd = 3\n\n[summary.codex]\n")
+    with pytest.raises(ConfigError, match="by hand"):  # tomlkit hands back a plain dict here
+        set_summary_provider(path, "codex", tmp_path)

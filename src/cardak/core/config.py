@@ -4,11 +4,12 @@ import os
 import re
 import tomllib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from tomlkit import TOMLDocument
     from tomlkit.items import Table
 
 # tomli_w and tomlkit are imported where projects.toml is written: `cardak hook` loads this
@@ -57,13 +58,34 @@ class NotifySettings:
         return f"{theme}_sound"
 
 
+PROVIDERS = ("anthropic", "ollama", "fireworks", "openai", "codex")
+KEYED = {"anthropic": True, "fireworks": True, "openai": False}  # True: the key is required
+OLLAMA_URL = "http://127.0.0.1:11434"
+FIREWORKS_URL = "https://api.fireworks.ai/inference/v1"
+DEFAULT_URLS = {"ollama": OLLAMA_URL, "fireworks": FIREWORKS_URL}  # fireworks' can't be changed
+NEEDS = {"ollama": ("model",), "fireworks": ("model",), "openai": ("url", "model")}
+
+
+@dataclass(frozen=True)
+class ProviderSettings:
+    url: str | None = None
+    model: str | None = None
+
+
 @dataclass(frozen=True)
 class SummarySettings:
     monthly_limit_usd: float = 5.0  # 0 turns waiting summaries off
+    provider: str = "anthropic"
+    providers: Mapping[str, ProviderSettings] = field(default_factory=dict)
+    error: str | None = None  # a provider problem: summaries are off, the rest of the file stands
 
     @property
     def enabled(self) -> bool:
-        return self.monthly_limit_usd > 0
+        return self.monthly_limit_usd > 0 and self.error is None
+
+    @property
+    def active(self) -> ProviderSettings:
+        return self.providers.get(self.provider, ProviderSettings())
 
 
 @dataclass(frozen=True)
@@ -123,9 +145,24 @@ def config_dir(env: Mapping[str, str] | None = None) -> Path:
     return Path(env.get("HOME") or Path.home()) / ".config" / "cardak"
 
 
-def anthropic_key_path(env: Mapping[str, str] | None = None) -> Path:
-    """The Anthropic API key for waiting summaries; the user creates it, cardak only reads it."""
-    return config_dir(env) / "anthropic_key"
+def key_file(keys_dir: Path, name: str) -> Path:
+    """A summary provider's API key (`anthropic_key`, `fireworks_key`, …) in a keys dir:
+    config_dir, or a test's. The user or the Summaries screen writes it; never projects.toml."""
+    return keys_dir / f"{name}_key"
+
+
+def is_set_up(summary: SummarySettings, name: str, keys_dir: Path) -> bool:
+    """anthropic once its key exists (it needs no table); any other once it has a table."""
+    if name == "anthropic":
+        return key_file(keys_dir, name).exists()
+    return name in summary.providers
+
+
+def summary_ready(summary: SummarySettings, keys_dir: Path) -> bool:
+    """Whether a summary could be made now: config and a stat, cheap enough for the hook."""
+    if not summary.enabled:
+        return False
+    return not KEYED.get(summary.provider) or key_file(keys_dir, summary.provider).exists()
 
 
 def web_key_path(env: Mapping[str, str] | None = None) -> Path:
@@ -263,7 +300,53 @@ def _summary(path: Path, data: Mapping[str, object]) -> SummarySettings:
     limit = raw.get("monthly_limit_usd", 5.0)
     if isinstance(limit, bool) or not isinstance(limit, int | float) or limit < 0:
         raise ConfigError(path, "[summary] monthly_limit_usd must be a number ≥ 0")
-    return SummarySettings(float(limit))
+    provider, providers, error = _providers(raw)
+    return SummarySettings(float(limit), provider, providers, error)
+
+
+def _providers(raw: Mapping[str, object]) -> tuple[str, dict[str, ProviderSettings], str | None]:
+    """The provider in use, every valid [summary.<name>] table, and the first problem found.
+
+    A bad table or name only turns summaries off: the valid tables stay, so the Summaries
+    screen can still switch to one of them.
+    """
+    providers, problems = {}, []
+    for name in PROVIDERS:
+        if name in raw:
+            try:
+                providers[name] = _provider(name, raw[name])
+            except ValueError as e:
+                problems.append(str(e))
+    provider = raw.get("provider", "anthropic")
+    problem = _provider_problem(provider, providers)
+    if problem and not (problems and problem.endswith("is missing")):  # a broken table says more
+        problems.insert(0, problem)
+    return provider if isinstance(provider, str) else "", providers, next(iter(problems), None)
+
+
+def _provider_problem(provider: object, providers: Mapping[str, ProviderSettings]) -> str | None:
+    if not isinstance(provider, str):
+        return "[summary] provider must be one name: only one provider is in use"
+    if provider not in PROVIDERS:
+        return f"[summary] provider {provider!r} is not one of {', '.join(PROVIDERS)}"
+    if provider != "anthropic" and provider not in providers:
+        return f"[summary] provider is {provider!r} but [summary.{provider}] is missing"
+    return None
+
+
+def _provider(name: str, raw: object) -> ProviderSettings:
+    if not isinstance(raw, dict):
+        raise ValueError(f"[summary.{name}] must be a table")
+    for key in ("url", "model"):
+        if key in raw and not isinstance(raw[key], str):
+            raise ValueError(f"[summary.{name}] {key} must be a string")
+    settings = ProviderSettings(DEFAULT_URLS.get(name, raw.get("url")), raw.get("model"))
+    if name == "ollama" and raw.get("url"):
+        settings = replace(settings, url=raw["url"])
+    for needed in NEEDS.get(name, ()):
+        if not getattr(settings, needed):
+            raise ValueError(f"[summary.{name}] needs a {needed}")
+    return settings
 
 
 def _resources(path: Path, data: Mapping[str, object]) -> ResourceSettings:
@@ -427,6 +510,71 @@ def set_web_enabled(path: Path, enabled: bool) -> None:
     text = tomlkit.dumps(doc)
     _parse(path, text)
     _atomic_write(path, target, text)
+
+
+def _summary_doc(path: Path) -> tuple[Path, "TOMLDocument", "Table"]:
+    load(path)  # refuses a broken file before anything is written
+    target = path.resolve()
+    import tomlkit
+    from tomlkit.items import Table
+
+    doc = tomlkit.parse(_read(target) or "")
+    table = doc.get("summary")
+    if table is None:
+        table = tomlkit.table()
+        doc.add("summary", table)
+    if not isinstance(table, Table):
+        raise ConfigError(path, "[summary] is written with dotted keys; edit it by hand")
+    return target, doc, table
+
+
+def _write_doc(path: Path, target: Path, doc: "TOMLDocument") -> None:
+    import tomlkit
+
+    text = tomlkit.dumps(doc)
+    _parse(path, text)
+    _atomic_write(path, target, text)
+
+
+def set_provider(path: Path, name: str, url: str | None, model: str | None) -> None:
+    """Write [summary.<name>], replacing what it had; None leaves that key out."""
+    import tomlkit
+
+    if name not in PROVIDERS:
+        raise ConfigError(path, f"{name!r} is not a summary provider")
+    target, doc, summary = _summary_doc(path)
+    table = tomlkit.table()
+    for key, value in (("url", url), ("model", model)):
+        if value:
+            table.add(key, value)
+    if name in summary:
+        summary[name] = table
+    else:
+        summary.add(name, table)
+    _write_doc(path, target, doc)
+
+
+def set_summary_provider(path: Path, name: str, keys_dir: Path) -> None:
+    """Make `name` the provider in use; it must be set up already."""
+    if name not in PROVIDERS:
+        raise ConfigError(path, f"{name!r} is not a summary provider")
+    if not is_set_up(load(path).summary, name, keys_dir):
+        raise ConfigError(path, f"{name} isn't set up")
+    target, doc, table = _summary_doc(path)
+    _set_key(table, "provider", name)
+    _write_doc(path, target, doc)
+
+
+def remove_provider(path: Path, name: str) -> None:
+    """Remove [summary.<name>]; its key file stays. The provider in use can't be removed."""
+    summary = load(path).summary
+    if name == summary.provider:
+        raise ConfigError(path, f"{name} is in use; switch to another provider first")
+    target, doc, table = _summary_doc(path)
+    if name not in table:
+        return
+    del table[name]
+    _write_doc(path, target, doc)
 
 
 def set_project_theme(path: Path, project_path: Path, theme: str) -> None:

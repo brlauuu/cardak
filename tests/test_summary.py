@@ -4,18 +4,23 @@ from pathlib import Path
 
 import pytest
 
+from cardak.collectors.prices import ModelPrice, Rates
 from cardak.collectors.transcripts import read_transcript
 from cardak.core.agents import SessionState
+from cardak.core.config import ProviderSettings
+from cardak.core.prices import BUILTIN
 from cardak.core.summary import (
     TAGS,
     KeyProblem,
     build_input,
     cost,
+    cost_note,
     key_warning,
     month_start,
     read_key,
     turn_text,
     validate,
+    write_key,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "summaries"
@@ -25,9 +30,66 @@ def test_tags_cover_every_wait_kind() -> None:
     assert TAGS == {"permission": "approve", "question": "decide", "finished": "review"}
 
 
+FW_MODEL = "accounts/fireworks/models/llama-v3p3-70b-instruct"
+TABLE = {
+    **BUILTIN,
+    f"fireworks_ai/{FW_MODEL}": ModelPrice(Rates(9e-07, 9e-07, 0.0, 0.0, 0.0)),
+    "gpt-4o-mini": ModelPrice(Rates(1.5e-07, 6e-07, 0.0, 0.0, 0.0)),
+}
+ANTHROPIC = ProviderSettings()
+FIREWORKS = ProviderSettings("https://api.fireworks.ai/inference/v1", FW_MODEL)
+OPENAI = ProviderSettings("https://api.openai.com/v1", "gpt-4o-mini")
+LOCAL = ProviderSettings("http://127.0.0.1:8080/v1", "gpt-4o-mini")
+
+
 def test_cost() -> None:
-    assert cost("claude-haiku-5-5", 1_000_000, 1_000_000) == pytest.approx(0.60)
-    assert cost("claude-haiku-5-5", 1500, 30) == pytest.approx(0.000165)
+    assert cost("anthropic", ANTHROPIC, "claude-haiku-5-5", 1_000_000, 1_000_000, TABLE) == (
+        pytest.approx(0.60)
+    )
+    assert cost("anthropic", ANTHROPIC, "claude-haiku-5-5", 1500, 30, TABLE) == pytest.approx(
+        0.000165
+    )
+
+
+def test_cost_per_anthropic_model() -> None:
+    assert cost("anthropic", ANTHROPIC, "claude-sonnet-5-5", 1_000_000, 0, TABLE) == (
+        pytest.approx(2.0)
+    )
+    # an id the list doesn't know (a dated snapshot): charged as the model asked for
+    assert cost("anthropic", ProviderSettings(model="claude-sonnet-5-5"), "claude-x", 10**6, 0,
+                TABLE) == pytest.approx(2.0)  # fmt: skip
+    assert cost("anthropic", ANTHROPIC, "claude-x", 10**6, 0, TABLE) == pytest.approx(0.10)
+
+
+def test_cost_fireworks_adds_the_prefix() -> None:
+    assert cost("fireworks", FIREWORKS, FW_MODEL, 1_000_000, 1_000_000, TABLE) == (
+        pytest.approx(1.8)
+    )
+
+
+def test_cost_openai_only_on_openai() -> None:
+    assert cost("openai", OPENAI, "gpt-4o-mini", 1_000_000, 0, TABLE) == pytest.approx(0.15)
+    assert cost("openai", LOCAL, "gpt-4o-mini", 1_000_000, 0, TABLE) == 0.0
+    assert cost("openai", OPENAI, "gpt-unknown", 1_000_000, 0, TABLE) == 0.0
+
+
+def test_cost_local_and_plan_are_free() -> None:
+    assert cost("ollama", ProviderSettings("http://h", "m"), "m", 10**6, 10**6, TABLE) == 0.0
+    assert cost("codex", ProviderSettings(), "codex", 10**6, 10**6, TABLE) == 0.0
+
+
+def test_cost_note() -> None:
+    assert cost_note("ollama", ProviderSettings("http://h", "m"), TABLE) == "local, $0"
+    assert cost_note("codex", ProviderSettings(), TABLE) == "your Codex plan, $0"
+    assert cost_note("openai", LOCAL, TABLE) == (
+        "custom server: no price, the monthly cap doesn't cover it"
+    )
+    unknown = ProviderSettings("https://api.openai.com/v1", "gpt-unknown")
+    assert cost_note("openai", unknown, TABLE) == (
+        "no price known: the monthly cap doesn't cover it"
+    )
+    assert cost_note("fireworks", FIREWORKS, TABLE) == "$0.90/$0.90 per M tokens"
+    assert cost_note("anthropic", ANTHROPIC, TABLE) == "$0.10/$0.50 per M tokens"
 
 
 def test_month_start_is_local_midnight_on_the_first() -> None:
@@ -139,3 +201,18 @@ class R:
 )
 def test_validate(reply: R, expected: str | None) -> None:
     assert validate(reply) == expected
+
+
+def test_write_key_is_private(tmp_path: Path) -> None:
+    path = tmp_path / "fireworks_key"
+    path.write_text("old")
+    path.chmod(0o644)
+    write_key(path, "  fw-123 \n")
+    assert path.read_text() == "fw-123\n" and path.stat().st_mode & 0o777 == 0o600
+    assert read_key(path) == "fw-123"
+
+
+def test_write_key_makes_the_directory(tmp_path: Path) -> None:
+    path = tmp_path / "cfg" / "openai_key"
+    write_key(path, "k")
+    assert path.stat().st_mode & 0o777 == 0o600

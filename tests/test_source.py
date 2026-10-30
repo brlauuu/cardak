@@ -291,7 +291,7 @@ def agent_source(
     store: FakeStore,
     history=(),
     now: float = 102.0,
-    key_file: Path | None = None,
+    keys_dir: Path | None = None,
     write_seen: bool = True,
 ) -> LiveSource:
     return LiveSource(
@@ -307,7 +307,7 @@ def agent_source(
         store=store,
         focus_history=lambda: list(history),
         clock=lambda: now,
-        key_file=key_file,
+        keys_dir=keys_dir,
         write_seen=write_seen,
     )
 
@@ -418,26 +418,27 @@ def test_no_store_means_no_agents(tmp_path: Path) -> None:
     assert source.session("w") is None
 
 
-def key(tmp_path: Path, mode: int = 0o600) -> Path:
-    path = tmp_path / "anthropic_key"
+def key(tmp_path: Path, mode: int = 0o600, name: str = "anthropic") -> Path:
+    """Write a provider key into tmp_path, which is then the deck's keys dir."""
+    path = tmp_path / f"{name}_key"
     path.write_text("k")
     path.chmod(mode)
-    return path
+    return tmp_path
 
 
 def test_source_reads_summaries_for_current_waits(tmp_path: Path) -> None:
     store = FakeStore(WAITING, summaries={("w", 100.0): "Did x; nothing asked", ("w", 5.0): "old"})
-    snap = agent_source(tmp_path, store, key_file=key(tmp_path)).poll()
+    snap = agent_source(tmp_path, store, keys_dir=key(tmp_path)).poll()
     assert snap.groups[0].panes[0].agent.summary == "Did x; nothing asked"  # type: ignore[union-attr]
 
 
 def test_source_flags_the_cap(tmp_path: Path) -> None:
     now = datetime(2026, 10, 21, 12).timestamp()
     store = FakeStore(WAITING, spend=5.0)
-    assert agent_source(tmp_path, store, now=now, key_file=key(tmp_path)).poll().summary_capped
+    assert agent_source(tmp_path, store, now=now, keys_dir=key(tmp_path)).poll().summary_capped
     assert store.spend_asked[-1] == datetime(2026, 10, 1).timestamp()
     store.spend = 4.99
-    assert not agent_source(tmp_path, store, now=now, key_file=key(tmp_path)).poll().summary_capped
+    assert not agent_source(tmp_path, store, now=now, keys_dir=key(tmp_path)).poll().summary_capped
 
 
 def test_source_without_key_file_has_no_summaries(tmp_path: Path) -> None:
@@ -450,7 +451,7 @@ def test_source_without_key_file_has_no_summaries(tmp_path: Path) -> None:
 def test_source_disabled_summaries(tmp_path: Path) -> None:
     (tmp_path / "projects.toml").write_text("[summary]\nmonthly_limit_usd = 0\n")
     store = FakeStore(WAITING, summaries={("w", 100.0): "S"}, spend=9.0)
-    source = agent_source(tmp_path, store, key_file=key(tmp_path))
+    source = agent_source(tmp_path, store, keys_dir=key(tmp_path))
     snap = source.poll()
     assert snap.groups[0].panes[0].agent.summary is None  # type: ignore[union-attr]
     assert not snap.summary_capped
@@ -458,16 +459,50 @@ def test_source_disabled_summaries(tmp_path: Path) -> None:
 
 
 def test_source_warns_about_an_open_key(tmp_path: Path) -> None:
-    snap = agent_source(tmp_path, FakeStore(), key_file=key(tmp_path, 0o644)).poll()
+    snap = agent_source(tmp_path, FakeStore(), keys_dir=key(tmp_path, 0o644)).poll()
     assert (
         "anthropic_key is readable by other users; run chmod 600 ~/.config/cardak/anthropic_key"
         in snap.config_warnings
     )
 
 
+def test_source_key_warning_names_active_key(tmp_path: Path) -> None:
+    (tmp_path / "projects.toml").write_text(
+        '[summary]\nprovider = "fireworks"\n[summary.fireworks]\nmodel = "m"\n'
+    )
+    key(tmp_path, 0o644)  # anthropic's, not in use
+    snap = agent_source(tmp_path, FakeStore(), keys_dir=key(tmp_path, 0o644, "fireworks")).poll()
+    assert (
+        "fireworks_key is readable by other users; run chmod 600 ~/.config/cardak/fireworks_key"
+        in snap.config_warnings
+    )
+    assert not any(w.startswith("anthropic_key") for w in snap.config_warnings)
+
+
+def test_source_warns_on_summary_error(tmp_path: Path) -> None:
+    (tmp_path / "projects.toml").write_text('[summary]\nprovider = "gpt"\n')
+    store = FakeStore(WAITING, summaries={("w", 100.0): "S"})
+    snap = agent_source(tmp_path, store, keys_dir=key(tmp_path)).poll()
+    assert snap.groups[0].panes[0].agent.summary is None  # type: ignore[union-attr]
+    assert any(
+        w.startswith("waiting summaries off: [summary] provider 'gpt'")
+        for w in snap.config_warnings
+    )
+    assert snap.config_error is None  # the rest of the file still loads
+
+
+def test_source_summaries_from_ollama_without_key(tmp_path: Path) -> None:
+    (tmp_path / "projects.toml").write_text(
+        '[summary]\nprovider = "ollama"\n[summary.ollama]\nmodel = "m"\n'
+    )
+    store = FakeStore(WAITING, summaries={("w", 100.0): "Did x; nothing asked"})
+    snap = agent_source(tmp_path, store, keys_dir=tmp_path).poll()
+    assert snap.groups[0].panes[0].agent.summary == "Did x; nothing asked"  # type: ignore[union-attr]
+
+
 def test_summary_info(tmp_path: Path) -> None:
     store = FakeStore(WAITING, summaries={("w", 100.0): "Did x; needs y"}, spend=0.42)
-    source = agent_source(tmp_path, store, key_file=key(tmp_path))
+    source = agent_source(tmp_path, store, keys_dir=key(tmp_path))
     assert source.summary_info(WAITING) == SummaryInfo("Did x; needs y", 0.42, 5.0)
     other = SessionState("o", status="waiting", kind="finished", status_since=1.0)
     assert source.summary_info(other) == SummaryInfo(None, 0.42, 5.0)
@@ -475,7 +510,7 @@ def test_summary_info(tmp_path: Path) -> None:
 
 def test_summary_store_errors(tmp_path: Path) -> None:
     store = FakeStore(WAITING, summaries={("w", 100.0): "S"}, spend=-1.0)
-    source = agent_source(tmp_path, store, key_file=key(tmp_path))
+    source = agent_source(tmp_path, store, keys_dir=key(tmp_path))
     snap = source.poll()
     assert snap.groups[0].panes[0].agent.summary is None  # type: ignore[union-attr]
     assert any("waiting summaries unavailable" in w for w in snap.config_warnings)  # #53
@@ -484,7 +519,7 @@ def test_summary_store_errors(tmp_path: Path) -> None:
 
 def test_source_warns_when_summaries_fail(tmp_path: Path) -> None:
     store = FakeStore(WAITING, error="AuthenticationError: invalid x-api-key")
-    source = agent_source(tmp_path, store, key_file=key(tmp_path))
+    source = agent_source(tmp_path, store, keys_dir=key(tmp_path))
     assert (
         "waiting summaries failing: AuthenticationError: invalid x-api-key; "
         "see ~/.local/state/cardak/hook.log"
@@ -564,14 +599,14 @@ def test_default_thresholds_leave_small_panes_unmarked(tmp_path: Path) -> None:
 
 def test_summaries_failure_message(tmp_path: Path) -> None:
     store = FakeStore(WAITING, spend=-1.0)  # spend_since raises StoreError
-    snap = agent_source(tmp_path, store, key_file=key(tmp_path)).poll()
+    snap = agent_source(tmp_path, store, keys_dir=key(tmp_path)).poll()
     assert any(w.startswith("waiting summaries unavailable:") for w in snap.config_warnings)
     assert not any("agent status unavailable" in w for w in snap.config_warnings)
 
 
 def test_no_summary_info_without_key(tmp_path: Path) -> None:
     store = FakeStore(WAITING, spend=1.0)
-    source = agent_source(tmp_path, store, key_file=tmp_path / "anthropic_key")  # not there
+    source = agent_source(tmp_path, store, keys_dir=tmp_path)  # no key there
     assert source.summary_info(WAITING) is None
     assert source.poll().summary_capped is False
 

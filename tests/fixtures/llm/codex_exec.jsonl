@@ -1,0 +1,5 @@
+{"type": "thread.started", "thread_id": "00000000-0000-0000-0000-000000000000"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "error", "message": "Codex is ignoring 1 unrecognized configuration setting."}}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": "Wants to delete build/; approve the rm -rf"}}
+{"type": "turn.completed", "usage": {"input_tokens": 26272, "cached_input_tokens": 7168, "cache_write_input_tokens": 0, "output_tokens": 50, "reasoning_output_tokens": 31}}

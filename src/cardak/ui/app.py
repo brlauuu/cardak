@@ -27,13 +27,14 @@ from cardak.core.filter import filter_snapshot, waiting_only
 from cardak.core.navigate import JumpResult
 from cardak.core.snapshot import DeckSnapshot, DockerLine, Group, PaneRow
 from cardak.core.store import DayPeak, ResourceEvent, StoreError
-from cardak.core.summary import SummaryInfo
+from cardak.core.summary import ProviderTools, SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.confirm import ConfirmScreen
 from cardak.ui.detail import DetailScreen
 from cardak.ui.events import EventLogScreen
 from cardak.ui.history import HistoryScreen
 from cardak.ui.recap import RecapScreen
+from cardak.ui.summaries import SummariesScreen, SummaryControl
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
     docker_label,
@@ -231,6 +232,7 @@ class DeckApp(App[None]):
         Binding("c", "checkpoint", "Checkpoint"),
         Binding("r", "recap", "Recap"),
         Binding("x", "cleanup", "Cleanup"),
+        Binding("s", "summaries", "Summaries"),
         Binding("R", "refresh", "Refresh", show=False),
         Binding("q", "quit", "Quit"),
     ]
@@ -266,6 +268,8 @@ class DeckApp(App[None]):
         send: Callable[[int, str], None] | None = None,
         skills_status: Callable[[], str | None] | None = None,
         open_tab: Callable[[Path, int | None], int] | None = None,
+        summaries: SummaryControl | None = None,
+        providers: ProviderTools | None = None,
     ) -> None:
         super().__init__()
         self.source = source
@@ -279,6 +283,8 @@ class DeckApp(App[None]):
         self.send = send  # types into a pane: only /checkpoint, only after asking
         self.skills_status = skills_status  # how to install /checkpoint, when it isn't
         self.open_tab = open_tab  # a shell tab in a project, for `x`; returns its pane id
+        self.summaries = summaries  # the provider settings `s` shows and writes (#47)
+        self.providers = providers
         self.resource_log = log  # its own cardak.db connection: events, crash banner, history
         self._crash: ResourceEvent | None = None
         self._cap_noticed = False  # the summary-limit notice shows once per run
@@ -596,6 +602,12 @@ class DeckApp(App[None]):
         if self._type(send, pane_id, cleanup.COMMAND, failed):
             self.call_from_thread(self.notify, f"Started /repo-cleanup in pane {pane_id}.")
         self.call_from_thread(self.jump, pane_id)  # the tab is open either way
+
+    def action_summaries(self) -> None:
+        if self.summaries is None or self.providers is None:
+            self.notify("summaries aren't available in this deck", severity="warning")
+            return
+        self.push_screen(SummariesScreen(self.summaries, self.providers))
 
     def action_recap(self) -> None:
         node = self.deck_tree.cursor_node

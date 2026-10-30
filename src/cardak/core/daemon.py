@@ -208,7 +208,7 @@ def build_source(
     spent = spend or (lambda: None)
     if not agents:
         return LiveSource(config_file, spend=spent)
-    from cardak.core.config import anthropic_key_path
+    from cardak.core.config import config_dir
     from cardak.core.focus import focus_path, read_history
     from cardak.core.limits import limits_path
     from cardak.core.store import Store, db_path
@@ -222,7 +222,7 @@ def build_source(
         config_file,
         store=store,
         focus_history=lambda: read_history(focus_path()),
-        key_file=anthropic_key_path(),
+        keys_dir=config_dir(),
         write_seen=False,
         spend=spent,
         limits_file=limits_path(),

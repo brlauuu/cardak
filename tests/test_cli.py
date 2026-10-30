@@ -9,7 +9,7 @@ import pytest
 from hookfix import text
 
 from cardak.cli import main
-from cardak.core.config import load
+from cardak.core.config import ProviderSettings, load
 from cardak.core.navigate import Navigator
 from cardak.ui.app import DeckApp
 
@@ -29,6 +29,19 @@ def test_tui_runs_deck_with_config_path(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))
     assert main(["--config", str(tmp_path / "p.toml"), "tui"]) == 0
     assert seen[0].source.config_file == tmp_path / "p.toml"  # type: ignore[attr-defined]
+
+
+def test_deck_gets_the_summaries_screen(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from cardak.core.summary import ProviderTools
+
+    seen: list[DeckApp] = []
+    monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))
+    assert main(["--config", str(tmp_path / "p.toml"), "tui"]) == 0
+    assert seen[0].summaries is seen[0].source
+    tools = seen[0].providers
+    assert isinstance(tools, ProviderTools)
+    assert tools.read_key("ollama") is None and tools.read_key("openai") is None  # no key file
+    assert "claude-haiku-5-5" in tools.prices()
 
 
 def test_default_command_is_tui(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -245,13 +258,36 @@ def test_summarize_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
     from cardak.core import summarize
     from cardak.llm.anthropic import AnthropicSummarizer
 
-    seen: list[tuple[list[str], Callable[[str], object]]] = []
+    seen: list[tuple[list[str], Callable[..., object]]] = []
     monkeypatch.setattr(summarize, "main", lambda args, make: seen.append((list(args), make)) or 0)
     assert main(["summarize", "s", "1.5"]) == 0
     [(args, make)] = seen
     assert args == ["s", "1.5"]
-    made = make("sk-test")
+    made = make("anthropic", ProviderSettings(), "sk-test")
     assert isinstance(made, AnthropicSummarizer) and made.model == "claude-haiku-5-5"
+
+
+def test_make_summarizer_per_provider() -> None:
+    from cardak.cli import _make_summarizer
+    from cardak.llm.anthropic import AnthropicSummarizer
+    from cardak.llm.codex import CodexSummarizer
+    from cardak.llm.ollama import OllamaSummarizer
+    from cardak.llm.openai import OpenAISummarizer
+
+    sonnet = _make_summarizer("anthropic", ProviderSettings(model="claude-sonnet-5-5"), "k")
+    assert isinstance(sonnet, AnthropicSummarizer) and sonnet.model == "claude-sonnet-5-5"
+    local = _make_summarizer("ollama", ProviderSettings("http://h:1", "m"), None)
+    assert isinstance(local, OllamaSummarizer) and (local.url, local.model) == ("http://h:1", "m")
+    fw = _make_summarizer("fireworks", ProviderSettings("https://f/v1", "fm"), "fk")
+    assert isinstance(fw, OpenAISummarizer) and (fw.url, fw.key, fw.model) == (
+        "https://f/v1",
+        "fk",
+        "fm",
+    )
+    oa = _make_summarizer("openai", ProviderSettings("http://o/v1", "om"), None)
+    assert isinstance(oa, OpenAISummarizer) and oa.key is None
+    cx = _make_summarizer("codex", ProviderSettings(), None)
+    assert isinstance(cx, CodexSummarizer) and cx.model is None
 
 
 def test_pinging_hook_imports_no_summarizer(tmp_path: Path) -> None:

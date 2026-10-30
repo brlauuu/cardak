@@ -25,7 +25,7 @@ def paths(tmp_path: Path) -> dict[str, Path]:
     return {
         "config_file": config,
         "focus_file": tmp_path / "focus",
-        "key_file": tmp_path / "anthropic_key",
+        "keys_dir": tmp_path,
     }
 
 
@@ -153,7 +153,7 @@ def test_main_survives_an_unwritable_state_dir(
 
 def test_ping_spawns_the_summarizer(tmp_path: Path, paths: dict[str, Path]) -> None:
     store = Store(tmp_path / "db")
-    paths["key_file"].write_text("k")
+    (tmp_path / "anthropic_key").write_text("k")
     spawned = call(store, paths, "stop-finished", now=1792600000.123456)
     [state] = store.live_sessions()
     argv = spawned[-1]
@@ -168,14 +168,28 @@ def test_no_summarizer_without_key(tmp_path: Path, paths: dict[str, Path]) -> No
 
 
 def test_no_summarizer_when_disabled(tmp_path: Path, paths: dict[str, Path]) -> None:
-    paths["key_file"].write_text("k")
+    (tmp_path / "anthropic_key").write_text("k")
     paths["config_file"].write_text(QUIET + "[summary]\nmonthly_limit_usd = 0\n")
     spawned = call(Store(tmp_path / "db"), paths, "stop-finished")
     assert [argv[0] for argv in spawned] == ["notify-send"]
 
 
+def test_hook_skips_broken_summary_config(tmp_path: Path, paths: dict[str, Path]) -> None:
+    (tmp_path / "anthropic_key").write_text("k")
+    paths["config_file"].write_text(QUIET + '[summary]\nprovider = "gpt"\n')
+    spawned = call(Store(tmp_path / "db"), paths, "stop-finished")
+    assert [argv[0] for argv in spawned] == ["notify-send"]  # the rest of the config still holds
+
+
+def test_hook_spawns_for_ollama_without_key(tmp_path: Path, paths: dict[str, Path]) -> None:
+    ollama = '[summary]\nprovider = "ollama"\n[summary.ollama]\nmodel = "m"\n'
+    paths["config_file"].write_text(QUIET + ollama)
+    spawned = call(Store(tmp_path / "db"), paths, "stop-finished")
+    assert spawned[-1][4] == "summarize"
+
+
 def test_no_summarizer_when_pane_focused(tmp_path: Path, paths: dict[str, Path]) -> None:
-    paths["key_file"].write_text("k")
+    (tmp_path / "anthropic_key").write_text("k")
     paths["focus_file"].write_text(f"{FOCUS_HEADER}\n7 1000\n")
     assert call(Store(tmp_path / "db"), paths, "stop-finished") == []
 
@@ -248,7 +262,7 @@ def test_subagent_stop_not_logged(tmp_path: Path) -> None:
 
 def test_quiet_ping_spawns_summary_only(tmp_path: Path, paths: dict[str, Path]) -> None:
     store = Store(tmp_path / "db")
-    paths["key_file"].write_text("k")
+    (tmp_path / "anthropic_key").write_text("k")
     first = call(store, paths, "permission_request", now=100.0)
     assert [argv[0] for argv in first][0] == "notify-send"
     second = call(
@@ -261,9 +275,9 @@ def test_quiet_ping_spawns_summary_only(tmp_path: Path, paths: dict[str, Path]) 
 
 
 def test_env_for_hides_the_real_key(tmp_path: Path) -> None:
-    from cardak.core.config import anthropic_key_path
+    from cardak.core.config import config_dir, key_file
 
-    assert anthropic_key_path(env_for(tmp_path)).is_relative_to(tmp_path)
+    assert key_file(config_dir(env_for(tmp_path)), "anthropic").is_relative_to(tmp_path)
 
 
 def test_project_name_follows_symlinks(tmp_path: Path) -> None:

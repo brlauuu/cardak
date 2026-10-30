@@ -19,7 +19,14 @@ from cardak.core import config as config_mod
 from cardak.core.accounting import account
 from cardak.core.agents import FocusChange, SessionState, focus_seen_at, mark_seen
 from cardak.core.alerts import SOUND_EXTS, bundled_sounds, check
-from cardak.core.config import Config, ConfigError
+from cardak.core.config import (
+    Config,
+    ConfigError,
+    SummarySettings,
+    is_set_up,
+    key_file,
+    summary_ready,
+)
 from cardak.core.context import ContextSeries, GroupedContext, group_context
 from cardak.core.limits import Stored, limits_view, load_limits
 from cardak.core.recent import Recent, decorate
@@ -35,7 +42,7 @@ from cardak.core.snapshot import (
 )
 from cardak.core.spend import MonthSpend
 from cardak.core.store import StoreError
-from cardak.core.summary import SummaryInfo, key_warning, month_start
+from cardak.core.summary import SummaryInfo, key_warning, month_start, write_key
 from cardak.core.themes import Scheme, project_accent
 from cardak.core.trends import GroupedTrends, UsageTrends, group_trends
 
@@ -76,7 +83,7 @@ class LiveSource:
         store: AgentStore | None = None,
         focus_history: Callable[[], Sequence[FocusChange]] = lambda: [],
         clock: Callable[[], float] = time.time,
-        key_file: Path | None = None,
+        keys_dir: Path | None = None,
         machine: Callable[[], MachineSample | None] | None = None,
         docker: Callable[[], Sequence[DockerWork]] | None = None,
         write_seen: bool = True,
@@ -99,7 +106,7 @@ class LiveSource:
         self._focus_history = focus_history
         self._write_seen = write_seen  # False: show focus-seen waits as seen, write nothing (M7)
         self._clock = clock
-        self._key_file = key_file  # None: no waiting summaries in this deck
+        self._keys_dir = keys_dir  # None: no waiting summaries in this deck
         self._machine = machine or MachineSampler().sample
         self._docker = docker or DockerSampler().sample
         self._spend = spend  # the counter's latest figure (core/spend.py), read every poll
@@ -183,6 +190,63 @@ class LiveSource:
                 )
             self._reload_if_changed()
 
+    def summary_settings(self) -> SummarySettings:
+        with self._lock:
+            return self._config.summary
+
+    def is_set_up(self, name: str) -> bool:
+        with self._lock:
+            keys = self._keys_dir
+            return keys is not None and is_set_up(self._config.summary, name, keys)
+
+    def has_key(self, name: str) -> bool:
+        with self._lock:
+            return self._keys_dir is not None and key_file(self._keys_dir, name).exists()
+
+    def summary_spend(self) -> float | None:
+        """This month's spend on summaries; None without a store."""
+        with self._lock:
+            if self._store is None:
+                return None
+            try:
+                return self._store.spend_since(month_start(self._clock()))
+            except StoreError:
+                return None
+
+    def _write_summary(self, write: Callable[[Path], None]) -> str | None:
+        """Run one config or key write; the error to show, or None."""
+        with self._lock:
+            if self._keys_dir is None:
+                return "summaries aren't available in this deck"
+            try:
+                write(self._keys_dir)
+            except ConfigError as e:
+                return e.message
+            except OSError as e:
+                return f"cannot write: {e}"
+            self._reload_if_changed()
+            return None
+
+    def use_provider(self, name: str) -> str | None:
+        return self._write_summary(
+            lambda keys: config_mod.set_summary_provider(self.config_file, name, keys)
+        )
+
+    def save_provider(
+        self, name: str, url: str | None, model: str | None, key: str | None
+    ) -> str | None:
+        """Write [summary.<name>], and the key file when a key was typed."""
+
+        def write(keys: Path) -> None:
+            config_mod.set_provider(self.config_file, name, url, model)
+            if key and key.strip():
+                write_key(key_file(keys, name), key)
+
+        return self._write_summary(write)
+
+    def remove_provider(self, name: str) -> str | None:
+        return self._write_summary(lambda _keys: config_mod.remove_provider(self.config_file, name))
+
     def poll(self) -> DeckSnapshot:
         with self._lock:
             return self._poll()
@@ -214,10 +278,8 @@ class LiveSource:
 
     def _summary_store(self) -> AgentStore | None:
         """The store to read summaries from, or None when this deck shows none."""
-        if self._key_file is None or not self._config.summary.enabled:
-            return None
-        if not self._key_file.exists():  # no key, no summaries: no spend line either (#52)
-            return None
+        if self._keys_dir is None or not summary_ready(self._config.summary, self._keys_dir):
+            return None  # e.g. no key, no summaries: no spend line either (#52)
         return self._store
 
     def _summaries(self, live: Sequence[SessionState]) -> tuple[dict[str, str], bool]:
@@ -279,8 +341,13 @@ class LiveSource:
 
     def _warnings_now(self, spend: MonthSpend | None = None) -> tuple[str, ...]:
         extra = (self._store_warning,) if self._store_warning else ()
-        key = key_warning(self._key_file) if self._key_file is not None else None
+        key = None
+        broken = self._config.summary.error
+        if self._keys_dir is not None:
+            key = key_warning(key_file(self._keys_dir, self._config.summary.provider))
         summary = (self._summary_warning,) if self._summary_warning else ()
+        if self._keys_dir is not None and broken:
+            summary = (f"waiting summaries off: {broken}", *summary)
         unpriced = (
             (f"no API price for {', '.join(spend.unpriced)}; left out of this month's figure",)
             if spend is not None and spend.unpriced

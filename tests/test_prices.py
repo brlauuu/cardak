@@ -21,7 +21,8 @@ def reply(model: str = "claude-opus-5-5", speed: str | None = "standard", **toke
 
 
 def test_builtin_matches_the_downloaded_list() -> None:
-    assert parse(select(SUBSET.read_bytes())) == BUILTIN
+    found = parse(select(SUBSET.read_bytes()))
+    assert {k: v for k, v in found.items() if k.startswith("claude-")} == BUILTIN
 
 
 def test_lookup_strips_date_and_suffix() -> None:

@@ -153,6 +153,42 @@ stops summaries when it's reached:
 monthly_limit_usd = 5    # 0 turns summaries off
 ```
 
+### Other providers
+
+Claude doesn't have to write them. Press `s` in the deck for the Summaries screen: it lists
+five providers, marks the one in use (●) and the ones set up (○), and lets you set one up
+(`n`), edit it (`e`), test it on a made-up wait (`t`), switch to it (Enter) or remove it
+(`del`).
+
+| Provider | What it is | Cost |
+|---|---|---|
+| `anthropic` | Anthropic's API, the default | priced per model |
+| `ollama` | a local [Ollama](https://ollama.com) server you already run | $0 |
+| `fireworks` | Fireworks' API, with a key | priced from LiteLLM's list |
+| `openai` | anything OpenAI-compatible: OpenAI itself, llama.cpp, vLLM | priced on api.openai.com only |
+| `codex` | `codex exec`, on your Codex or ChatGPT plan; no key | $0 to cardak |
+
+Several can be set up; exactly one is in use. The screen writes `projects.toml` for you,
+keeping your comments:
+
+```toml
+[summary]
+provider = "ollama"
+
+[summary.ollama]
+url = "http://127.0.0.1:11434"
+model = "gemma4:e4b"
+```
+
+A key typed into the screen goes to `~/.config/cardak/<provider>_key`, readable by you
+only, never into `projects.toml`. A `provider` naming something that isn't set up turns
+summaries off with a warning; the rest of the config still works. The monthly cap counts
+what cardak can price: a local model, a custom server or Codex costs it nothing.
+
+Measured on a CPU-only machine: a 4B model answers in about 2 s once loaded (the first
+call loads it, ~30 s), Codex in about 10 s. Small local models sometimes misread the
+wait; compare a few lines with the raw reason (`i`) before you rely on them.
+
 ## Resources
 
 Every project and pane shows its RAM, a small graph of the last few minutes, and its CPU

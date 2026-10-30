@@ -47,16 +47,24 @@ def fetch(url: str = URL, timeout: float = TIMEOUT) -> bytes:
         return response.read()
 
 
+def _wanted(name: str, entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    provider = entry.get("litellm_provider")
+    if provider == "fireworks_ai":  # summaries (#48); "fireworks-ai-default" etc. are size classes
+        return name.startswith("fireworks_ai/")
+    return "/" not in name and provider in ("anthropic", "openai")
+
+
 def select(raw: bytes) -> dict[str, dict[str, object]]:
-    """The Anthropic API's own entries (no `bedrock/...` and the like); ValueError if not JSON."""
+    """The Anthropic, OpenAI and Fireworks APIs' own entries (no `bedrock/...` and the like).
+
+    ValueError if not JSON.
+    """
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("not a JSON object")
-    return {
-        k: v
-        for k, v in data.items()
-        if "/" not in k and isinstance(v, dict) and v.get("litellm_provider") == "anthropic"
-    }
+    return {k: v for k, v in data.items() if _wanted(k, v)}
 
 
 def _rate(entry: Mapping[str, object], field: str) -> float | None:
@@ -83,6 +91,11 @@ def _rates(
 
 def _price(entry: Mapping[str, object]) -> ModelPrice | None:
     base = _rates(entry)
+    if base is None and entry.get("litellm_provider") != "anthropic":
+        # Fireworks and OpenAI list no cache writes; summaries only use input and output
+        found = _rate(entry, "input_cost_per_token"), _rate(entry, "output_cost_per_token")
+        if found[0] is not None and found[1] is not None:
+            return ModelPrice(Rates(found[0], found[1], 0.0, 0.0, 0.0))
     if base is None:
         return None
     tiers = sorted(int(m[1]) for k in entry if (m := _TIER.fullmatch(k)))

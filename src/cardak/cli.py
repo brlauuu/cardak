@@ -16,7 +16,6 @@ from cardak.core.config import (
     Config,
     ConfigError,
     WebSettings,
-    anthropic_key_path,
     config_dir,
     config_path,
     load,
@@ -26,8 +25,10 @@ from cardak.core.config import (
 if TYPE_CHECKING:
     import argparse
 
+    from cardak.core.config import ProviderSettings
     from cardak.core.daemon import Publish, WebStart
     from cardak.core.source import LiveSource
+    from cardak.core.summary import ProviderTools, Summarizer
     from cardak.core.themes import SchemeStore
 
 
@@ -789,12 +790,76 @@ def _setup(args: argparse.Namespace) -> int:
     return _themes_zsh(args.config, args.force)
 
 
-def _summarize(session_id: str, wait_since: str) -> int:
-    from cardak.core import summarize
+def _anthropic(settings: ProviderSettings, key: str | None) -> Summarizer:
     from cardak.core.summary import MODEL
     from cardak.llm.anthropic import AnthropicSummarizer
 
-    return summarize.main([session_id, wait_since], lambda key: AnthropicSummarizer(key, MODEL))
+    return AnthropicSummarizer(key or "", settings.model or MODEL)
+
+
+def _ollama(settings: ProviderSettings, key: str | None) -> Summarizer:
+    from cardak.llm.ollama import OllamaSummarizer
+
+    return OllamaSummarizer(settings.url or "", settings.model or "")
+
+
+def _openai(settings: ProviderSettings, key: str | None) -> Summarizer:
+    from cardak.llm.openai import OpenAISummarizer  # Fireworks speaks the same API
+
+    return OpenAISummarizer(settings.url or "", key, settings.model or "")
+
+
+def _codex(settings: ProviderSettings, key: str | None) -> Summarizer:
+    from cardak.llm.codex import CodexSummarizer
+
+    return CodexSummarizer(settings.model)
+
+
+SUMMARIZERS = {
+    "anthropic": _anthropic,
+    "ollama": _ollama,
+    "fireworks": _openai,
+    "openai": _openai,
+    "codex": _codex,
+}
+
+
+def _make_summarizer(name: str, settings: ProviderSettings, key: str | None) -> Summarizer:
+    """The summarizer for one provider's settings; each provider's module is imported here."""
+    return SUMMARIZERS[name](settings, key)
+
+
+def _provider_tools() -> ProviderTools:
+    """What the deck's Summaries screen uses to test providers and list Ollama's models."""
+    from cardak.core.prices import CACHE_NAME, PriceBook
+    from cardak.core.summary import ProviderTools, provider_key
+
+    def list_models(url: str) -> list[str]:
+        from cardak.llm.ollama import list_models
+
+        return list_models(url)
+
+    def codex_version() -> str | None:
+        from cardak.llm.codex import codex_version
+
+        return codex_version()
+
+    from cardak.core.config import cache_dir
+
+    book = PriceBook(cache_dir() / CACHE_NAME)  # the cache only: the deck's counter downloads
+    return ProviderTools(
+        make=_make_summarizer,
+        list_models=list_models,
+        codex_version=codex_version,
+        prices=book.current,
+        read_key=lambda name: provider_key(name, config_dir()),
+    )
+
+
+def _summarize(session_id: str, wait_since: str) -> int:
+    from cardak.core import summarize
+
+    return summarize.main([session_id, wait_since], _make_summarizer)
 
 
 def _deck(config_arg: str | None) -> int:
@@ -834,7 +899,7 @@ def _deck(config_arg: str | None) -> int:
         schemes=store.get,
         store=agents,
         focus_history=lambda: read_history(focus_path()),
-        key_file=anthropic_key_path(),
+        keys_dir=config_dir(),
     )
     DeckApp(
         source,
@@ -849,6 +914,8 @@ def _deck(config_arg: str | None) -> int:
         send=lambda pane_id, text: wezterm.send_text(pane_id, text),
         skills_status=_skills_hint,
         open_tab=lambda cwd, near: wezterm.spawn(cwd, near),
+        summaries=source,
+        providers=_provider_tools(),
     ).run()
     if counted is not None:
         counted[1].set()

@@ -17,13 +17,25 @@ CLAUDE = {
 }
 
 
-def test_select_keeps_anthropic_only() -> None:
-    assert set(select(SUBSET.read_bytes())) == CLAUDE
+FIREWORKS = "fireworks_ai/accounts/fireworks/models/llama-v3p3-70b-instruct"
+OTHERS = {FIREWORKS, "gpt-4o-mini", "gpt-4o-transcribe-diarize"}
+
+
+def test_select_keeps_anthropic_fireworks_and_openai() -> None:
+    # no bedrock/… copies, no fireworks size classes ("fireworks-ai-default")
+    assert set(select(SUBSET.read_bytes())) == CLAUDE | OTHERS
+
+
+def test_parse_entries_without_cache_rates() -> None:
+    found = parse(select(SUBSET.read_bytes()))
+    assert found[FIREWORKS].base == Rates(9e-07, 9e-07, 0.0, 0.0, 0.0)
+    assert found["gpt-4o-mini"].base.input == 1.5e-07
+    assert found["gpt-4o-mini"].base.output == 6e-07
 
 
 def test_parse_rates() -> None:
     found = parse(select(SUBSET.read_bytes()))
-    assert set(found) == CLAUDE
+    assert set(found) == CLAUDE | OTHERS
     opus = found["claude-opus-5-5"]
     assert opus.base == Rates(4e-06, 2e-05, 5e-06, 8e-06, 2e-07)
     assert opus.above is None and opus.tier is None

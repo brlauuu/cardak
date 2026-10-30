@@ -310,7 +310,7 @@ def test_build_source_for_the_web_reads_agents_without_writing(
     plain = build_source(tmp_path / "projects.toml", agents=False)
     assert plain._store is None and plain._write_seen
     web = build_source(tmp_path / "projects.toml", agents=True)
-    assert web._store is not None and not web._write_seen and web._key_file is not None
+    assert web._store is not None and not web._write_seen and web._keys_dir is not None
 
 
 def test_build_source_passes_spend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

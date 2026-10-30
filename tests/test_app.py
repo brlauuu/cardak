@@ -3,6 +3,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from logfix import FakeLog
 from textual.pilot import Pilot
 from textual.widgets import Input, Static, Tree
@@ -1387,3 +1388,34 @@ async def test_deck_shows_limits_row() -> None:
         await settle(app, pilot)
         assert row.display and "27% left" in str(row.render()) and "61% left" in str(row.render())
         assert "\n" not in str(row.render())
+
+
+async def test_s_without_tools_notifies() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("s")
+        await pilot.pause()
+        assert any("summaries aren't available" in str(n.message) for n in app._notifications)
+
+
+async def test_s_opens_summaries(tmp_path: Path) -> None:
+    from cardak.core.prices import BUILTIN
+    from cardak.core.source import LiveSource
+    from cardak.core.summary import ProviderTools
+    from cardak.ui.summaries import SummariesScreen
+
+    source = LiveSource(tmp_path / "p.toml", env={}, keys_dir=tmp_path)
+    tools = ProviderTools(
+        make=lambda *_a: pytest.fail("no test was asked for"),
+        list_models=lambda url: [],
+        codex_version=lambda: None,
+        prices=lambda: BUILTIN,
+        read_key=lambda name: None,
+    )
+    app = DeckApp(StubSource(SNAP), interval=3600, summaries=source, providers=tools)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("s")
+        await pilot.pause()
+        assert isinstance(app.screen, SummariesScreen)
