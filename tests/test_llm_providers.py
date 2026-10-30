@@ -249,3 +249,45 @@ def test_llm_imports_nothing_from_cardak() -> None:
     for source in root.glob("*.py"):
         found = re.search(r"^\s*(from|import) cardak\b", source.read_text(), re.MULTILINE)
         assert found is None, source.name
+
+
+def test_openai_api_gets_max_completion_tokens() -> None:
+    post = FakePost(_fixture("openai_chat.json"))
+    OpenAISummarizer("https://api.openai.com/v1", "sk", "gpt-5-mini", post=post).summarize("s", "u")
+    body = post.calls[0][1]
+    assert "max_tokens" not in body and body["max_completion_tokens"] == 256
+    other = FakePost(_fixture("openai_chat.json"))
+    OpenAISummarizer("http://127.0.0.1:8080/v1", None, "m", post=other).summarize("s", "u")
+    assert other.calls[0][1]["max_tokens"] == 256
+
+
+def test_codex_failure_reads_the_json_error() -> None:
+    failed = {"type": "turn.failed", "error": {"message": "usage limit reached"}}
+    events = '{"type":"thread.started"}\n' + json.dumps(failed) + "\n"
+
+    def run(argv: Sequence[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 1, events, "")
+
+    with pytest.raises(ProviderError, match="codex exited 1: usage limit reached"):
+        CodexSummarizer(None, run=run).summarize("s", "u")
+
+
+def test_codex_timeout_kills_its_children(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+    import time
+
+    pidfile = tmp_path / "child.pid"
+    fake = tmp_path / "fake-codex"
+    fake.write_text(f"#!/bin/sh\nsleep 30 &\necho $! > {pidfile}\nwait\n")
+    fake.chmod(0o755)
+    with pytest.raises(subprocess.TimeoutExpired):
+        codex.run_in_group([str(fake)], input="", cwd=str(tmp_path), timeout=1.0)
+    child = int(pidfile.read_text())
+    for _ in range(50):
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("the timed-out codex left its child running")

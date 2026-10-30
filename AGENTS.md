@@ -378,7 +378,11 @@ input, #70).
   spent its 80 s on reasoning and answered nothing. `codex exec` runs with `--ephemeral
   --sandbox read-only --skip-git-repo-check --ignore-rules --json -o <file>` in an empty
   temporary directory with the prompt on stdin; it still runs the user's own Codex hooks
-  (they wrote files into that directory, which is deleted afterwards).
+  (they wrote files into that directory, which is deleted afterwards). It runs in a session of
+  its own (`codex.run_in_group`): `codex` is a Node wrapper around the native binary, so a
+  timeout kills the whole group. Its errors come from stderr, else the `--json` events'
+  `turn.failed` / `error`. On `api.openai.com` the token limit is `max_completion_tokens`
+  (current models refuse `max_tokens`); other compatible servers get `max_tokens`.
 - **Cost:** anthropic from `core/prices` per model; fireworks from LiteLLM's
   `fireworks_ai/<model>` entries (no cache rates: input and output only); openai only when the
   URL's host is `api.openai.com`; ollama, codex, other servers and unlisted models $0, which the

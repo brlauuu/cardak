@@ -50,6 +50,8 @@ class SummaryControl(Protocol):
 
     def is_set_up(self, name: str) -> bool: ...
 
+    def has_key(self, name: str) -> bool: ...
+
     def summary_spend(self) -> float | None: ...
 
     def use_provider(self, name: str) -> str | None: ...
@@ -145,7 +147,7 @@ class SummariesScreen(ModalScreen[None]):
 
     def _row(self, name: str, summary: SummarySettings) -> Text:
         if name == summary.provider:
-            ready = self._control.is_set_up(name) or name not in KEYED
+            ready = not KEYED.get(name) or self._control.has_key(name)
             return Text(f"● {name:<11} in use" + ("" if ready else " · no key"))
         if self._control.is_set_up(name):
             return Text(f"○ {name:<11} set up")
@@ -378,6 +380,9 @@ class SummariesScreen(ModalScreen[None]):
             self._say(f"{name} needs a {' and a '.join(missing)}")
             return
         key = self.query_one("#f-key", Input).value.strip() or None
+        if KEYED.get(name) and key is None and not self._control.has_key(name):
+            self._say(f"{name} needs a key")
+            return
         url = settings.url if name in ("ollama", "openai") else None
         error = self._control.save_provider(name, url, settings.model, key)
         if error is None and use:

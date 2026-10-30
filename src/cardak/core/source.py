@@ -199,6 +199,10 @@ class LiveSource:
             keys = self._keys_dir
             return keys is not None and is_set_up(self._config.summary, name, keys)
 
+    def has_key(self, name: str) -> bool:
+        with self._lock:
+            return self._keys_dir is not None and key_file(self._keys_dir, name).exists()
+
     def summary_spend(self) -> float | None:
         """This month's spend on summaries; None without a store."""
         with self._lock:

@@ -636,3 +636,23 @@ def test_legacy_off_silences_all() -> None:
 def test_legacy_off_with_one_theme_key() -> None:
     n = NotifySettings(sound="off", memory_sound="peon/X")
     assert [n.theme_sound(t) for t in THEMES] == ["off", "peon/X", "random"]
+
+
+def test_bad_provider_keeps_the_valid_tables(tmp_path: Path) -> None:
+    body = (
+        '[summary]\nprovider = "nope"\n'
+        '[summary.ollama]\nmodel = "m"\n[summary.openai]\nmodel = "x"\n'
+    )
+    summary = _summary_cfg(tmp_path, body).summary
+    assert summary.error and not summary.enabled
+    assert set(summary.providers) == {"ollama"}  # openai has no url: left out, ollama still usable
+    path = tmp_path / "p.toml"
+    set_summary_provider(path, "ollama", tmp_path)
+    assert load(path).summary.provider == "ollama"
+
+
+def test_dotted_summary_keys_are_refused_not_crashed(tmp_path: Path) -> None:
+    path = tmp_path / "p.toml"
+    path.write_text("summary.monthly_limit_usd = 3\n\n[summary.codex]\n")
+    with pytest.raises(ConfigError, match="by hand"):  # tomlkit hands back a plain dict here
+        set_summary_provider(path, "codex", tmp_path)

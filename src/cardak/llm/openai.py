@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from .anthropic import MAX_TOKENS, Reply
 from .http import ProviderError, post_json
@@ -18,10 +19,15 @@ class OpenAISummarizer:
         self.model = model
         self.post = post
 
+    def _is_openai(self) -> bool:
+        return urlsplit(self.url).hostname == "api.openai.com"
+
     def summarize(self, system: str, user: str) -> Reply:
+        # OpenAI's own API refuses max_tokens for current models; compatible servers want it
+        limit = "max_completion_tokens" if self._is_openai() else "max_tokens"
         body = {
             "model": self.model,
-            "max_tokens": MAX_TOKENS,
+            limit: MAX_TOKENS,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

@@ -300,27 +300,34 @@ def _summary(path: Path, data: Mapping[str, object]) -> SummarySettings:
     limit = raw.get("monthly_limit_usd", 5.0)
     if isinstance(limit, bool) or not isinstance(limit, int | float) or limit < 0:
         raise ConfigError(path, "[summary] monthly_limit_usd must be a number ≥ 0")
-    try:
-        provider, providers = _providers(raw)
-    except ValueError as e:
-        return SummarySettings(float(limit), error=str(e))
-    return SummarySettings(float(limit), provider, providers)
+    provider, providers, error = _providers(raw)
+    return SummarySettings(float(limit), provider, providers, error)
 
 
-def _providers(raw: Mapping[str, object]) -> tuple[str, dict[str, ProviderSettings]]:
-    """The provider in use and every [summary.<name>] table; ValueError says what's wrong."""
-    providers = {}
+def _providers(raw: Mapping[str, object]) -> tuple[str, dict[str, ProviderSettings], str | None]:
+    """The provider in use, every valid [summary.<name>] table, and the first problem found.
+
+    A bad table or name only turns summaries off: the valid tables stay, so the Summaries
+    screen can still switch to one of them.
+    """
+    providers, problems = {}, []
     for name in PROVIDERS:
         if name in raw:
-            providers[name] = _provider(name, raw[name])
+            try:
+                providers[name] = _provider(name, raw[name])
+            except ValueError as e:
+                problems.append(str(e))
     provider = raw.get("provider", "anthropic")
     if not isinstance(provider, str):
-        raise ValueError("[summary] provider must be one name: only one provider is in use")
-    if provider not in PROVIDERS:
-        raise ValueError(f"[summary] provider {provider!r} is not one of {', '.join(PROVIDERS)}")
-    if provider != "anthropic" and provider not in providers:
-        raise ValueError(f"[summary] provider is {provider!r} but [summary.{provider}] is missing")
-    return provider, providers
+        problems.insert(0, "[summary] provider must be one name: only one provider is in use")
+        provider = ""
+    elif provider not in PROVIDERS:
+        problems.insert(0, f"[summary] provider {provider!r} is not one of {', '.join(PROVIDERS)}")
+    elif provider != "anthropic" and provider not in providers and not problems:
+        problems.insert(
+            0, f"[summary] provider is {provider!r} but [summary.{provider}] is missing"
+        )
+    return provider, providers, problems[0] if problems else None
 
 
 def _provider(name: str, raw: object) -> ProviderSettings:
@@ -505,12 +512,15 @@ def _summary_doc(path: Path) -> tuple[Path, "TOMLDocument", "Table"]:
     load(path)  # refuses a broken file before anything is written
     target = path.resolve()
     import tomlkit
+    from tomlkit.items import Table
 
     doc = tomlkit.parse(_read(target) or "")
     table = doc.get("summary")
     if table is None:
         table = tomlkit.table()
         doc.add("summary", table)
+    if not isinstance(table, Table):
+        raise ConfigError(path, "[summary] is written with dotted keys; edit it by hand")
     return target, doc, table
 
 

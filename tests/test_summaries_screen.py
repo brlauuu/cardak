@@ -37,6 +37,9 @@ class FakeControl:
     def is_set_up(self, name: str) -> bool:
         return name in self.keyed if name == "anthropic" else name in self.summary.providers
 
+    def has_key(self, name: str) -> bool:
+        return name in self.keyed
+
     def summary_spend(self) -> float | None:
         return self.spend
 
@@ -355,3 +358,25 @@ async def test_in_use_without_key_says_so() -> None:
     async with app.run_test(size=(110, 30)) as pilot:
         await pilot.pause()
         assert rows(app)[0].split() == ["●", "anthropic", "in", "use", "·", "no", "key"]
+
+
+async def test_in_use_keyed_provider_without_key_says_so() -> None:
+    summary = SummarySettings(provider="fireworks", providers={"fireworks": ProviderSettings()})
+    app = Host(FakeControl(summary), FakeTools().tools())
+    async with app.run_test(size=(110, 30)) as pilot:
+        await pilot.pause()
+        assert rows(app)[2].split() == ["●", "fireworks", "in", "use", "·", "no", "key"]
+
+
+async def test_keyed_provider_needs_a_key_to_save() -> None:
+    control = FakeControl()
+    app = Host(control, FakeTools().tools())
+    async with app.run_test(size=(110, 30)) as pilot:
+        await move_to(app, pilot, "fireworks")
+        await pilot.press("n")
+        await pilot.pause()
+        app.screen.query_one("#f-model", Input).value = "accounts/fireworks/models/x"
+        app.screen.query_one("#b-use", Button).press()
+        await pilot.pause()
+        assert control.calls == []
+        assert "fireworks needs a key" in text_of(app, "#message")
