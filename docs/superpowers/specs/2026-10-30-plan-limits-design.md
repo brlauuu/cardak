@@ -34,6 +34,15 @@ and runs the user's original command with the same input. The user accepted this
 asked for a follow-up to replace it once Claude Code offers a supported way: **#97**. README and
 AGENTS.md say it is a workaround and link #97.
 
+## Freshness
+
+The user doesn't need the figures to be fast or exact to the minute: a reading from "every once in a
+while" is fine, and they'd rather glance and decide (said 2026-10-30). So the wrapper saves at most
+once a minute unless a window changed, and the deck picks the file up on its next poll. There's no
+refresh action: cardak can't ask Claude Code for new numbers, only re-read the last reading, which
+every poll already does; the age label says how old it is. The latency budget below exists only so
+the user's own status line doesn't get slower.
+
 ## Goals
 
 1. `cardak statusline install` / `uninstall` / `status`, in the same style as `cardak hooks …`
