@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from hookfix import text
 
-from cardak.core import hook
+from cardak.core import hook, hooklog
 from cardak.core.config import Config, Project
 from cardak.core.focus import FOCUS_HEADER
 from cardak.core.hook import main, project_name, run, summarize_argv
@@ -137,7 +137,7 @@ def test_hook_exception_is_logged(
     log = tmp_path / "state" / "cardak" / "hook.log"
     assert "disk on fire" in log.read_text()
 
-    monkeypatch.setattr(hook, "LOG_MAX", 10)
+    monkeypatch.setattr(hooklog, "LOG_MAX", 10)
     main(io.StringIO("{}"), env)
     assert log.read_text().count("\n--- ") + log.read_text().startswith("--- ") == 1  # started over
 

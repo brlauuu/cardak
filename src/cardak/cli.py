@@ -497,10 +497,15 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    if (sys.argv[1:] if argv is None else argv) == ["hook"]:
+    given = sys.argv[1:] if argv is None else argv
+    if given == ["hook"]:
         from cardak.core import hook
 
         return hook.main(sys.stdin)
+    if given[:1] == ["statusline"] and given[1:2] not in (["install"], ["uninstall"], ["status"]):
+        from cardak.core import statusline
+
+        return statusline.main(given[1:], sys.stdin.buffer)
     args = build_parser().parse_args(argv)
     if args.command == "daemon":
         return _daemon()

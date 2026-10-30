@@ -215,6 +215,29 @@ def test_hook_imports_only_what_it_needs(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
 
 
+STATUSLINE_FORBIDDEN = (*HOOK_FORBIDDEN, "textual", "sqlite3", "cardak.core.store")
+
+
+def test_statusline_imports_only_what_it_needs(tmp_path: Path) -> None:
+    plan = (Path(__file__).parent / "fixtures" / "statusline" / "plan.json").read_bytes()
+    script = (
+        "import io, sys\n"
+        f"sys.stdin = io.TextIOWrapper(io.BytesIO({plan!r}))\n"
+        "sys.argv = ['cardak', 'statusline', '--then', 'printf ok']\n"
+        "from cardak.cli import main\n"
+        "assert main() == 0\n"
+        f"loaded = [m for m in {STATUSLINE_FORBIDDEN!r} if m in sys.modules]\n"
+        "assert not loaded, loaded\n"
+    )
+    env = os.environ | {"XDG_STATE_HOME": str(tmp_path), "CARDAK_CONFIG": str(tmp_path / "p")}
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "ok"
+    assert (tmp_path / "cardak" / "limits.json").exists()
+
+
 def test_summarize_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
     from cardak.core import summarize
     from cardak.llm.anthropic import AnthropicSummarizer
