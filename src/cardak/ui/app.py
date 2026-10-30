@@ -40,6 +40,7 @@ from cardak.ui.widgets import (
     fmt_usd,
     group_label,
     internal_label,
+    limits_label,
     machine_label,
     mcp_label,
     no_match_label,
@@ -213,6 +214,7 @@ class DeckApp(App[None]):
     #banner { display: none; background: $error; color: $text; padding: 0 1; }
     #crash { display: none; background: $error-darken-1; color: $text; padding: 0 1; }
     #machine { display: none; padding: 0 1; }
+    #limits { display: none; padding: 0 1; height: 1; }
     """
     BINDINGS = [
         Binding("a", "add_project", "Add as project"),
@@ -294,6 +296,7 @@ class DeckApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static("", id="machine")
+        yield Static("", id="limits")
         yield Static("", id="banner")
         yield Static("", id="crash")
         yield Input(placeholder="find: project, process, title or path", id="find")
@@ -384,6 +387,10 @@ class DeckApp(App[None]):
         if snap.machine_view is not None:
             machine.update(machine_label(snap.machine_view))
         machine.display = snap.machine_view is not None
+        limits = self.query_one("#limits", Static)
+        if snap.plan_limits is not None:
+            limits.update(limits_label(snap.plan_limits, time.time()))
+        limits.display = snap.plan_limits is not None
         banner = self.query_one("#banner", Static)
         if snap.config_error:
             banner.update(escape(snap.config_error))  # ConfigError names the file itself

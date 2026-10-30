@@ -762,3 +762,26 @@ def test_agent_rows_without_a_reply_have_no_context(tmp_path: Path) -> None:
     source._spend = lambda: replace(month, since=month_start(102.0))
     agents = [p.agent for g in source.poll().groups for p in g.panes if p.agent is not None]
     assert agents and all(a.context is None for a in agents)
+
+
+def test_source_reads_limits_when_changed(tmp_path: Path) -> None:
+    from cardak.collectors.limits import Reading, Window
+    from cardak.core.limits import record
+
+    path = tmp_path / "limits.json"
+    source = spending(tmp_path / "p.toml", None)
+    source._limits_file = path
+    assert source.poll().plan_limits is None  # no file: no row
+    future = time.time() + 3600
+    record(path, Reading(Window(73.0, future), None), time.time())
+    view = source.poll().plan_limits
+    assert view is not None and view.five_hour.left == 27 and view.seven_day.left is None
+    record(path, Reading(Window(95.0, future), None), time.time())
+    view = source.poll().plan_limits
+    assert view is not None and view.five_hour.left == 5 and view.five_hour.level == "critical"
+    path.unlink()
+    assert source.poll().plan_limits is None
+
+
+def test_source_without_limits_file_reads_none(tmp_path: Path) -> None:
+    assert spending(tmp_path / "p.toml", None).poll().plan_limits is None

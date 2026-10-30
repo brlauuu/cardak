@@ -284,3 +284,18 @@ def test_context_json_sends_each_local_midnight() -> None:
         datetime.combine(first, datetime.min.time()) + timedelta(days=i) for i in range(DAYS + 1)
     ]
     assert out["day_starts"] == [m.timestamp() - out["start"] for m in midnights]
+
+
+def test_snapshot_json_limits() -> None:
+    from dataclasses import replace
+
+    from cardak.core.limits import LimitsView, LimitView
+
+    view = LimitsView(LimitView(27, 1000.0, "ok"), LimitView(None, None, "unknown"), 42.0)
+    out = snapshot_json(replace(snap(), plan_limits=view), 1.0, 2.0)
+    assert out["plan_limits"] == {
+        "five_hour": {"left": 27, "resets_at": 1000.0, "level": "ok"},
+        "seven_day": {"left": None, "resets_at": None, "level": "unknown"},
+        "age_s": 42.0,
+    }
+    assert snapshot_json(snap(), 1.0, 2.0)["plan_limits"] is None

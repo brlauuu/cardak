@@ -21,6 +21,8 @@ from cardak.core.agents import FocusChange, SessionState, focus_seen_at, mark_se
 from cardak.core.alerts import SOUND_EXTS, bundled_sounds, check
 from cardak.core.config import Config, ConfigError
 from cardak.core.context import ContextSeries, GroupedContext, group_context
+from cardak.core.limits import Stored, limits_view
+from cardak.core.limits import load as load_limits
 from cardak.core.recent import Recent, decorate
 from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
 from cardak.core.resources import derive
@@ -80,6 +82,7 @@ class LiveSource:
         docker: Callable[[], Sequence[DockerWork]] | None = None,
         write_seen: bool = True,
         spend: Callable[[], MonthSpend | None] = lambda: None,
+        limits_file: Path | None = None,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -104,6 +107,8 @@ class LiveSource:
         self._spend_seen: tuple[MonthSpend, ProjectResolver, dict[GroupKey, float]] | None = None
         self._trends_seen: tuple[UsageTrends, ProjectResolver, GroupedTrends] | None = None
         self._context_seen: tuple[ContextSeries, ProjectResolver, GroupedContext] | None = None
+        self._limits_file = limits_file  # None: no plan limits row (#70)
+        self._limits_seen: tuple[tuple[int, int], Stored | None] | None = None
         self._recent = Recent()
         self._summary_warning: str | None = None
         self._notify_warnings: tuple[str, ...] = ()
@@ -390,7 +395,24 @@ class LiveSource:
         return replace(decorate(snap, self._recent, t), thresholds=t)
 
     def _poll(self) -> DeckSnapshot:
-        return self._with_spend(self._poll_panes())
+        return self._with_limits(self._with_spend(self._poll_panes()))
+
+    def _with_limits(self, snap: DeckSnapshot) -> DeckSnapshot:
+        """The plan limits `cardak statusline` saved, re-read only when the file changed."""
+        if self._limits_file is None:
+            return snap
+        try:
+            st = self._limits_file.stat()
+            mtime = (st.st_ino, st.st_mtime_ns)  # each write is a new file (os.replace)
+        except OSError:
+            self._limits_seen = None
+            return snap
+        if self._limits_seen is None or self._limits_seen[0] != mtime:
+            self._limits_seen = (mtime, load_limits(self._limits_file))
+        stored = self._limits_seen[1]
+        if stored is None:
+            return snap
+        return replace(snap, plan_limits=limits_view(stored, self._clock()))
 
     def _poll_panes(self) -> DeckSnapshot:
         self._reload_if_changed()

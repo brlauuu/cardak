@@ -28,6 +28,11 @@ header h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
 #machine, #spend { color: var(--muted); font-size: 13px; }
 #machine.warning { color: var(--waiting); }
 #machine.critical { color: var(--over); }
+#limits { width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+#limits .lim-bar { color: var(--muted); }
+#limits .lim-low { color: var(--waiting); }
+#limits .lim-critical { color: var(--over); font-weight: 600; }
+#limits .lim-unknown, #limits .lim-age { color: var(--muted); }
 #fresh { width: 100%; color: var(--muted); font-size: 12px; }
 #fresh.stale, #fresh.down { color: var(--waiting); }
 #notice { display: none; background: var(--card); border-left: 4px solid var(--waiting);
@@ -104,6 +109,7 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
   <h1>cardak</h1>
   <span id="machine"></span>
   <span id="spend"></span>
+  <span id="limits"></span>
   <button id="trends" type="button">Trends</button>
   <span id="fresh">connecting…</span>
 </header>
@@ -205,6 +211,41 @@ function renderMachine(m) {
   box.textContent = text;
 }
 
+const LIMIT_BAR = 15, STALE_S = 900, WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function limitBar(left) {
+  const full = Math.round(left * LIMIT_BAR / 100);
+  return "█".repeat(full) + "░".repeat(LIMIT_BAR - full);
+}
+function limitReset(at, now) {
+  const d = new Date(at * 1000), hm = String(d.getHours()).padStart(2, "0") + ":" +
+    String(d.getMinutes()).padStart(2, "0");
+  return at - now < 86400 ? hm : WEEKDAYS[d.getDay()] + " " + hm;
+}
+function limitParts(l, now) {
+  // [text, class] pieces, the same row as the deck's limits_label
+  const parts = [];
+  for (const [name, v, sep] of [["5h", l.five_hour, ""], ["week", l.seven_day, "   "]]) {
+    if (sep) parts.push([sep, ""]);
+    if (v.left === null) { parts.push([name + " —", "lim-unknown"]); continue; }
+    const cls = v.level === "ok" ? "lim-bar" : "lim-" + v.level;
+    parts.push([name + " ", ""], [limitBar(v.left), cls],
+      [" " + v.left + "% left", v.level === "ok" ? "" : cls], [" · " + limitReset(v.resets_at, now), ""]);
+  }
+  if (l.age_s > STALE_S) parts.push([" · read " + Math.round(l.age_s / 60) + " min ago", "lim-age"]);
+  return parts;
+}
+function renderLimits(l, now) {
+  const box = $("limits");
+  clear(box);
+  if (!l) return;
+  for (const [text, cls] of limitParts(l, now)) {
+    const s = document.createElement("span");
+    if (cls) s.className = cls;
+    s.textContent = text;
+    box.appendChild(s);
+  }
+}
+
 function renderSpend(snap) {
   const box = $("spend");
   box.textContent = snap.month_spend === null || snap.month_spend === undefined ? "" :
@@ -288,6 +329,7 @@ function projectCard(g, now, total) {
 function render(snap) {
   renderMachine(snap.machine);
   renderSpend(snap);
+  renderLimits(snap.plan_limits, snap.now);
   renderFresh(snap);
   $("main").classList.remove("dim");
   if (snap.error) {

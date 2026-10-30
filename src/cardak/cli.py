@@ -796,6 +796,7 @@ def _deck(config_arg: str | None) -> int:
     from cardak.core import spend
     from cardak.core.focus import focus_path, read_history
     from cardak.core.hook import log_problem
+    from cardak.core.limits import limits_path
     from cardak.core.navigate import Navigator, Previewer
     from cardak.core.source import LiveSource
     from cardak.core.store import Store, StoreError, db_path
@@ -820,6 +821,7 @@ def _deck(config_arg: str | None) -> int:
     source = LiveSource(
         config_path(config_arg),
         spend=counted[0] if counted else lambda: None,
+        limits_file=limits_path(),
         on_config=_theme_writer(lua_dir, config_dir(), store),
         schemes=store.get,
         store=agents,

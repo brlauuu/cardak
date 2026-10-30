@@ -153,3 +153,35 @@ def test_log_position_matches_the_deck() -> None:
     script += f"console.log(JSON.stringify({values}.map(ctxPos)));"
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert json.loads(out.stdout) == pytest.approx([position(v) for v in values])
+
+
+def test_page_has_limits_row() -> None:
+    assert '<span id="limits"></span>' in PAGE
+    assert "renderLimits(snap.plan_limits, snap.now)" in PAGE
+    for level in ("lim-low", "lim-critical", "lim-unknown"):
+        assert f".{level}" in PAGE
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_limits_text_matches_the_deck() -> None:
+    from datetime import datetime
+
+    from cardak.core.limits import LimitsView, LimitView
+    from cardak.ui.widgets import limits_label
+
+    now = datetime(2026, 10, 30, 12, 0).timestamp()
+    five = datetime(2026, 10, 30, 16, 40).timestamp()
+    view = LimitsView(LimitView(27, five, "ok"), LimitView(None, None, "unknown"), 1500.0)
+    limits = {
+        "five_hour": {"left": 27, "resets_at": five, "level": "ok"},
+        "seven_day": {"left": None, "resets_at": None, "level": "unknown"},
+        "age_s": 1500.0,
+    }
+    consts = re.search(r"^const LIMIT_BAR = .*$", PAGE, re.MULTILINE)
+    assert consts is not None
+    script = consts.group(0) + "\n"
+    script += "".join(_js_function(f) for f in ("limitBar", "limitReset", "limitParts")) + (
+        f"console.log(limitParts({json.dumps(limits)}, {now}).map(p => p[0]).join(''));"
+    )
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == limits_label(view, now).plain

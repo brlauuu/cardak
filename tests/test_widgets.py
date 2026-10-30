@@ -274,3 +274,32 @@ def test_agent_row_shows_its_context() -> None:
     row = claude_row(replace(view("idle"), context=312_000))
     assert pane_label(row, NOW).plain.endswith("idle 12m  ctx 312k")
     assert "ctx" not in pane_label(claude_row(view("idle")), NOW).plain
+
+
+def test_limits_label() -> None:
+    from datetime import datetime
+
+    from cardak.core.limits import LimitsView, LimitView
+    from cardak.ui.widgets import limits_label
+
+    now = datetime(2026, 10, 30, 12, 0).timestamp()
+    five = datetime(2026, 10, 30, 16, 40).timestamp()
+    week = datetime(2026, 11, 2, 9, 0).timestamp()
+    view = LimitsView(LimitView(27, five, "ok"), LimitView(61, week, "ok"), 30.0)
+    text = limits_label(view, now)
+    assert text.plain == (
+        "5h ████░░░░░░░░░░░ 27% left · 16:40   week █████████░░░░░░ 61% left · Mon 09:00"
+    )
+    low_view = LimitsView(LimitView(15, five, "low"), LimitView(5, week, "critical"), 0)
+    low = limits_label(low_view, now)
+    styles = {str(s.style) for s in low.spans}
+    assert "yellow" in styles and "bold red" in styles
+
+
+def test_limits_label_unknown_and_stale() -> None:
+    from cardak.core.limits import LimitsView, LimitView
+    from cardak.ui.widgets import limits_label
+
+    unknown = LimitView(None, None, "unknown")
+    text = limits_label(LimitsView(unknown, unknown, 25 * 60.0), 0.0)
+    assert text.plain == "5h —   week — · read 25 min ago"

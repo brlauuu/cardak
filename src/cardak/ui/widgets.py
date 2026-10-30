@@ -2,11 +2,13 @@
 
 import math
 import time
+from datetime import datetime
 
 from rich.color import Color, ColorParseError
 from rich.text import Text
 
 from cardak.core.agents import KIND_LABELS
+from cardak.core.limits import STALE_S, LimitsView, LimitView
 from cardak.core.snapshot import AgentView, DockerLine, Group, MachineView, PaneRow
 from cardak.core.summary import TAGS
 
@@ -93,6 +95,39 @@ def machine_label(v: MachineView) -> Text:
         text.append(f"  ⚠ {free}% free", style=OVER if v.level == "critical" else "yellow")
     if m.swap_total > 0 and m.swap_free == 0:
         text.append("  swap full", style=OVER)
+    return text
+
+
+LIMIT_BAR = 15  # cells per limit's bar
+LIMIT_STYLE = {"ok": "cyan", "low": "yellow", "critical": OVER, "unknown": "dim"}
+
+
+def _reset_text(resets_at: float, now: float) -> str:
+    """16:40 within a day, Mon 09:00 further out (local time)."""
+    when = datetime.fromtimestamp(resets_at)
+    return f"{when:%H:%M}" if resets_at - now < 86_400 else f"{when:%a %H:%M}"
+
+
+def _limit_part(name: str, v: LimitView, now: float) -> Text:
+    if v.left is None or v.resets_at is None:
+        return Text(f"{name} —", style=LIMIT_STYLE["unknown"])
+    full = int(v.left * LIMIT_BAR / 100 + 0.5)  # halves up, as the page's Math.round
+    style = LIMIT_STYLE[v.level]
+    text = Text(f"{name} ")
+    text.append("█" * full + "░" * (LIMIT_BAR - full), style=style)
+    text.append(f" {v.left}% left", style=style if v.level != "ok" else "")
+    return text.append(f" · {_reset_text(v.resets_at, now)}")
+
+
+def limits_label(v: LimitsView, now: float) -> Text:
+    """ "5h ████░░ 27% left · 16:40   week █████░ 61% left · Mon 09:00": both limits, one row."""
+    text = (
+        _limit_part("5h", v.five_hour, now)
+        .append("   ")
+        .append(_limit_part("week", v.seven_day, now))
+    )
+    if v.age_s > STALE_S:
+        text.append(f" · read {int(v.age_s / 60 + 0.5)} min ago", style="dim")
     return text
 
 
