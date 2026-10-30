@@ -60,4 +60,6 @@ def main(
         log_problem(env, f"statusline: ignored arguments {argv!r}")
         return 0
     _save(data, env, clock())
-    return (run or _exec)(argv[1], data) if argv else 0
+    if not argv:
+        return 0
+    return _exec(argv[1], data) if run is None else run(argv[1], data)
