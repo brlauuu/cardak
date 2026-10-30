@@ -314,3 +314,95 @@ def test_step_rebuilds_when_prices_change(tmp_path: Path, root: Path) -> None:
     c.prices._loaded = (None, cheaper)  # a download with new prices replaces the table
     second = c.step()
     assert second is not first and second.total < first.total
+
+
+def store_unflagged(store: Store, root: Path) -> None:
+    """Rows as a cardak before #86 stored them: every reply, no flags, offsets at the end."""
+    for path in root.rglob("*.jsonl"):
+        u, end = read_usage(path, 0)
+        plain = tuple(replace(r, sidechain=False) for r in u.replies)
+        store.record_usage(str(path), path.stat().st_ino, end, Usage(plain, u.prompts))
+
+
+def test_backfill_flags_replies_stored_before_the_flag(tmp_path: Path, root: Path) -> None:
+    c = counter(tmp_path, root)
+    store_unflagged(c.store, root)
+    stored = c.store.replies_since(0.0)
+    before = month_spend(stored, BUILTIN, month_start(NOW))
+    c.step()
+    flagged = {r.key for r in c.store.replies_since(0.0) if r.sidechain}
+    assert flagged and flagged == {k for k, r in all_replies(root).items() if r.sidechain}
+    assert c.latest is not None and c.latest.total == before.total  # spend unchanged
+    assert c.store.usage_mark() == (len(stored), c.store.usage_mark()[1])  # no reply added
+    assert c.store.backfilled(spend.SIDECHAINS)
+
+
+def test_backfill_runs_once(tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    c = counter(tmp_path, root)
+    store_unflagged(c.store, root)
+    c.step()
+    calls: list[Path] = []
+    real = spend.read_usage
+
+    def counting(path: Path, offset: int, limit: int = usage_mod.READ_LIMIT) -> tuple[Usage, int]:
+        calls.append(path)
+        return real(path, offset, limit)
+
+    monkeypatch.setattr(spend, "read_usage", counting)
+    again = SpendCounter(c.store, offline(tmp_path), root, clock=lambda: NOW)
+    again.step()
+    # done in the database: a new counter re-checks only the subagents' files
+    assert calls and all("sub" in p.parts for p in calls)
+    calls.clear()
+    again.step()
+    assert calls == []  # and only when it starts
+
+
+def test_new_counter_flags_what_an_older_cardak_stored_since(tmp_path: Path, root: Path) -> None:
+    # an older daemon still running after the upgrade stores subagent replies with no flag
+    c = counter(tmp_path, root)
+    c.step()
+    assert c.store.backfilled(spend.SIDECHAINS)
+    c.store._con.execute("DELETE FROM claude_sidechain_replies")
+    restarted = SpendCounter(c.store, offline(tmp_path), root, clock=lambda: NOW)
+    restarted.step()
+    flagged = {r.key for r in c.store.replies_since(0.0) if r.sidechain}
+    assert flagged and flagged == {k for k, r in all_replies(root).items() if r.sidechain}
+
+
+def test_backfill_on_an_empty_store_reads_only_subagents(
+    tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    c = counter(tmp_path, root)
+    calls: list[Path] = []
+    real = spend.read_usage
+
+    def counting(path: Path, offset: int, limit: int = usage_mod.READ_LIMIT) -> tuple[Usage, int]:
+        calls.append(path)
+        return real(path, offset, limit)
+
+    monkeypatch.setattr(spend, "read_usage", counting)
+    c._backfill(date.fromtimestamp(NOW), NOW)
+    assert calls and all("sub" in p.parts for p in calls)  # nothing stored: no full pass
+    assert c.store.backfilled(spend.SIDECHAINS)
+    c.step()
+    assert any(r.sidechain for r in c.store.replies_since(0.0))
+
+
+def test_step_builds_context(tmp_path: Path, root: Path) -> None:
+    built = counter(tmp_path, root).step().context
+    assert built is not None and built.today == date(2026, 10, 28)
+    subagent = {r.ts for r in all_replies(root).values() if r.sidechain}
+    drawn = {p[0] for ln in built.lines for p in ln.points}
+    assert subagent and drawn and not subagent & drawn  # the fixture's subagent is left out
+
+
+def test_step_rebuilds_context_every_ten_minutes(tmp_path: Path, root: Path) -> None:
+    now = [NOW]
+    c = SpendCounter(Store(tmp_path / "c.db"), offline(tmp_path), root, clock=lambda: now[0])
+    first = c.step()
+    now[0] += 60
+    assert c.step() is first  # nothing new
+    now[0] += 601
+    later = c.step()
+    assert later is not first and later.context is not None and later.context.built_at == now[0]

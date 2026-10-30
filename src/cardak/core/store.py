@@ -19,7 +19,7 @@ from cardak.core.config import state_dir
 if TYPE_CHECKING:  # the hook imports this module; it never reads transcripts
     from cardak.collectors.usage import Prompt, Reply, Usage
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 # The oldest schema whose code can still use this database, kept in PRAGMA application_id so
 # that an older cardak (from this one on) opens a newer file instead of refusing it. Only a
 # new table is safe for older code. Any change to an existing table, a new column included,
@@ -32,6 +32,7 @@ SUMMARY_KEEP_SECONDS = 62 * 86_400  # longer than a month: the spend cap counts 
 USAGE_KEEP_SECONDS = 62 * 86_400  # the same: this month's spend at API prices (#29)
 MAX_EVENTS = 10_000
 BUSY_TIMEOUT = 2.0
+REPLY_COLUMNS = 11  # claude_replies' columns: Reply's fields before `sidechain`
 
 T = TypeVar("T")
 
@@ -122,6 +123,10 @@ CREATE TABLE IF NOT EXISTS transcript_offsets (
     inode INTEGER NOT NULL,
     offset INTEGER NOT NULL
 );
+-- schema 6 (#86): new tables only, so MIN_READER stays. The replies that came from a
+-- subagent, and the one-time passes that filled it in for rows stored before.
+CREATE TABLE IF NOT EXISTS claude_sidechain_replies (reply_key TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS usage_backfills (name TEXT PRIMARY KEY, done_at REAL NOT NULL);
 """
 ALERT_KINDS = ("memory", "big", "growth", "busy", "machine_busy")
 
@@ -515,9 +520,13 @@ class Store:
                 before = self._con.total_changes
                 self._con.executemany(
                     "INSERT OR IGNORE INTO claude_replies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [astuple(r) for r in usage.replies],
+                    [astuple(r)[:REPLY_COLUMNS] for r in usage.replies],
                 )
                 added = self._con.total_changes - before
+                self._con.executemany(
+                    "INSERT OR IGNORE INTO claude_sidechain_replies VALUES (?)",
+                    [(r.key,) for r in usage.replies if r.sidechain],
+                )
                 self._con.executemany(
                     "INSERT OR IGNORE INTO claude_prompts VALUES (?, ?, ?, ?, ?)",
                     [astuple(p) for p in usage.prompts],
@@ -539,6 +548,24 @@ class Store:
         )
         return (rows[0][0] or 0, rows[0][1] or 0)
 
+    def flag_sidechains(self, keys: Iterable[str]) -> None:
+        """Mark stored replies as a subagent's; stores no reply."""
+        try:
+            with self._con:
+                self._con.execute("BEGIN")
+                self._con.executemany(
+                    "INSERT OR IGNORE INTO claude_sidechain_replies VALUES (?)",
+                    [(k,) for k in keys],
+                )
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+
+    def backfilled(self, name: str) -> bool:
+        return bool(self._query("SELECT 1 FROM usage_backfills WHERE name = ?", (name,)))
+
+    def mark_backfilled(self, name: str, now: float) -> None:
+        self._query("INSERT OR REPLACE INTO usage_backfills VALUES (?, ?)", (name, now))
+
     def transcript_offsets(self) -> dict[str, tuple[int, int]]:
         """path -> (inode, offset) of every transcript a pass has read."""
         rows = self._query("SELECT path, inode, offset FROM transcript_offsets")
@@ -548,8 +575,13 @@ class Store:
         """Oldest first."""
         from cardak.collectors.usage import Reply
 
-        rows = self._query("SELECT * FROM claude_replies WHERE ts >= ? ORDER BY ts, rowid", (ts,))
-        return [Reply(*r) for r in rows]
+        rows = self._query(
+            "SELECT r.*, s.reply_key IS NOT NULL FROM claude_replies r"
+            " LEFT JOIN claude_sidechain_replies s USING (reply_key)"
+            " WHERE r.ts >= ? ORDER BY r.ts, r.rowid",
+            (ts,),
+        )
+        return [Reply(*r[:REPLY_COLUMNS], sidechain=bool(r[REPLY_COLUMNS])) for r in rows]
 
     def prompts_since(self, ts: float) -> list["Prompt"]:
         """Oldest first."""
@@ -578,6 +610,10 @@ class Store:
             usage_cutoff = now - USAGE_KEEP_SECONDS
             self._con.execute("DELETE FROM claude_replies WHERE ts < ?", (usage_cutoff,))
             self._con.execute("DELETE FROM claude_prompts WHERE ts < ?", (usage_cutoff,))
+            self._con.execute(
+                "DELETE FROM claude_sidechain_replies"
+                " WHERE reply_key NOT IN (SELECT reply_key FROM claude_replies)"
+            )
             resource_cutoff = now - RESOURCE_KEEP_SECONDS
             self._con.execute("DELETE FROM resource_events WHERE ts < ?", (resource_cutoff,))
             self._con.execute(

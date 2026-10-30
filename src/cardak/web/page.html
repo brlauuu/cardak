@@ -82,6 +82,14 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
 .bar.none { background: var(--line); }
 .trend.all .bar { background: var(--working); }
 .trend.all .bar.none { background: var(--line); }
+.bar.sel { outline: 1px solid var(--text); }
+.cplot { width: 100%; height: auto; display: block; margin: 6px 0 2px; }
+.cplot .grid { stroke: var(--line); stroke-width: .6; stroke-dasharray: 2 2; }
+.cplot .pick { fill: rgba(106, 168, 255, .14); }
+.cplot text { fill: var(--muted); font-size: 7px; }
+.cplot polyline { fill: none; stroke-width: 1.1; stroke-linejoin: round; }
+.s0 { stroke: #56b6c2; } .s1 { stroke: #c678dd; } .s2 { stroke: #e5c07b; } .s3 { stroke: #98c379; }
+.s4 { stroke: #61afef; } .s5 { stroke: #e06c75; } .s6 { stroke: #7fdbe6; } .s7 { stroke: #e08cf0; }
 #close { float: right; background: none; border: 1px solid var(--line); color: var(--text);
   border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; }
 @media (min-width: 820px) {
@@ -123,6 +131,7 @@ const $ = (id) => document.getElementById(id);
 let key = null, last = null, timer = null, sheetId = null, stopped = false, inflight = false;
 const opened = new Set();
 let trends = null, trendsOpen = false, trendsTimer = null, figure = "cost";
+const ctxDay = new Map();  // project name -> the day picked on its context plot, across refreshes
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -426,6 +435,108 @@ function trendRow(r) {
   return box;
 }
 
+// context (#86): as core/context.position, a log scale from 10k to 1M
+const LOG_LOW = 1e4, LOG_HIGH = 1e6, COLORS = 8;
+const TICK_LABELS = { 10000: "10k", 100000: "100k", 1000000: "1M" };
+const PW = 300, PH = 120, PAD = 22;  // the plot's viewBox and the room for its labels
+
+function ctxPos(v) {
+  if (v <= LOG_LOW) return 0;
+  return Math.min(Math.log10(v / LOG_LOW) / Math.log10(LOG_HIGH / LOG_LOW), 1);
+}
+
+function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+
+function svg(tag, attrs) {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, String(v));
+  return e;
+}
+
+function svgText(x, y, text, anchor) {
+  const t = svg("text", { x: x, y: y, "text-anchor": anchor || "start" });
+  t.textContent = text;
+  return t;
+}
+
+// each session's line between t0 and t1 (seconds since the window's start), a color each in
+// order of the sessions drawn, on the log scale; `marks` are [fraction, label] under it
+function ctxPlot(lines, t0, t1, ticks, marks, pick) {
+  const s = svg("svg", { viewBox: "0 0 " + PW + " " + PH, class: "cplot" });
+  const x = (t) => PAD + (t - t0) / (t1 - t0) * (PW - PAD);
+  const y = (v) => PH - 12 - ctxPos(v) * (PH - 18);
+  if (pick) add(s, svg("rect", { x: x(pick[0]), y: 0, width: x(pick[1]) - x(pick[0]), height: PH - 10, class: "pick" }));
+  for (const t of ticks) {
+    add(s, svg("line", { x1: PAD, x2: PW, y1: y(t), y2: y(t), class: "grid" }));
+    add(s, svgText(PAD - 3, y(t) + 2.5, TICK_LABELS[t] || count(t), "end"));
+  }
+  let n = 0;
+  for (const pts of lines) {
+    const inside = pts.filter((p) => p[0] >= t0 && p[0] < t1);
+    if (!inside.length) continue;
+    const xy = inside.map((p) => x(p[0]).toFixed(1) + "," + y(p[1]).toFixed(1));
+    if (xy.length === 1) xy.push((x(inside[0][0]) + 1).toFixed(1) + "," + y(inside[0][1]).toFixed(1));
+    add(s, svg("polyline", { points: xy.join(" "), class: "s" + (n++ % COLORS) }));
+  }
+  marks.forEach(([f, label], i) => {
+    const anchor = i === 0 ? "start" : i === marks.length - 1 && f === 1 ? "end" : "middle";
+    add(s, svgText(PAD + f * (PW - PAD), PH - 1, label, anchor));
+  });
+  return s;
+}
+
+function dayName(i) {
+  const d = new Date(trends.first + "T00:00:00");
+  d.setDate(d.getDate() + i);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// as the deck's context_note
+function ctxNote(d) {
+  if (d === null) return "no sessions";
+  return plural(d.sessions, "session") + " · peak " + count(d.peak) + " · " + plural(d.drops, "drop") +
+    " · " + d.ended_clean + " ended without one";
+}
+
+function contextRow(r, c) {
+  const ticks = c.ticks, at = c.day_starts;  // each local midnight, in seconds from the start
+  const lines = r.lines.map((i) => c.lines[i]);  // each session's points are sent once
+  const box = el("div", "trend" + (r.kind === "all" ? " all" : ""));
+  const peak = r.peak === null ? "-" : count(r.peak);
+  add(box, add(el("div", "row"), el("b", "grow ellipsis", r.name),
+    el("span", "muted small", "30 d peak " + peak + " · " + plural(r.drops, "drop"))));
+  const picked = ctxDay.get(r.name);
+  const choose = (i) => { ctxDay.set(r.name, i); renderTrends(); };
+  const strip = el("div", "bars");
+  r.days.forEach((d, i) => {
+    const bar = el("span", "bar" + (d === null ? " none" : "") + (picked === i ? " sel" : ""));
+    if (d !== null) bar.style.height = Math.max(4, ctxPos(d.peak) * 100) + "%"; // CSSOM: CSP allows it
+    bar.addEventListener("click", () => choose(i));
+    add(strip, bar);
+  });
+  add(box, strip);
+  const days = r.days.length;
+  const pick = picked === undefined ? null : [at[picked], at[picked + 1]];
+  const month = ctxPlot(lines, 0, at[days], ticks,
+    [[0, dayName(0)], [0.5, dayName(Math.floor(days / 2))], [1, dayName(days - 1)]], pick);
+  month.addEventListener("click", (e) => {
+    const b = month.getBoundingClientRect();
+    const f = ((e.clientX - b.left) / b.width * PW - PAD) / (PW - PAD);
+    if (f < 0 || f > 1) return;
+    const t = f * at[days];
+    let i = 0;
+    while (i < days - 1 && at[i + 1] <= t) i++;
+    choose(i);
+  });
+  add(box, month);
+  if (picked !== undefined) {
+    add(box, el("div", "line small", dayName(picked) + ": " + ctxNote(r.days[picked])));
+    add(box, ctxPlot(lines, at[picked], at[picked + 1], ticks,
+      [[0, "00:00"], [0.25, "06:00"], [0.5, "12:00"], [0.75, "18:00"]], null));
+  }
+  return box;
+}
+
 function renderTrends() {
   const body = $("sheet-body");
   const panel = body.parentElement, scroll = panel.scrollTop;
@@ -439,10 +550,21 @@ function renderTrends() {
     o.selected = f.key === figure;
     add(pick, o);
   }
-  pick.addEventListener("change", () => { figure = pick.value; renderTrends(); });
+  pick.addEventListener("change", () => {
+    figure = pick.value;
+    renderTrends();
+    if (figure === "context" && !trends.context) loadTrends();
+  });
   add(body, pick);
   if (!trends.rows.length) { add(body, el("p", "muted", NO_USAGE)); return; }
   add(body, add(el("div", "row muted small"), el("span", "grow", trends.first), el("span", null, trends.today)));
+  if (figure === "context") {
+    if (!trends.context) { add(body, el("p", "muted", "loading…")); return; }
+    add(body, el("p", "muted small", "peak context per day, log scale · tap a day for its sessions"));
+    for (const r of trends.context.rows) add(body, contextRow(r, trends.context));
+    panel.scrollTop = scroll;
+    return;
+  }
   for (const r of trends.rows) if (r.figures[figure]) add(body, trendRow(r));
   if (figure === "cost" && trends.unpriced.length) {
     add(body, el("p", "muted small", "no price: " + trends.unpriced.join(", ")));
@@ -454,7 +576,7 @@ async function loadTrends() {
   if (!trendsOpen || document.visibilityState !== "visible") return;
   let r;
   try {
-    r = await get("/api/trends");
+    r = await get("/api/trends" + (figure === "context" ? "?context=1" : ""));  // context only when shown
   } catch (e) {
     return; // the list says the computer can't be reached
   }

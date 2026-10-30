@@ -25,6 +25,7 @@ from cardak.collectors.usage import (
     transcript_files,
 )
 from cardak.core.config import cache_dir
+from cardak.core.context import ContextSeries, build_context
 from cardak.core.prices import CACHE_NAME, PriceBook, lookup, priced, reply_cost
 from cardak.core.store import Store, StoreError, db_path
 from cardak.core.summary import month_start
@@ -32,6 +33,7 @@ from cardak.core.trends import UsageTrends, build_trends, window_start
 
 PASS_EVERY_S = 30.0
 BATCH = 500  # replies per transaction: a hook waiting on the write lock has 2 s
+SIDECHAINS = "sidechains"  # the backfill of claude_sidechain_replies (#86)
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,7 @@ class MonthSpend:
     by_cwd: Mapping[str | None, float]
     unpriced: tuple[str, ...]  # models with no price, "<model> (fast mode)" for fast mode
     trends: UsageTrends | None = None  # the history window's days (#88)
+    context: ContextSeries | None = None  # each session's context over the window (#86)
 
 
 def month_spend(
@@ -67,6 +70,19 @@ def _chunks(usage: Usage) -> list[Usage]:
     ]
 
 
+def _sidechain_keys(f: TranscriptFile) -> list[str]:
+    """The keys of a transcript's subagent replies, read a few MB at a time."""
+    keys: list[str] = []
+    offset = 0
+    while offset < f.size:
+        usage, end = read_usage(f.path, offset, READ_LIMIT)
+        if end == offset:
+            break
+        keys += [r.key for r in usage.replies if r.sidechain]
+        offset = end
+    return keys
+
+
 class SpendCounter:
     def __init__(
         self,
@@ -81,6 +97,7 @@ class SpendCounter:
         self._clock = clock
         self.latest: MonthSpend | None = None  # read from other threads; replaced whole
         self._built_on: tuple[object, ...] | None = None  # what latest was built from
+        self._backfilled = False
 
     def _read(self, f: TranscriptFile, stored: tuple[int, int] | None) -> None:
         inode, offset = stored or (f.inode, 0)
@@ -97,23 +114,43 @@ class SpendCounter:
                 self.store.record_usage(str(f.path), f.inode, done, chunk)
             offset = end
 
+    def _backfill(self, today: date, now: float) -> None:
+        """Flag subagent replies stored without the flag (#86); stores no reply. Once ever, over
+        every transcript of the window: replies stored before cardak recorded it. And at every
+        counter start, over the subagents' files only (the files below a session's): an older
+        cardak still running, e.g. the daemon right after an upgrade, stores them unflagged."""
+        if self._backfilled:
+            return
+        full = not self.store.backfilled(SIDECHAINS) and self.store.usage_mark() != (0, 0)
+        for f in transcript_files(self._root, window_start(today)):
+            if full or len(f.path.relative_to(self._root).parts) > 2:
+                keys = _sidechain_keys(f)
+                for i in range(0, len(keys), BATCH):
+                    self.store.flag_sidechains(keys[i : i + BATCH])
+        if not self.store.backfilled(SIDECHAINS):
+            self.store.mark_backfilled(SIDECHAINS, now)
+        self._backfilled = True
+
     def step(self) -> MonthSpend:
         now = self._clock()
         since, today = month_start(now), date.fromtimestamp(now)
+        self._backfill(today, now)
         stored = self.store.transcript_offsets()
         for f in transcript_files(self._root, since):
             self._read(f, stored.get(str(f.path)))
         prices = self.prices.current()
         # rebuilt only when a row was stored (by this process or the other one), the day
-        # changed or the prices did: most passes add nothing
-        built_on = (self.store.usage_mark(), today, prices)
+        # changed, the prices did, or ten minutes passed (a session counts as ended once its
+        # last reply is an hour old, with nothing new stored): most passes add nothing
+        built_on = (self.store.usage_mark(), today, prices, int(now // 600))
         if self.latest is not None and built_on == self._built_on:
             return self.latest
         window = window_start(today)
         replies = self.store.replies_since(min(since, window))
         spend = month_spend(replies, prices, since)
         trends = build_trends(replies, self.store.prompts_since(window), prices, today)
-        self.latest = replace(spend, trends=trends)
+        context = build_context(replies, today, now)
+        self.latest = replace(spend, trends=trends, context=context)
         self._built_on = built_on
         return self.latest
 

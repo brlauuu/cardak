@@ -13,6 +13,7 @@ from cardak.collectors.processes import PaneProcs
 from cardak.collectors.wezterm import Pane, WeztermUnavailable
 from cardak.core.agents import FocusChange, SessionState, mark_seen
 from cardak.core.config import Config
+from cardak.core.context import ContextSeries, SessionLine
 from cardak.core.resources import derive
 from cardak.core.snapshot import DeckSnapshot
 from cardak.core.source import LiveSource
@@ -720,3 +721,44 @@ def test_broken_sound_pack_becomes_a_warning(tmp_path: Path, packs_dir: Path) ->
     )
     (warning,) = source.poll().config_warnings
     assert warning.startswith("sound pack bad: openpeon.json unreadable")
+
+
+def with_context(today: date, latest: dict[str, int]) -> MonthSpend:
+    line = SessionLine("w", f"{HOME}/repos/webshop", ((time.time() - 60, 120_000),))
+    return replace(trending(today), context=ContextSeries(today, time.time(), (line,), latest))
+
+
+def test_snapshot_carries_grouped_context(tmp_path: Path) -> None:
+    cfg = tmp_path / "p.toml"
+    cfg.write_text(WEBSHOP_CFG)
+    snap = spending(cfg, with_context(date.today(), {})).poll()
+    assert snap.usage_context is not None
+    assert [r.name for r in snap.usage_context.rows] == ["webshop", "All projects"]
+
+
+def test_context_from_yesterday_is_not_shown(tmp_path: Path) -> None:
+    snap = spending(tmp_path / "p.toml", with_context(date.today() - timedelta(days=1), {})).poll()
+    assert snap.usage_context is None
+
+
+def test_grouped_context_is_cached(tmp_path: Path) -> None:
+    source = spending(tmp_path / "p.toml", with_context(date.today(), {}))
+    first, second = source.poll(), source.poll()
+    assert first.usage_context is not None and first.usage_context is second.usage_context
+
+
+def test_agent_rows_carry_their_context(tmp_path: Path) -> None:
+    source = agent_source(tmp_path, FakeStore(WAITING))
+    month = with_context(date.fromtimestamp(102.0), {"w": 312_000})
+    source._spend = lambda: replace(month, since=month_start(102.0))
+    snap = source.poll()
+    agents = [p.agent for g in snap.groups for p in g.panes if p.agent is not None]
+    assert agents and all(a.context == 312_000 for a in agents)  # the waiting row too
+
+
+def test_agent_rows_without_a_reply_have_no_context(tmp_path: Path) -> None:
+    source = agent_source(tmp_path, FakeStore(WAITING))
+    month = with_context(date.fromtimestamp(102.0), {})
+    source._spend = lambda: replace(month, since=month_start(102.0))
+    agents = [p.agent for g in source.poll().groups for p in g.panes if p.agent is not None]
+    assert agents and all(a.context is None for a in agents)

@@ -1,12 +1,21 @@
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from cardak.collectors.machine import MachineSample
 from cardak.core.agents import SessionState
+from cardak.core.context import GroupedContext, ProjectContext, SessionLine, day_context
 from cardak.core.snapshot import AgentView, DeckSnapshot, DockerLine, Group, MachineView, PaneRow
 from cardak.core.trends import DAYS, DayUsage, GroupedTrends, ProjectTrend
-from cardak.web.view import find_agent, session_json, snapshot_json, trends_json
+from cardak.web.view import (
+    MAX_POINTS,
+    context_json,
+    find_agent,
+    session_json,
+    snapshot_json,
+    thin,
+    trends_json,
+)
 
 CWD = Path("/home/user/repos/webshop")
 ASK = AgentView(
@@ -188,3 +197,90 @@ def test_trends_json_shape() -> None:
 def test_trends_json_none() -> None:
     out = trends_json(None)
     assert out["rows"] == [] and out["today"] is None
+
+
+def context(points: int = 3) -> GroupedContext:
+    today = date(2026, 10, 28)
+    noon = datetime.combine(today, datetime.min.time()).timestamp() + 12 * 3600
+    line = SessionLine(
+        "secret-session", "/home/user/webshop", tuple((noon + i, 50_000 + i) for i in range(points))
+    )
+    days = day_context([line], today, noon + 7200)
+    rows = (
+        ProjectContext("project:/home/user/webshop", "webshop", (line,), days),
+        ProjectContext("all", "All projects", (line,), days),
+    )
+    return GroupedContext(today, noon + 7200, rows)
+
+
+def test_context_json_days_and_lines() -> None:
+    out = context_json(context())
+    start = datetime(2026, 9, 29).timestamp()
+    assert out["start"] == start and out["ticks"] == [10_000, 100_000, 1_000_000]
+    web, every = out["rows"]
+    assert (web["name"], web["kind"], every["kind"]) == ("webshop", "project", "all")
+    assert web["peak"] == 50_002 and web["drops"] == 0
+    assert len(web["days"]) == DAYS and web["days"][0] is None
+    assert web["days"][-1] == {
+        "peak": 50_002,
+        "sessions": 1,
+        "drops": 0,
+        "ended": 1,
+        "ended_clean": 1,
+    }
+    first = round(datetime(2026, 10, 28, 12).timestamp() - start)
+    assert out["lines"] == [[[first, 50_000], [first + 1, 50_001], [first + 2, 50_002]]]
+    assert web["lines"] == every["lines"] == [0]  # each session's points go out once
+
+
+def test_context_json_has_no_ids_or_paths() -> None:
+    text = json.dumps(context_json(context()))
+    for leak in ("/home/user", "secret-session", "subject", "cwd"):
+        assert leak not in text, leak
+
+
+def test_context_lines_are_capped_but_keep_drops() -> None:
+    pts = [(float(i), 300_000 if i % 1000 < 700 else 60_000) for i in range(2000)]
+    kept = thin(pts)
+    assert len(kept) <= MAX_POINTS
+    for i in (700, 1700):  # 300k → 60k: both sides of each drop stay
+        assert pts[i - 1] in kept and pts[i] in kept
+    assert kept[0] == pts[0] and kept[-1] == pts[-1]
+    assert thin(pts[:10]) == pts[:10]
+
+
+def test_trends_json_lists_context_only_with_data() -> None:
+    assert "context" not in [f["key"] for f in trends_json(grouped())["figures"]]
+    out = trends_json(grouped(), context())
+    assert out["figures"][-1] == {"key": "context", "label": "context"}
+    assert out["context"] is None  # listed, but sent only when asked for
+    asked = trends_json(grouped(), context(), with_context=True)
+    assert asked["context"]["rows"][0]["name"] == "webshop"
+    assert trends_json(grouped(), with_context=True)["context"] is None
+
+
+def test_busy_month_stays_small() -> None:
+    today = date(2026, 10, 28)
+    start = datetime.combine(today, datetime.min.time()).timestamp() - 20 * 86_400
+    lines = [
+        SessionLine(f"s{i}", f"/home/user/p{i % 5}",
+                    tuple((start + i * 30_000 + k * 37.123, 40_000 + k * 150) for k in range(2000)))
+        for i in range(60)
+    ]  # fmt: skip
+    rows = tuple(
+        ProjectContext(f"project:/home/user/p{j}", f"p{j}", tuple(lines[j::5]), (None,) * DAYS)
+        for j in range(5)
+    ) + (ProjectContext("all", "All projects", tuple(lines), (None,) * DAYS),)
+    out = context_json(GroupedContext(today, start + 30 * 86_400, rows))
+    size = len(json.dumps(out, separators=(",", ":")))  # as the server sends it
+    assert size < 300_000, size
+
+
+def test_context_json_sends_each_local_midnight() -> None:
+    # a day is not always 86,400 s (the Oct 25 DST change): the page cuts days where these say
+    out = context_json(context())
+    first = date(2026, 9, 29)
+    midnights = [
+        datetime.combine(first, datetime.min.time()) + timedelta(days=i) for i in range(DAYS + 1)
+    ]
+    assert out["day_starts"] == [m.timestamp() - out["start"] for m in midnights]

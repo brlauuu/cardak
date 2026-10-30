@@ -201,6 +201,14 @@ With the service running, cardak keeps 30 days of each project's usage:
   per day coloured by that day's peak (full red: it would have alerted). `c` switches to CPU, `s`
   changes the order. Enter or a click on a day opens that project's 30-day plot with the alert
   threshold drawn in and the day's alerts below it; ←/→ move the day.
+- Pressing `c` again steps through your Claude Code use per day (cost at API prices, tokens,
+  prompts, sessions, prompt and reply length, tokens per session) and then **context**: each
+  day's highest context for the project, with the day's sessions, compactions and the sessions
+  that ended without one under the table. Enter opens that day's plot, one coloured line per
+  session on a log scale from 10k to 1M: a compaction is a sharp drop, a cleared session a line
+  that stops. Subagents are left out. Each Claude row also shows its session's context now
+  (`ctx 312k`). On the phone, Trends → context shows the same per day, a 30-day plot of every
+  session, and a day's plot when you tap it.
 - `e` lists every alert, newest first; a repeat that didn't notify you is folded into its line.
 - When a WezTerm window closes because memory ran out, you get a notification and the deck shows
   what happened at the top next time you open it (`d` dismisses it). For example:

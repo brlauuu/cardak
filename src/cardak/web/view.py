@@ -3,14 +3,25 @@
 New snapshot fields stay off the network until they are added here; pids never go out.
 """
 
+from collections.abc import Sequence
+from datetime import datetime, timedelta
 from typing import Any
 
 from cardak.core.agents import SessionState
+from cardak.core.context import (
+    TICKS,
+    DayContext,
+    GroupedContext,
+    Point,
+    ProjectContext,
+    drop_indices,
+)
 from cardak.core.detail import shown_path, turn_text, words
 from cardak.core.snapshot import AgentView, DeckSnapshot, Group, PaneRow
 from cardak.core.summary import TAGS
 from cardak.core.trends import (
     ALL,
+    DAYS,
     FIGURES,
     LABELS,
     OTHER,
@@ -19,9 +30,11 @@ from cardak.core.trends import (
     first_day,
     usage_edges,
     usage_rows,
+    window_start,
 )
 
 Json = dict[str, Any]  # JSON-shaped; Any so callers can index nested values
+MAX_POINTS = 200  # per session line on the phone (#86): the plot is 300 units wide
 
 
 def _tag(agent: AgentView) -> str | None:
@@ -170,12 +183,73 @@ def _figure(r: UsageRow, top: float) -> Json:
     }
 
 
-def trends_json(grouped: GroupedTrends | None) -> Json:
-    """The Trends view (#88): names and numbers per project and day, nothing that identifies a
-    folder or a session."""
-    figures = [{"key": f, "label": LABELS[f]} for f in FIGURES]
-    if grouped is None:
-        return {"today": None, "first": None, "figures": figures, "unpriced": [], "rows": []}
+def thin(points: Sequence[Point]) -> list[Point]:
+    """At most `MAX_POINTS` of a line: the first, the last and both sides of every drop, then
+    evenly spaced others."""
+    if len(points) <= MAX_POINTS:
+        return list(points)
+    keep = {0, len(points) - 1}
+    for i in drop_indices(points):
+        keep |= {i - 1, i}
+    spare = MAX_POINTS - len(keep)
+    if spare > 0:
+        step = len(points) / spare
+        keep |= {int(k * step) for k in range(spare)}
+    return [points[i] for i in sorted(keep)][:MAX_POINTS]
+
+
+def _day(d: DayContext | None) -> Json | None:
+    if d is None:
+        return None
+    return {
+        "peak": d.peak,
+        "sessions": d.sessions,
+        "drops": d.drops,
+        "ended": d.ended,
+        "ended_clean": d.ended_clean,
+    }
+
+
+def _context_row(p: ProjectContext, index: dict[str, int]) -> Json:
+    kind = "all" if p.subject == ALL else "other" if p.subject == OTHER else "project"
+    used = [d for d in p.days if d is not None]
+    return {
+        "name": p.name,
+        "kind": kind,
+        "peak": max((d.peak for d in used), default=None),
+        "drops": sum(d.drops for d in used),
+        "days": [_day(d) for d in p.days],
+        "lines": [index[ln.session_id] for ln in p.lines],  # into the top-level "lines"
+    }
+
+
+def context_json(grouped: GroupedContext) -> Json:
+    """Context per project (#86): numbers and names only. Each session's points go out once
+    (All projects repeats every one), as whole seconds since the window's first midnight; no
+    session id or folder goes out."""
+    start = window_start(grouped.today)
+    first = first_day(grouped.today)
+    days = (
+        datetime.combine(first + timedelta(days=i), datetime.min.time()) for i in range(DAYS + 1)
+    )
+    index: dict[str, int] = {}
+    lines: list[list[list[int]]] = []
+    for p in grouped.rows:
+        for ln in p.lines:
+            if ln.session_id not in index:
+                index[ln.session_id] = len(lines)
+                lines.append([[round(ts - start), ctx] for ts, ctx in thin(ln.points)])
+    return {
+        "start": start,
+        "day_starts": [d.timestamp() - start for d in days],  # not i × 86,400: DST moves them
+        "ticks": list(TICKS),
+        "lines": lines,
+        "rows": [_context_row(p, index) for p in grouped.rows],
+    }
+
+
+def _usage_figures(grouped: GroupedTrends) -> list[Json]:
+    """Each project's figures, keyed by figure, in the grouped order."""
     rows: dict[str, Json] = {}
     for f in FIGURES:
         found = usage_rows(grouped, f)
@@ -185,10 +259,28 @@ def trends_json(grouped: GroupedTrends | None) -> Json:
             kind = "all" if r.subject == ALL else "other" if r.subject == OTHER else "project"
             row = rows.setdefault(r.subject, {"name": r.name, "kind": kind, "figures": {}})
             row["figures"][f] = _figure(r, top_all if kind == "all" else top)
+    return list(rows.values())
+
+
+def trends_json(
+    grouped: GroupedTrends | None,
+    context: GroupedContext | None = None,
+    with_context: bool = False,
+) -> Json:
+    """The Trends view (#88): names and numbers per project and day, nothing that identifies a
+    folder or a session. Context (#86) is listed once counted but sent only `with_context`: the
+    page asks while that figure is shown, and it is most of the bytes."""
+    figures = [{"key": f, "label": LABELS[f]} for f in FIGURES]
+    shown = context is not None and bool(context.rows)
+    if shown:
+        figures.append({"key": "context", "label": "context"})
     return {
-        "today": grouped.today.isoformat(),
-        "first": first_day(grouped.today).isoformat(),
+        "today": grouped.today.isoformat() if grouped else None,
+        "first": first_day(grouped.today).isoformat() if grouped else None,
         "figures": figures,
-        "unpriced": list(grouped.unpriced),
-        "rows": list(rows.values()),
+        "unpriced": list(grouped.unpriced) if grouped else [],
+        "rows": _usage_figures(grouped) if grouped else [],
+        "context": context_json(context)
+        if context is not None and shown and with_context
+        else None,
     }

@@ -12,6 +12,7 @@ from cardak.core.config import state_dir
 from cardak.core.store import (
     MIN_READER,
     SCHEMA_VERSION,
+    USAGE_KEEP_SECONDS,
     DayPeak,
     MinuteRow,
     ResourceEvent,
@@ -80,7 +81,7 @@ def test_creates_parent_dir_and_schema_version(tmp_path: Path) -> None:
     path = tmp_path / "deep" / "cardak.db"
     Store(path).close()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
+    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 6
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -262,7 +263,7 @@ def test_v1_database_gains_summaries(tmp_path: Path) -> None:
     store = Store(path)
     store.add_summary(summary_row())
     assert store.has_summary("s", 10.0)
-    assert SCHEMA_VERSION == 5
+    assert SCHEMA_VERSION == 6
 
 
 def test_latest_error_since(tmp_path: Path) -> None:
@@ -307,7 +308,7 @@ def test_schema_2_database_gains_the_table(tmp_path: Path) -> None:
     )
     con.close()
     store = Store(path)
-    assert store._con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
+    assert store._con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 6
     store.record_resource_event(ResourceEvent(1.0, "big", "warning", "pane:3", "x", False))
     assert store.event_count() == 1 and len(store.resource_events_since(0.0)) == 1
 
@@ -560,6 +561,46 @@ def test_schema_5_opens_in_place(tmp_path: Path) -> None:
     assert store.record_usage("/t", 1, 1, Usage((reply("a", 1.0),))) == 1
     store.close()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
+    assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 6
     assert con.execute("PRAGMA application_id").fetchone()[0] == MIN_READER == 1
     con.close()
+
+
+def test_sidechain_flag_round_trips(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    sub = replace(reply("b:2", 11.0), sidechain=True)
+    store.record_usage("/t/s.jsonl", 7, 100, Usage((reply("a:1", 10.0), sub), ()))
+    assert {r.key: r.sidechain for r in store.replies_since(0.0)} == {"a:1": False, "b:2": True}
+
+
+def test_flag_sidechains_marks_stored_replies(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    store.record_usage("/t/s.jsonl", 7, 100, Usage((reply("a:1", 10.0), reply("b:2", 11.0)), ()))
+    store.flag_sidechains(["b:2", "zzz"])
+    assert {r.key: r.sidechain for r in store.replies_since(0.0)} == {"a:1": False, "b:2": True}
+    assert store.usage_mark() == (2, 0)  # flagging stores no reply
+
+
+def test_backfill_mark(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    assert not store.backfilled("sidechains")
+    store.mark_backfilled("sidechains", 5.0)
+    assert Store(tmp_path / "c.db").backfilled("sidechains")
+
+
+def test_schema_6_keeps_min_reader_1(tmp_path: Path) -> None:
+    Store(tmp_path / "c.db")
+    con = sqlite3.connect(tmp_path / "c.db")
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert con.execute("PRAGMA application_id").fetchone()[0] == 1
+
+
+def test_prune_drops_flags_of_pruned_replies(tmp_path: Path) -> None:
+    store = Store(tmp_path / "c.db")
+    now = 100 * 86_400.0
+    old = replace(reply("old", now - USAGE_KEEP_SECONDS - 1), sidechain=True)
+    new = replace(reply("new", now), sidechain=True)
+    store.record_usage("/t/s.jsonl", 7, 100, Usage((old, new), ()))
+    store.prune(now)
+    rows = store._con.execute("SELECT reply_key FROM claude_sidechain_replies").fetchall()
+    assert [r[0] for r in rows] == ["new"]

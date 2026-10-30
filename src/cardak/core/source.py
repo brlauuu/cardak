@@ -20,10 +20,18 @@ from cardak.core.accounting import account
 from cardak.core.agents import FocusChange, SessionState, focus_seen_at, mark_seen
 from cardak.core.alerts import SOUND_EXTS, bundled_sounds, check
 from cardak.core.config import Config, ConfigError
+from cardak.core.context import ContextSeries, GroupedContext, group_context
 from cardak.core.recent import Recent, decorate
 from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
 from cardak.core.resources import derive
-from cardak.core.snapshot import ClaudeLookup, DeckSnapshot, Group, build_snapshot, group_for
+from cardak.core.snapshot import (
+    ClaudeLookup,
+    DeckSnapshot,
+    Group,
+    PaneRow,
+    build_snapshot,
+    group_for,
+)
 from cardak.core.spend import MonthSpend
 from cardak.core.store import StoreError
 from cardak.core.summary import SummaryInfo, key_warning, month_start
@@ -95,6 +103,7 @@ class LiveSource:
         self._spend = spend  # the counter's latest figure (core/spend.py), read every poll
         self._spend_seen: tuple[MonthSpend, ProjectResolver, dict[GroupKey, float]] | None = None
         self._trends_seen: tuple[UsageTrends, ProjectResolver, GroupedTrends] | None = None
+        self._context_seen: tuple[ContextSeries, ProjectResolver, GroupedContext] | None = None
         self._recent = Recent()
         self._summary_warning: str | None = None
         self._notify_warnings: tuple[str, ...] = ()
@@ -305,11 +314,36 @@ class LiveSource:
         self._trends_seen = (trends, resolver, grouped)
         return grouped
 
+    def _context_by_group(self, series: ContextSeries) -> GroupedContext:
+        """Each session under its project, cached like `_trends_by_group`."""
+        seen = self._context_seen
+        if seen is not None and seen[0] is series and seen[1] is self._resolver:
+            return seen[2]
+        resolver = self._resolver
+        grouped = group_context(series, lambda cwd: resolver.resolve(Path(cwd) if cwd else None))
+        self._context_seen = (series, resolver, grouped)
+        return grouped
+
+    def _with_context(self, snap: DeckSnapshot, series: ContextSeries) -> DeckSnapshot:
+        """The grouped context (today's only), and each agent row's current context."""
+        if series.today == date.fromtimestamp(self._clock()):
+            snap = replace(snap, usage_context=self._context_by_group(series))
+
+        def row(p: PaneRow) -> PaneRow:
+            if p.agent is None:
+                return p
+            return replace(p, agent=replace(p.agent, context=series.latest.get(p.agent.session_id)))
+
+        groups = tuple(replace(g, panes=tuple(map(row, g.panes))) for g in snap.groups)
+        return replace(snap, groups=groups)
+
     def _with_spend(self, snap: DeckSnapshot) -> DeckSnapshot:
         spend = self._spend()
         trends = spend.trends if spend is not None else None
         if trends is not None and trends.today == date.fromtimestamp(self._clock()):
             snap = replace(snap, usage_trends=self._trends_by_group(trends))  # not a stalled day's
+        if spend is not None and spend.context is not None:
+            snap = self._with_context(snap, spend.context)
         if spend is None or spend.since != month_start(self._clock()):
             return snap  # not counted yet, or a stalled counter's figure from last month
         by_group = self._spend_by_group(spend)

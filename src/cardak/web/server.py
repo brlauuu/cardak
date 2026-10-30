@@ -103,7 +103,7 @@ def make_server(
                 self.wfile.write(body)
 
         def _json(self, status: int, value: object) -> None:
-            body = json.dumps(value, ensure_ascii=False).encode()
+            body = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
             self._send(status, body, "application/json; charset=utf-8")
 
         def _authorized(self) -> bool:
@@ -125,7 +125,8 @@ def make_server(
                 return self._json(503, {"starting": True})
             snap, ts = current
             if path == "/api/trends":
-                return self._json(200, trends_json(snap.usage_trends))
+                asked = "context=1" in self.path.partition("?")[2].split("&")
+                return self._json(200, trends_json(snap.usage_trends, snap.usage_context, asked))
             if found is None:
                 return self._json(200, snapshot_json(snap, ts, clock()))
             agent = find_agent(snap, found.group(1))

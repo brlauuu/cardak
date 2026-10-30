@@ -167,3 +167,14 @@ def test_trends_needs_the_key(serve) -> None:
     assert get(base + "/api/trends", key=None)[0] == 401
     status, _, body = get(base + "/api/trends")
     assert status == 200 and [r["name"] for r in json.loads(body)["rows"]][0] == "webshop"
+
+
+def test_trends_carry_context(serve) -> None:
+    from test_web_view import context
+
+    base, latest = serve()
+    latest.publish(replace(snap(), usage_trends=grouped(), usage_context=context()), 100.0)
+    status, _, body = get(base + "/api/trends")
+    assert status == 200 and json.loads(body)["context"] is None
+    status, _, body = get(base + "/api/trends?context=1")
+    assert status == 200 and json.loads(body)["context"]["rows"][0]["name"] == "webshop"
