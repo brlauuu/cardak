@@ -158,6 +158,13 @@ def key_file(keys_dir: Path, name: str) -> Path:
     return keys_dir / f"{name}_key"
 
 
+def is_set_up(summary: SummarySettings, name: str, keys_dir: Path) -> bool:
+    """anthropic once its key exists (it needs no table); any other once it has a table."""
+    if name == "anthropic":
+        return key_file(keys_dir, name).exists()
+    return name in summary.providers
+
+
 def summary_ready(summary: SummarySettings, keys_dir: Path) -> bool:
     """Whether a summary could be made now: config and a stat, cheap enough for the hook."""
     if not summary.enabled:
@@ -545,12 +552,10 @@ def set_provider(path: Path, name: str, url: str | None, model: str | None) -> N
 
 def set_summary_provider(path: Path, name: str, keys_dir: Path) -> None:
     """Make `name` the provider in use; it must be set up already."""
-    summary = load(path).summary
-    if name == "anthropic":
-        if not key_file(keys_dir, name).exists():
-            raise ConfigError(path, "anthropic isn't set up: anthropic_key is missing")
-    elif name not in summary.providers:
-        raise ConfigError(path, f"{name!r} isn't set up")
+    if name not in PROVIDERS:
+        raise ConfigError(path, f"{name!r} is not a summary provider")
+    if not is_set_up(load(path).summary, name, keys_dir):
+        raise ConfigError(path, f"{name} isn't set up")
     target, doc, table = _summary_doc(path)
     _set_key(table, "provider", name)
     _write_doc(path, target, doc)

@@ -16,7 +16,6 @@ from cardak.collectors.prices import ModelPrice
 from cardak.collectors.transcripts import read_transcript
 from cardak.core.agents import SessionState
 from cardak.core.config import (
-    KEYED,
     Config,
     ConfigError,
     ProviderSettings,
@@ -37,7 +36,7 @@ from cardak.core.summary import (
     build_input,
     cost,
     month_start,
-    read_key,
+    provider_key,
     turn_text,
     validate,
 )
@@ -48,16 +47,6 @@ KEY_ERRORS = {
     "too open": "{} is readable by other users",
     "missing": "{} is missing or empty",
 }
-
-
-def _key(name: str, keys_dir: Path) -> str | None:
-    """The provider's key; None for one that needs none. KeyProblem when a needed one is bad."""
-    if name not in KEYED:
-        return None
-    path = key_file(keys_dir, name)
-    if not KEYED[name] and not path.exists():
-        return None  # an OpenAI-compatible local server takes no key
-    return read_key(path)
 
 
 def _failed(session_id: str, wait_since: float, now: float, error: str) -> SummaryRow:
@@ -109,7 +98,7 @@ def run(
         return
     name, settings = config.summary.provider, config.summary.active
     try:
-        key = _key(name, keys_dir)
+        key = provider_key(name, keys_dir)
     except KeyProblem as e:
         message = KEY_ERRORS[str(e)].format(key_file(keys_dir, name).name)
         store.add_summary(_failed(session_id, wait_since, now, message))

@@ -6,7 +6,7 @@ and the API key file. `core/summarize.py` runs the job; providers live in `carda
 
 import os
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from cardak.collectors.prices import ModelPrice
 from cardak.collectors.transcripts import Entry
 from cardak.core.agents import KIND_LABELS, SessionState, WaitKind
-from cardak.core.config import ProviderSettings
+from cardak.core.config import KEYED, ProviderSettings, key_file
 from cardak.core.prices import lookup
 
 MODEL = "claude-haiku-5-5"
@@ -84,6 +84,16 @@ def read_key(path: Path) -> str:
     if not key:
         raise KeyProblem("missing")
     return key
+
+
+def provider_key(name: str, keys_dir: Path) -> str | None:
+    """The provider's key; None for one that needs none. KeyProblem when a needed one is bad."""
+    if name not in KEYED:
+        return None
+    path = key_file(keys_dir, name)
+    if not KEYED[name] and not path.exists():
+        return None  # an OpenAI-compatible local server takes no key
+    return read_key(path)
 
 
 def write_key(path: Path, key: str) -> None:
@@ -217,3 +227,30 @@ def validate(reply: Reply) -> str | None:
         return None
     line = " ".join(line.split())
     return line if 0 < len(line) <= MAX_LINE else None
+
+
+# A made-up wait for testing a provider from the Summaries screen: never a real session's text
+SAMPLE_INPUT = build_input(
+    "webshop",
+    SessionState(
+        "sample",
+        status="waiting",
+        kind="permission",
+        last_prompt="The build folder is stale; clean it and rebuild the shop.",
+        turn_reads=2,
+        turn_commands=1,
+    ),
+    assistant_text="I'll remove the old build output before rebuilding.",
+    tool=("Bash", '{"command": "rm -rf build/"}'),
+)
+
+
+@dataclass(frozen=True)
+class ProviderTools:
+    """What the Summaries screen needs from outside core: providers live in `cardak.llm`."""
+
+    make: Callable[[str, ProviderSettings, str | None], Summarizer]
+    list_models: Callable[[str], list[str]]  # an Ollama server's models, by URL
+    codex_version: Callable[[], str | None]
+    prices: Callable[[], Mapping[str, ModelPrice]]
+    read_key: Callable[[str], str | None]  # a provider's key; KeyProblem when it can't be used

@@ -31,6 +31,19 @@ def test_tui_runs_deck_with_config_path(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert seen[0].source.config_file == tmp_path / "p.toml"  # type: ignore[attr-defined]
 
 
+def test_deck_gets_the_summaries_screen(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from cardak.core.summary import ProviderTools
+
+    seen: list[DeckApp] = []
+    monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))
+    assert main(["--config", str(tmp_path / "p.toml"), "tui"]) == 0
+    assert seen[0].summaries is seen[0].source
+    tools = seen[0].providers
+    assert isinstance(tools, ProviderTools)
+    assert tools.read_key("ollama") is None and tools.read_key("openai") is None  # no key file
+    assert "claude-haiku-5-5" in tools.prices()
+
+
 def test_default_command_is_tui(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     seen: list[DeckApp] = []
     monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))

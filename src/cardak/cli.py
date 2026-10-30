@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from cardak.core.config import ProviderSettings
     from cardak.core.daemon import Publish, WebStart
     from cardak.core.source import LiveSource
-    from cardak.core.summary import Summarizer
+    from cardak.core.summary import ProviderTools, Summarizer
     from cardak.core.themes import SchemeStore
 
 
@@ -810,6 +810,33 @@ def _make_summarizer(name: str, settings: ProviderSettings, key: str | None) -> 
     return AnthropicSummarizer(key or "", settings.model or MODEL)
 
 
+def _provider_tools() -> ProviderTools:
+    """What the deck's Summaries screen uses to test providers and list Ollama's models."""
+    from cardak.core.prices import CACHE_NAME, PriceBook
+    from cardak.core.summary import ProviderTools, provider_key
+
+    def list_models(url: str) -> list[str]:
+        from cardak.llm.ollama import list_models
+
+        return list_models(url)
+
+    def codex_version() -> str | None:
+        from cardak.llm.codex import codex_version
+
+        return codex_version()
+
+    from cardak.core.config import cache_dir
+
+    book = PriceBook(cache_dir() / CACHE_NAME)  # the cache only: the deck's counter downloads
+    return ProviderTools(
+        make=_make_summarizer,
+        list_models=list_models,
+        codex_version=codex_version,
+        prices=book.current,
+        read_key=lambda name: provider_key(name, config_dir()),
+    )
+
+
 def _summarize(session_id: str, wait_since: str) -> int:
     from cardak.core import summarize
 
@@ -868,6 +895,8 @@ def _deck(config_arg: str | None) -> int:
         send=lambda pane_id, text: wezterm.send_text(pane_id, text),
         skills_status=_skills_hint,
         open_tab=lambda cwd, near: wezterm.spawn(cwd, near),
+        summaries=source,
+        providers=_provider_tools(),
     ).run()
     if counted is not None:
         counted[1].set()

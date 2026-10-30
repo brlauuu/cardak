@@ -19,7 +19,14 @@ from cardak.core import config as config_mod
 from cardak.core.accounting import account
 from cardak.core.agents import FocusChange, SessionState, focus_seen_at, mark_seen
 from cardak.core.alerts import SOUND_EXTS, bundled_sounds, check
-from cardak.core.config import Config, ConfigError, key_file, summary_ready
+from cardak.core.config import (
+    Config,
+    ConfigError,
+    SummarySettings,
+    is_set_up,
+    key_file,
+    summary_ready,
+)
 from cardak.core.context import ContextSeries, GroupedContext, group_context
 from cardak.core.limits import Stored, limits_view, load_limits
 from cardak.core.recent import Recent, decorate
@@ -35,7 +42,7 @@ from cardak.core.snapshot import (
 )
 from cardak.core.spend import MonthSpend
 from cardak.core.store import StoreError
-from cardak.core.summary import SummaryInfo, key_warning, month_start
+from cardak.core.summary import SummaryInfo, key_warning, month_start, write_key
 from cardak.core.themes import Scheme, project_accent
 from cardak.core.trends import GroupedTrends, UsageTrends, group_trends
 
@@ -182,6 +189,59 @@ class LiveSource:
                     self.config_file, name or project_path.name, project_path, theme=theme
                 )
             self._reload_if_changed()
+
+    def summary_settings(self) -> SummarySettings:
+        with self._lock:
+            return self._config.summary
+
+    def is_set_up(self, name: str) -> bool:
+        with self._lock:
+            keys = self._keys_dir
+            return keys is not None and is_set_up(self._config.summary, name, keys)
+
+    def summary_spend(self) -> float | None:
+        """This month's spend on summaries; None without a store."""
+        with self._lock:
+            if self._store is None:
+                return None
+            try:
+                return self._store.spend_since(month_start(self._clock()))
+            except StoreError:
+                return None
+
+    def _write_summary(self, write: Callable[[Path], None]) -> str | None:
+        """Run one config or key write; the error to show, or None."""
+        with self._lock:
+            if self._keys_dir is None:
+                return "summaries aren't available in this deck"
+            try:
+                write(self._keys_dir)
+            except ConfigError as e:
+                return e.message
+            except OSError as e:
+                return f"cannot write: {e}"
+            self._reload_if_changed()
+            return None
+
+    def use_provider(self, name: str) -> str | None:
+        return self._write_summary(
+            lambda keys: config_mod.set_summary_provider(self.config_file, name, keys)
+        )
+
+    def save_provider(
+        self, name: str, url: str | None, model: str | None, key: str | None
+    ) -> str | None:
+        """Write [summary.<name>], and the key file when a key was typed."""
+
+        def write(keys: Path) -> None:
+            config_mod.set_provider(self.config_file, name, url, model)
+            if key and key.strip():
+                write_key(key_file(keys, name), key)
+
+        return self._write_summary(write)
+
+    def remove_provider(self, name: str) -> str | None:
+        return self._write_summary(lambda _keys: config_mod.remove_provider(self.config_file, name))
 
     def poll(self) -> DeckSnapshot:
         with self._lock:
