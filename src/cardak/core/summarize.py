@@ -16,6 +16,7 @@ from cardak.collectors.transcripts import read_transcript
 from cardak.core.agents import SessionState
 from cardak.core.config import Config, ConfigError, anthropic_key_path, config_path, load
 from cardak.core.hook import log_problem, project_name
+from cardak.core.prices import BUILTIN
 from cardak.core.store import Store, SummaryRow, db_path
 from cardak.core.summary import (
     MODEL,
@@ -109,7 +110,14 @@ def run(
             model=reply.model,
             input_tokens=reply.input_tokens,
             output_tokens=reply.output_tokens,
-            cost_usd=cost(reply.model, reply.input_tokens, reply.output_tokens),
+            cost_usd=cost(
+                "anthropic",
+                config.summary.active,
+                reply.model,
+                reply.input_tokens,
+                reply.output_tokens,
+                BUILTIN,
+            ),  # fmt: skip
             created_at=now,
         )
     )

@@ -6,17 +6,20 @@ and the API key file. `core/summarize.py` runs the job; providers live in `carda
 
 import os
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit
 
+from cardak.collectors.prices import ModelPrice
 from cardak.collectors.transcripts import Entry
 from cardak.core.agents import KIND_LABELS, SessionState, WaitKind
+from cardak.core.config import ProviderSettings
+from cardak.core.prices import lookup
 
 MODEL = "claude-haiku-5-5"
-PRICES: dict[str, tuple[float, float]] = {"claude-haiku-5-5": (0.10, 0.50)}  # USD per M in/out
 TAGS: dict[WaitKind, str] = {"permission": "approve", "question": "decide", "finished": "review"}
 
 MAX_LINE = 120  # the prompt asks for 80; a slightly long but sound line is still useful
@@ -106,11 +109,52 @@ def key_warning(path: Path) -> str | None:
         return None
 
 
-def cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    # the API may answer with an id we have no price for (a dated snapshot): charge it as the
-    # model we asked for rather than fail after the call was paid for
-    price_in, price_out = PRICES.get(model, PRICES[MODEL])
-    return (input_tokens * price_in + output_tokens * price_out) / 1_000_000
+FREE = {"ollama": "local, $0", "codex": "your Codex plan, $0"}
+UNPRICED = "no price known: the monthly cap doesn't cover it"
+CUSTOM = "custom server: no price, the monthly cap doesn't cover it"
+
+
+def _price(
+    provider: str, settings: ProviderSettings, model: str, table: Mapping[str, ModelPrice]
+) -> ModelPrice | None:
+    """The price list's entry for a summary, None when the provider costs nothing we can see."""
+    if provider == "anthropic":
+        # the API may answer with an id we have no price for (a dated snapshot): charge it as
+        # the model we asked for rather than fail after the call was paid for
+        asked = settings.model or MODEL
+        return lookup(table, model) or lookup(table, asked) or lookup(table, MODEL)
+    if provider == "fireworks":
+        return table.get(f"fireworks_ai/{model}")
+    if provider == "openai" and urlsplit(settings.url or "").hostname == "api.openai.com":
+        return lookup(table, model)
+    return None
+
+
+def cost(
+    provider: str,
+    settings: ProviderSettings,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    table: Mapping[str, ModelPrice],
+) -> float:
+    price = _price(provider, settings, model, table)
+    if price is None:
+        return 0.0
+    return input_tokens * price.base.input + output_tokens * price.base.output
+
+
+def cost_note(provider: str, settings: ProviderSettings, table: Mapping[str, ModelPrice]) -> str:
+    """What a summary from this provider costs, as the Summaries screen says it."""
+    if provider in FREE:
+        return FREE[provider]
+    if provider == "openai" and urlsplit(settings.url or "").hostname != "api.openai.com":
+        return CUSTOM
+    price = _price(provider, settings, settings.model or MODEL, table)
+    if price is None:
+        return UNPRICED
+    per_m = price.base.input * 1e6, price.base.output * 1e6
+    return f"${per_m[0]:.2f}/${per_m[1]:.2f} per M tokens"
 
 
 def month_start(now: float) -> float:
