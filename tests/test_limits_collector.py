@@ -39,7 +39,8 @@ def test_bad_window_values_dropped() -> None:
         "seven_day": {"used_percentage": 5},
     }
     assert parse_statusline(_with(bad)) is None
-    assert parse_statusline(_with({"five_hour": {"used_percentage": True, "resets_at": 10}})) is None
+    flag = {"five_hour": {"used_percentage": True, "resets_at": 10}}
+    assert parse_statusline(_with(flag)) is None
     assert parse_statusline(_with({"five_hour": {"used_percentage": -1, "resets_at": 10}})) is None
     over = parse_statusline(_with({"five_hour": {"used_percentage": 140, "resets_at": 10}}))
     assert over == Reading(Window(100.0, 10), None)
