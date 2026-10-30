@@ -24,15 +24,14 @@ from cardak.core.config import (
     config_path,
     load,
     real_path,
-    state_dir,
 )
 from cardak.core.focus import focus_path, focused_pane, read_history
+from cardak.core.hooklog import log_problem
 from cardak.core.store import Store, db_path
 
 if TYPE_CHECKING:
     from cardak.core.alerts import Spawn
 
-LOG_MAX = 1_000_000
 MAX_PAYLOAD = 20_000  # a tool's output can be huge; the event log keeps the start
 
 
@@ -122,17 +121,6 @@ def _ping(
         alert(project_name(ping.cwd, config), ping, config.notify, spawn=spawn)
     if config.summary.enabled and key_file.exists():
         spawn(summarize_argv(ping.session_id, now))  # `now` is the new wait's status_since
-
-
-def log_problem(env: Mapping[str, str], message: str) -> None:
-    log = state_dir(env) / "hook.log"
-    try:
-        log.parent.mkdir(parents=True, exist_ok=True)
-        mode = "w" if log.exists() and log.stat().st_size > LOG_MAX else "a"
-        with log.open(mode, encoding="utf-8") as f:
-            f.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')}\n{message}\n")
-    except OSError:
-        pass  # nowhere left to report it; never fail the hook
 
 
 def main(stdin: TextIO, env: Mapping[str, str] | None = None) -> int:

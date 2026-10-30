@@ -29,17 +29,20 @@ src/cardak/
   core/{prices, spend}.py                              # #29: this month at API prices
   core/trends.py                                       # #88: usage per project and day
   core/context.py                                      # #86: each session's context over the window
+  core/{limits, statusline, hooklog}.py                # #70: plan limits, `cardak statusline`, hook.log
   core/cleanup.py                                      # #65: where `x` opens /repo-cleanup
   core/detail.py                                       # how `i` and the web view word a session
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
   collectors/{handoff, git}.py                         # M6: the handoff note, read-only git
   collectors/{usage, prices}.py                        # #29: per-reply usage, LiteLLM's price list
   collectors/soundpacks.py                             # #91: the user's openpeon sound packs
+  collectors/limits.py                                 # #70: plan limits in the status line input
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
   ui/context_plot.py                                   # #86: one project's sessions over a day
   web/{view, server, key, lan}.py, page.html          # M7: the read-only page for phones
   wezterm/{cardak.lua, generate.py, install.py, schemes.py, files.py, tint.zsh}
   claude/install.py       # M4: cardak's hooks in ~/.claude/settings.json
+  claude/statusline.py    # #70: wraps statusLine.command in ~/.claude/settings.json
   claude/skills.py        # M6: installs claude/skills/{checkpoint,where-were-we}/SKILL.md
   systemd/install.py      # M5: cardak.service, and WezTerm's OOMPolicy check
   llm/anthropic.py        # #30: the Anthropic summarizer (SDK imported lazily)
@@ -62,9 +65,10 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 - **One interface per external format.** All WezTerm invocation and parsing lives in
   `collectors/wezterm.py`; all Claude Code parsing lives in `collectors/claude.py`
   (session files), `collectors/hooks.py` (hook payloads), `collectors/transcripts.py` and
-  `collectors/usage.py` (token usage and prompts, #29).
+  `collectors/usage.py` (token usage and prompts, #29), `collectors/limits.py` (the status line
+input, #70).
   Nothing else touches raw `wezterm cli` output or reads files under `~/.claude/`; the one
-  writer there is `claude/install.py`. Neither format is a stable API. Sound packs'
+  writers there are `claude/install.py` and `claude/statusline.py` (#70). Neither format is a stable API. Sound packs'
   `openpeon.json` is read only in `collectors/soundpacks.py` (#91).
 - Read-only by default: the deck observes and focuses panes; it does not launch or drive agents.
   Two exceptions, each after the user confirms it in a dialog: `c` (M6) types `/checkpoint` into
@@ -133,12 +137,14 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
   | `~/.cache/cardak/prices.json` | the deck and `cardak daemon`, at most daily while one runs (#29) | the Anthropic entries of LiteLLM's price list |
   | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`); the deck and the daemon (`claude_replies`, `claude_prompts`, `transcript_offsets`, #29) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days); one row per Claude Code reply and per typed prompt (62 days; both feed the usage trends, #88) and how far each transcript was read; the keys of the replies that were a subagent's and the one-time passes that filled them in (`claude_sidechain_replies`, `usage_backfills`, #86). `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
+  | `~/.local/state/cardak/limits.json` (+ `limits.lock`) | `cardak statusline` (#70), atomically, mode 0600, under `flock` on the lock file | the 5-hour and weekly windows (`used`, `resets_at`) merged across sessions, and `read_at`; the deck and the web-enabled daemon read it when it changes |
   | `~/.local/state/cardak/focus` | `cardak.lua` (module 3), via `focus.tmp.<gui pid>` (`wezterm.procinfo.pid()`, checked on 20240203) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>`; several GUIs share it, last writer wins (#43) |
   | `~/.local/state/cardak/wezterm_dir` | `cardak wezterm install [--dir]` | the directory `cardak.lua` was installed to; the deck, `themes apply` and `themes zsh` use it while `cardak.lua` is there, else `~/.config/wezterm` (#19) |
   | `~/.local/state/cardak/daemon.lock` | `cardak daemon` | empty; locked while a daemon runs, so a second one exits |
   | `~/.config/systemd/user/cardak.service` | `cardak resources install` / `uninstall`, after asking (or `--yes`) | runs `cardak daemon`; first line `# cardak: generated` |
   | `~/.local/state/cardak/hook.log` | `cardak hook`, `cardak summarize` | tracebacks; restarted past 1 MB |
   | `~/.claude/settings.json` | `cardak hooks install` / `uninstall` only, after asking (or `--yes`) | cardak's entries only; a `.cardak-backup-<time>` copy first |
+  | `~/.claude/settings.json` → `statusLine.command` | `cardak statusline install` / `uninstall` only, after asking (or `--yes`) | `<cardak> statusline --then '<the user's command>'`; nothing else in `statusLine` or the file (#70) |
   | `~/.claude/skills/{checkpoint,where-were-we}/SKILL.md` | `cardak skills install` / `uninstall`, after asking (or `--yes`) | the bundled skills; `<!-- cardak: generated -->` after the frontmatter (only those files are replaced or removed; `--force` replaces others) |
   | `<project or worktree>/.cardak/handoff.md` (+ `.cardak/.gitignore` = `*`) | the `/checkpoint` skill (Claude), never cardak; read by the deck's recap and `/where-were-we` | dated entries, newest last |
 - `cardak.lua`'s second line is `-- cardak-module: N`. Bump `MODULE_VERSION`
@@ -353,6 +359,33 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   headless Chrome at 390×844 and 1180×820, and the deck headless. A screenshot script that only
   changes the URL's `#k=` fragment does not reload the page: reload explicitly.
 
+### Plan limits (#70)
+- **A workaround (#97).** Measured 2026-10-30 (Claude Code 2.1.314, docs: statusline.md, "Rate limit
+  usage"): the only documented source of the 5-hour and weekly limits is the JSON piped to the
+  status line command, `rate_limits.{five_hour,seven_day}.{used_percentage,resets_at}` (Pro/Max,
+  after a session's first reply, either window may be missing). `cardak statusline install` makes
+  `statusLine.command` `<cardak> statusline --then '<original>'`. The `/usage` endpoint is
+  undocumented and is not used. Replace this when Claude Code offers a supported way.
+- `cardak statusline` is dispatched before argparse like the hook, and runs the original by
+  `os.execvp("sh", …)` with the input on a pipe (inputs over 4 KiB, one pipe page, use a
+  subprocess), so its stdout, stderr and exit code are the original's; a subprocess cost ~35 ms more
+  per refresh. SIGPIPE and SIGXFSZ go back to default first: Python ignores them and exec would pass
+  that on. Claude Code itself runs the command with `/bin/sh -c` (checked 2026-10-30, 2.1.314). Nothing in
+  cardak's part (parse, merge, write) can stop the original running; problems go to `hook.log`
+  (`core/hooklog.py`). `tests/test_cli.py::test_statusline_imports_only_what_it_needs` keeps
+  Textual, SQLite and the store out. Measured 2026-10-30 at load ~6 (the
+  machine wasn't idle): 65 ms median for `cardak statusline` without `--then` against 23 ms for bare
+  `python -c pass` and 48 ms for `import cardak.cli`; re-measure on an idle machine.
+- **Merging.** Each session hands over the figures from its own last reply, so an idle one repeats
+  an older, lower use. Per window, a later `resets_at` replaces, the same one keeps the higher use,
+  an earlier one is ignored; `read_at` moves only for a reading at least as new as the stored one.
+  The file is written when a window changed, else at most once a minute.
+- Shown as one row (`ui/widgets.limits_label`, the page's `limitParts`, kept equal by a node test):
+  bars of what's left, yellow below 20%, red below 10%, "—" past `resets_at`, "read N min ago" past
+  15 minutes. Halves round up on both sides (`Math.round`). No refresh action: cardak can't ask for
+  new numbers. Only `~/.claude/settings.json` is wrapped; a project's or managed `statusLine`
+  overrides it and those sessions report nothing.
+
 ## Web view (M7)
 - `cardak daemon` serves it when `[web] enabled = true` (`cardak web setup`), on `host:port`
   (default `0.0.0.0:8765`): `GET /` is a static page with no data, `GET /api/snapshot`,
@@ -533,6 +566,9 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   and call-in-loop reports on `_backfill` (files → chunks → keys, once per install),
   `day_context` and `context_rows` (sessions → points, projects → days), `plot_text` and
   `_merged` (sessions → rows → characters of one plot), `braille_cells` and `_fill_context`.
+- **#70 (plan limits)** split `cli.main` (11: `_run_for_claude`, the hook and `statusline`
+  dispatch before argparse) and renamed `limits.load` to `load_limits`: enola matched calls to
+  `config.load` by the short name and reported a fan-in of 8 that wasn't there. Nothing accepted.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

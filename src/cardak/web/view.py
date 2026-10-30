@@ -17,6 +17,7 @@ from cardak.core.context import (
     drop_indices,
 )
 from cardak.core.detail import shown_path, turn_text, words
+from cardak.core.limits import LimitView
 from cardak.core.snapshot import AgentView, DeckSnapshot, Group, PaneRow
 from cardak.core.summary import TAGS
 from cardak.core.trends import (
@@ -123,6 +124,17 @@ def _machine(snap: DeckSnapshot) -> Json | None:
     }
 
 
+def _limit(v: LimitView) -> Json:
+    return {"left": v.left, "resets_at": v.resets_at, "level": v.level}
+
+
+def _limits(snap: DeckSnapshot) -> Json | None:
+    v = snap.plan_limits
+    if v is None:
+        return None
+    return {"five_hour": _limit(v.five_hour), "seven_day": _limit(v.seven_day), "age_s": v.age_s}
+
+
 def snapshot_json(snap: DeckSnapshot, ts: float, now: float) -> Json:
     waiting = [w for g in snap.groups if g.kind == "waiting" for r in g.panes if (w := _waiting(r))]
     warnings = ([snap.config_error] if snap.config_error else []) + list(snap.config_warnings)
@@ -135,6 +147,7 @@ def snapshot_json(snap: DeckSnapshot, ts: float, now: float) -> Json:
         "machine": _machine(snap),
         "month_spend": snap.month_spend,
         "spend_unpriced": bool(snap.spend_unpriced),
+        "plan_limits": _limits(snap),
         "waiting": waiting,
         "projects": [_project(g) for g in snap.groups if g.kind != "waiting"],
     }

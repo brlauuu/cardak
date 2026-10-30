@@ -31,6 +31,9 @@ if TYPE_CHECKING:
     from cardak.core.themes import SchemeStore
 
 
+STATUSLINE_SETUP = ("install", "uninstall", "status", "-h", "--help")
+
+
 def build_parser() -> argparse.ArgumentParser:
     import argparse
 
@@ -67,6 +70,21 @@ def build_parser() -> argparse.ArgumentParser:
         ("status", "show whether cardak's hooks are installed"),
     ):
         cmd = hooks_sub.add_parser(name, help=text)
+        cmd.add_argument(
+            "--settings", type=Path, help="settings file (default: ~/.claude/settings.json)"
+        )
+        if name != "status":
+            cmd.add_argument("--yes", action="store_true", help="don't ask before writing")
+    sl = sub.add_parser(
+        "statusline", help="plan limits from Claude Code's status line (run by Claude Code)"
+    )
+    sl_sub = sl.add_subparsers(dest="statusline_command", required=True)
+    for name, text in (
+        ("install", "wrap your status line so the deck shows plan limits (a workaround, #97)"),
+        ("uninstall", "put your own status line command back"),
+        ("status", "show whether the status line is wrapped, and the last reading"),
+    ):
+        cmd = sl_sub.add_parser(name, help=text)
         cmd.add_argument(
             "--settings", type=Path, help="settings file (default: ~/.claude/settings.json)"
         )
@@ -262,17 +280,18 @@ def _hooks(command: str, settings_arg: Path | None, yes: bool) -> int:
     if after == before:
         print(f"cardak hooks already {'installed' if install else 'absent'}: {path}")
         return 0
-    return _write_settings(path, before, after, yes, install)
+    done = "Done. New Claude Code sessions report their status to the deck." if install else "Done."
+    return _write_settings(path, after, yes, claude.changes(before, after), done)
 
 
-def _write_settings(path: Path, before: dict, after: dict, yes: bool, install: bool) -> int:
+def _write_settings(path: Path, after: dict, yes: bool, lines: list[str], done: str) -> int:
     """Show what changes, ask (unless --yes), back up and write settings.json."""
     from datetime import datetime
 
     from cardak.claude import install as claude
 
     print(f"{path}:")
-    print("\n".join(f"  {line}" for line in claude.changes(before, after)))
+    print("\n".join(f"  {line}" for line in lines))
     now = datetime.now()
     if path.exists():
         print(f"A backup goes to {claude.backup_path(path, now)}")
@@ -284,7 +303,55 @@ def _write_settings(path: Path, before: dict, after: dict, yes: bool, install: b
     except OSError as e:
         print(f"cardak: cannot write {path}: {e}", file=sys.stderr)
         return 1
-    print("Done. New Claude Code sessions report their status to the deck." if install else "Done.")
+    print(done)
+    return 0
+
+
+STATUSLINE_DONE = (
+    "Done. Claude Code sessions report plan limits to the deck after their next reply. This wraps "
+    "your status line as a workaround until Claude Code offers another way (#97)."
+)
+
+
+def _statusline(command: str, settings_arg: Path | None, yes: bool) -> int:
+    from cardak.claude import install as claude
+    from cardak.claude import statusline as wrap
+
+    path = settings_arg or claude.default_settings_path()
+    exe = claude.find_executable(sys.argv[0])
+    if exe is None:
+        print("cardak: can't find the cardak executable; is it on PATH?", file=sys.stderr)
+        return 1
+    try:
+        before = claude.load_settings(path)
+        if command == "status":
+            return _statusline_status(path, wrap.statusline_status(before))
+        install = command == "install"
+        after = wrap.with_statusline(before, exe) if install else wrap.without_statusline(before)
+    except claude.SettingsError as e:
+        print(f"cardak: {e}", file=sys.stderr)
+        return 1
+    if after == before:
+        print(f"cardak's status line {'already installed' if install else 'not installed'}: {path}")
+        return 0
+    done = STATUSLINE_DONE if install else "Done. Your own status line is back."
+    return _write_settings(path, after, yes, wrap.changes(before, after), done)
+
+
+def _statusline_status(path: Path, wrapped: str | None) -> int:
+    import time
+
+    from cardak.core.limits import limits_path, load_limits
+
+    if wrapped is None:
+        print(f"not installed: {path}")
+        return 0
+    print(f"installed, wrapping {wrapped}: {path}" if wrapped else f"installed: {path}")
+    stored = load_limits(limits_path())
+    if stored is None:
+        print("no plan limits read yet")
+    else:
+        print(f"last reading {round((time.time() - stored.read_at) / 60)} min ago")
     return 0
 
 
@@ -496,11 +563,24 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    if (sys.argv[1:] if argv is None else argv) == ["hook"]:
+def _run_for_claude(given: list[str]) -> int | None:
+    """`cardak hook` and `cardak statusline`, which Claude Code runs on every event and refresh:
+    dispatched before argparse, importing only what they need. None for any other command."""
+    if given == ["hook"]:
         from cardak.core import hook
 
         return hook.main(sys.stdin)
+    if given[:1] == ["statusline"] and given[1:2] not in [[c] for c in STATUSLINE_SETUP]:
+        from cardak.core import statusline
+
+        return statusline.main(given[1:], sys.stdin.buffer)
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    given = sys.argv[1:] if argv is None else argv
+    if (code := _run_for_claude(given)) is not None:
+        return code
     args = build_parser().parse_args(argv)
     if args.command == "daemon":
         return _daemon()
@@ -508,6 +588,8 @@ def main(argv: list[str] | None = None) -> int:
         return _summarize(args.session_id, args.wait_since)
     if args.command == "hooks":
         return _hooks(args.hooks_command, args.settings, getattr(args, "yes", False))
+    if args.command == "statusline":
+        return _statusline(args.statusline_command, args.settings, getattr(args, "yes", False))
     if args.command in ("skills", "resources", "wezterm", "themes", "web"):
         return _setup(args)
     return _deck(args.config)
@@ -722,6 +804,7 @@ def _deck(config_arg: str | None) -> int:
     from cardak.core import spend
     from cardak.core.focus import focus_path, read_history
     from cardak.core.hook import log_problem
+    from cardak.core.limits import limits_path
     from cardak.core.navigate import Navigator, Previewer
     from cardak.core.source import LiveSource
     from cardak.core.store import Store, StoreError, db_path
@@ -746,6 +829,7 @@ def _deck(config_arg: str | None) -> int:
     source = LiveSource(
         config_path(config_arg),
         spend=counted[0] if counted else lambda: None,
+        limits_file=limits_path(),
         on_config=_theme_writer(lua_dir, config_dir(), store),
         schemes=store.get,
         store=agents,

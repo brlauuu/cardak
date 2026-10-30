@@ -210,6 +210,7 @@ def build_source(
         return LiveSource(config_file, spend=spent)
     from cardak.core.config import anthropic_key_path
     from cardak.core.focus import focus_path, read_history
+    from cardak.core.limits import limits_path
     from cardak.core.store import Store, db_path
 
     try:
@@ -224,6 +225,7 @@ def build_source(
         key_file=anthropic_key_path(),
         write_seen=False,
         spend=spent,
+        limits_file=limits_path(),
     )
 
 

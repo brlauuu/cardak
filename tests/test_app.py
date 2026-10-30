@@ -1372,3 +1372,18 @@ async def test_x_send_error_still_takes_you_to_the_tab() -> None:
         await app.workers.wait_for_complete()
         assert "Opened pane 50 but couldn't type into it: wezterm cli timed out" in notices(app)
         assert jumps.jumps == [50]
+
+
+async def test_deck_shows_limits_row() -> None:
+    from cardak.core.limits import LimitsView, LimitView
+
+    view = LimitsView(LimitView(27, 2e9, "ok"), LimitView(61, 2.1e9, "ok"), 0.0)
+    app = DeckApp(StubSource(SNAP, replace(SNAP, plan_limits=view)), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        row = app.query_one("#limits", Static)
+        assert not row.display
+        app.action_refresh()
+        await settle(app, pilot)
+        assert row.display and "27% left" in str(row.render()) and "61% left" in str(row.render())
+        assert "\n" not in str(row.render())
