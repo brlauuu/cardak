@@ -87,6 +87,31 @@ into `src/cardak/sounds/packs/` of an editable install. That folder is git-ignor
 of builds. Random then plays the packs' "input required" clips when a session waits, their
 "resource limit" clips on memory alerts (else `bell`), and `chime` for the rest.
 
+### Plan limits
+
+On a Pro or Max plan, the deck and the phone page can show how much of your 5-hour and weekly
+limits is left, and when each resets:
+
+```
+5h ████░░░░░░░░░░░ 27% left · 16:40   week █████████░░░░░░ 61% left · Mon 09:00
+```
+
+A bar turns yellow below 20% left and red below 10%. Once a reading is more than 15 minutes old the
+row says so ("read 25 min ago"); a limit whose reset time has passed shows "—" until the next reply.
+
+```sh
+cardak statusline install
+```
+
+Claude Code hands these numbers only to your status line command, so this puts cardak in front of
+it: `statusLine.command` in `~/.claude/settings.json` becomes `cardak statusline --then '<your
+command>'`, which saves the limits and runs your command with the same input, so your status line
+looks as before. It shows the change, backs the file up and asks first; `cardak statusline status`
+checks it and `uninstall` puts your command back. This is a workaround until Claude Code offers
+another way to read the limits ([#97](https://github.com/brlauuu/cardak/issues/97)). Only that user
+file is changed: a project's own `.claude/settings.json` that sets a status line overrides it, and
+those sessions report no limits. A session reports its limits after its first reply.
+
 cardak keeps its state in `~/.local/state/cardak/`.
 
 ## Waiting summaries

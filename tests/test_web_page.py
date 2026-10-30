@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 from importlib.resources import files
+from pathlib import Path
 
 import pytest
 
@@ -185,3 +186,13 @@ def test_limits_text_matches_the_deck() -> None:
     )
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == limits_label(view, now).plain
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_page_script_parses(tmp_path: Path) -> None:
+    # #70: a second `const STALE_S` made the whole page stop at "connecting…"
+    script = re.search(r"<script>(.*?)</script>", PAGE, re.DOTALL)
+    assert script is not None
+    (tmp_path / "page.js").write_text(script.group(1))
+    done = subprocess.run(["node", "--check", str(tmp_path / "page.js")], capture_output=True)
+    assert done.returncode == 0, done.stderr.decode()

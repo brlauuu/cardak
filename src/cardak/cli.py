@@ -341,13 +341,13 @@ def _statusline(command: str, settings_arg: Path | None, yes: bool) -> int:
 def _statusline_status(path: Path, wrapped: str | None) -> int:
     import time
 
-    from cardak.core.limits import limits_path, load
+    from cardak.core.limits import limits_path, load_limits
 
     if wrapped is None:
         print(f"not installed: {path}")
         return 0
     print(f"installed, wrapping {wrapped}: {path}" if wrapped else f"installed: {path}")
-    stored = load(limits_path())
+    stored = load_limits(limits_path())
     if stored is None:
         print("no plan limits read yet")
     else:
@@ -563,8 +563,9 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    given = sys.argv[1:] if argv is None else argv
+def _run_for_claude(given: list[str]) -> int | None:
+    """`cardak hook` and `cardak statusline`, which Claude Code runs on every event and refresh:
+    dispatched before argparse, importing only what they need. None for any other command."""
     if given == ["hook"]:
         from cardak.core import hook
 
@@ -573,6 +574,13 @@ def main(argv: list[str] | None = None) -> int:
         from cardak.core import statusline
 
         return statusline.main(given[1:], sys.stdin.buffer)
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    given = sys.argv[1:] if argv is None else argv
+    if (code := _run_for_claude(given)) is not None:
+        return code
     args = build_parser().parse_args(argv)
     if args.command == "daemon":
         return _daemon()

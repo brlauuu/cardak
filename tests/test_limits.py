@@ -7,7 +7,7 @@ from cardak.core.limits import (
     Stored,
     limits_path,
     limits_view,
-    load,
+    load_limits,
     merge,
     needs_write,
     record,
@@ -59,26 +59,26 @@ def test_needs_write_throttles() -> None:
 def test_record_round_trips(tmp_path: Path) -> None:
     path = tmp_path / "state" / "limits.json"
     record(path, Reading(FIVE, WEEK), 100.0)
-    assert load(path) == OLD
+    assert load_limits(path) == OLD
 
 
 def test_record_two_writers_keep_the_higher(tmp_path: Path) -> None:
     path = tmp_path / "limits.json"
     record(path, Reading(FIVE, WEEK), 100.0)
     record(path, Reading(Window(50.0, 1000.0), None), 300.0)
-    assert load(path) == OLD
+    assert load_limits(path) == OLD
 
 
 def test_load_ignores_corrupt_file(tmp_path: Path) -> None:
     path = tmp_path / "limits.json"
-    assert load(path) is None
+    assert load_limits(path) is None
     path.write_bytes(b"{")
-    assert load(path) is None
+    assert load_limits(path) is None
     path.write_text('{"read_at": 1, "five_hour": {"used": "x"}}')
-    assert load(path) is None
+    assert load_limits(path) is None
     path.write_bytes(b"{")
     record(path, Reading(FIVE, None), 100.0)
-    assert load(path) == Stored(100.0, FIVE, None)
+    assert load_limits(path) == Stored(100.0, FIVE, None)
 
 
 def test_written_file_is_private(tmp_path: Path) -> None:

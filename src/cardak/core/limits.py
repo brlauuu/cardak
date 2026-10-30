@@ -77,7 +77,7 @@ def _window_from(raw: object) -> Window | None:
     return Window(float(used), float(resets))  # type: ignore[arg-type]
 
 
-def load(path: Path) -> Stored | None:
+def load_limits(path: Path) -> Stored | None:
     """The stored limits; None when there are none or the file isn't cardak's shape."""
     try:
         raw = json.loads(path.read_bytes())
@@ -114,7 +114,7 @@ def record(path: Path, reading: Reading, now: float) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        old = load(path)
+        old = load_limits(path)
         merged = merge(old, reading, now)
         if needs_write(old, merged, now):
             _save(path, merged)

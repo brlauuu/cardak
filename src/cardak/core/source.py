@@ -21,8 +21,7 @@ from cardak.core.agents import FocusChange, SessionState, focus_seen_at, mark_se
 from cardak.core.alerts import SOUND_EXTS, bundled_sounds, check
 from cardak.core.config import Config, ConfigError
 from cardak.core.context import ContextSeries, GroupedContext, group_context
-from cardak.core.limits import Stored, limits_view
-from cardak.core.limits import load as load_limits
+from cardak.core.limits import Stored, limits_view, load_limits
 from cardak.core.recent import Recent, decorate
 from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
 from cardak.core.resources import derive

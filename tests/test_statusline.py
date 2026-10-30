@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from cardak.core.limits import Stored, limits_path, load
+from cardak.core.limits import Stored, limits_path, load_limits
 from cardak.core.statusline import PIPE_MAX, main
 
 FIXTURES = Path(__file__).parent / "fixtures" / "statusline"
@@ -30,14 +30,14 @@ def _run(argv: list[str], data: bytes, env: dict[str, str]) -> tuple[int, list[t
 
 def test_records_and_runs_original_with_same_input(env: dict[str, str]) -> None:
     assert _run(["--then", "somestatus --x"], PLAN, env) == (3, [("somestatus --x", PLAN)])
-    stored = load(limits_path(env))
+    stored = load_limits(limits_path(env))
     assert isinstance(stored, Stored) and stored.read_at == 100.0
     assert stored.five_hour is not None and stored.five_hour.used == 73.0
 
 
 def test_no_then_runs_nothing(env: dict[str, str]) -> None:
     assert _run([], PLAN, env) == (0, [])
-    assert load(limits_path(env)) is not None
+    assert load_limits(limits_path(env)) is not None
 
 
 def test_no_limits_writes_nothing(env: dict[str, str]) -> None:

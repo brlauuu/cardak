@@ -28,11 +28,25 @@ header h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
 #machine, #spend { color: var(--muted); font-size: 13px; }
 #machine.warning { color: var(--waiting); }
 #machine.critical { color: var(--over); }
-#limits { width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
-#limits .lim-bar { color: var(--muted); }
+#limits { width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+#limits .lim-sep { white-space: pre; }
+#limits progress { appearance: none; -webkit-appearance: none; width: 64px; height: 8px; border: 0;
+  border-radius: 4px; vertical-align: middle; background: var(--card); color: var(--muted); }
+#limits progress::-webkit-progress-bar { background: var(--card); border-radius: 4px; }
+#limits progress::-webkit-progress-value { background: var(--muted); border-radius: 4px; }
+#limits progress::-moz-progress-bar { background: var(--muted); border-radius: 4px; }
+#limits progress.lim-low::-webkit-progress-value { background: var(--waiting); }
+#limits progress.lim-low::-moz-progress-bar { background: var(--waiting); }
+#limits progress.lim-critical::-webkit-progress-value { background: var(--over); }
+#limits progress.lim-critical::-moz-progress-bar { background: var(--over); }
 #limits .lim-low { color: var(--waiting); }
 #limits .lim-critical { color: var(--over); font-weight: 600; }
 #limits .lim-unknown, #limits .lim-age { color: var(--muted); }
+@media (max-width: 480px) {
+  #limits progress { width: 36px; }
+  #limits .lim-word { display: none; }
+}
 #fresh { width: 100%; color: var(--muted); font-size: 12px; }
 #fresh.stale, #fresh.down { color: var(--waiting); }
 #notice { display: none; background: var(--card); border-left: 4px solid var(--waiting);
@@ -211,7 +225,7 @@ function renderMachine(m) {
   box.textContent = text;
 }
 
-const LIMIT_BAR = 15, STALE_S = 900, WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const LIMIT_BAR = 15, LIMIT_STALE_S = 900, WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function limitBar(left) {
   const full = Math.round(left * LIMIT_BAR / 100);
   return "█".repeat(full) + "░".repeat(LIMIT_BAR - full);
@@ -222,27 +236,27 @@ function limitReset(at, now) {
   return at - now < 86400 ? hm : WEEKDAYS[d.getDay()] + " " + hm;
 }
 function limitParts(l, now) {
-  // [text, class] pieces, the same row as the deck's limits_label
+  // [text, class, left] pieces: the same row as the deck's limits_label; a piece with `left` is a bar
   const parts = [];
   for (const [name, v, sep] of [["5h", l.five_hour, ""], ["week", l.seven_day, "   "]]) {
-    if (sep) parts.push([sep, ""]);
+    if (sep) parts.push([sep, "lim-sep"]);
     if (v.left === null) { parts.push([name + " —", "lim-unknown"]); continue; }
-    const cls = v.level === "ok" ? "lim-bar" : "lim-" + v.level;
-    parts.push([name + " ", ""], [limitBar(v.left), cls],
-      [" " + v.left + "% left", v.level === "ok" ? "" : cls], [" · " + limitReset(v.resets_at, now), ""]);
+    const cls = v.level === "ok" ? "" : "lim-" + v.level;
+    parts.push([name + " ", ""], [limitBar(v.left), cls, v.left], [" " + v.left + "%", cls],
+      [" left", "lim-word " + cls], [" · " + limitReset(v.resets_at, now), ""]);
   }
-  if (l.age_s > STALE_S) parts.push([" · read " + Math.round(l.age_s / 60) + " min ago", "lim-age"]);
+  if (l.age_s > LIMIT_STALE_S) parts.push([" · read " + Math.round(l.age_s / 60) + " min ago", "lim-age"]);
   return parts;
 }
 function renderLimits(l, now) {
   const box = $("limits");
   clear(box);
   if (!l) return;
-  for (const [text, cls] of limitParts(l, now)) {
-    const s = document.createElement("span");
-    if (cls) s.className = cls;
-    s.textContent = text;
-    box.appendChild(s);
+  for (const [text, cls, left] of limitParts(l, now)) {
+    const e = document.createElement(left === undefined ? "span" : "progress");
+    if (left === undefined) e.textContent = text; else { e.max = 100; e.value = left; }
+    if (cls.trim()) e.className = cls.trim();
+    box.appendChild(e);
   }
 }
 
