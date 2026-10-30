@@ -790,24 +790,43 @@ def _setup(args: argparse.Namespace) -> int:
     return _themes_zsh(args.config, args.force)
 
 
-def _make_summarizer(name: str, settings: ProviderSettings, key: str | None) -> Summarizer:
-    """The summarizer for one provider's settings; each provider's module is imported here."""
-    if name == "ollama":
-        from cardak.llm.ollama import OllamaSummarizer
-
-        return OllamaSummarizer(settings.url or "", settings.model or "")
-    if name in ("fireworks", "openai"):
-        from cardak.llm.openai import OpenAISummarizer
-
-        return OpenAISummarizer(settings.url or "", key, settings.model or "")
-    if name == "codex":
-        from cardak.llm.codex import CodexSummarizer
-
-        return CodexSummarizer(settings.model)
+def _anthropic(settings: ProviderSettings, key: str | None) -> Summarizer:
     from cardak.core.summary import MODEL
     from cardak.llm.anthropic import AnthropicSummarizer
 
     return AnthropicSummarizer(key or "", settings.model or MODEL)
+
+
+def _ollama(settings: ProviderSettings, key: str | None) -> Summarizer:
+    from cardak.llm.ollama import OllamaSummarizer
+
+    return OllamaSummarizer(settings.url or "", settings.model or "")
+
+
+def _openai(settings: ProviderSettings, key: str | None) -> Summarizer:
+    from cardak.llm.openai import OpenAISummarizer  # Fireworks speaks the same API
+
+    return OpenAISummarizer(settings.url or "", key, settings.model or "")
+
+
+def _codex(settings: ProviderSettings, key: str | None) -> Summarizer:
+    from cardak.llm.codex import CodexSummarizer
+
+    return CodexSummarizer(settings.model)
+
+
+SUMMARIZERS = {
+    "anthropic": _anthropic,
+    "ollama": _ollama,
+    "fireworks": _openai,
+    "openai": _openai,
+    "codex": _codex,
+}
+
+
+def _make_summarizer(name: str, settings: ProviderSettings, key: str | None) -> Summarizer:
+    """The summarizer for one provider's settings; each provider's module is imported here."""
+    return SUMMARIZERS[name](settings, key)
 
 
 def _provider_tools() -> ProviderTools:

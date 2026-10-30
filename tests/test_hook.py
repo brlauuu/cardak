@@ -275,9 +275,9 @@ def test_quiet_ping_spawns_summary_only(tmp_path: Path, paths: dict[str, Path]) 
 
 
 def test_env_for_hides_the_real_key(tmp_path: Path) -> None:
-    from cardak.core.config import anthropic_key_path
+    from cardak.core.config import config_dir, key_file
 
-    assert anthropic_key_path(env_for(tmp_path)).is_relative_to(tmp_path)
+    assert key_file(config_dir(env_for(tmp_path)), "anthropic").is_relative_to(tmp_path)
 
 
 def test_project_name_follows_symlinks(tmp_path: Path) -> None:

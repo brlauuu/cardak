@@ -4,7 +4,7 @@ import os
 import re
 import tomllib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -62,6 +62,8 @@ PROVIDERS = ("anthropic", "ollama", "fireworks", "openai", "codex")
 KEYED = {"anthropic": True, "fireworks": True, "openai": False}  # True: the key is required
 OLLAMA_URL = "http://127.0.0.1:11434"
 FIREWORKS_URL = "https://api.fireworks.ai/inference/v1"
+DEFAULT_URLS = {"ollama": OLLAMA_URL, "fireworks": FIREWORKS_URL}  # fireworks' can't be changed
+NEEDS = {"ollama": ("model",), "fireworks": ("model",), "openai": ("url", "model")}
 
 
 @dataclass(frozen=True)
@@ -143,18 +145,9 @@ def config_dir(env: Mapping[str, str] | None = None) -> Path:
     return Path(env.get("HOME") or Path.home()) / ".config" / "cardak"
 
 
-def anthropic_key_path(env: Mapping[str, str] | None = None) -> Path:
-    """The Anthropic API key for waiting summaries; the user creates it, cardak only reads it."""
-    return config_dir(env) / "anthropic_key"
-
-
-def provider_key_path(name: str, env: Mapping[str, str] | None = None) -> Path:
-    """A summary provider's API key; `anthropic_key` is the Anthropic one."""
-    return key_file(config_dir(env), name)
-
-
 def key_file(keys_dir: Path, name: str) -> Path:
-    """A provider's key in a keys dir (config_dir, or a test's)."""
+    """A summary provider's API key (`anthropic_key`, `fireworks_key`, …) in a keys dir:
+    config_dir, or a test's. The user or the Summaries screen writes it; never projects.toml."""
     return keys_dir / f"{name}_key"
 
 
@@ -336,16 +329,13 @@ def _provider(name: str, raw: object) -> ProviderSettings:
     for key in ("url", "model"):
         if key in raw and not isinstance(raw[key], str):
             raise ValueError(f"[summary.{name}] {key} must be a string")
-    url, model = raw.get("url"), raw.get("model")
-    if name == "ollama":
-        url = url or OLLAMA_URL
-    elif name == "fireworks":
-        url = FIREWORKS_URL
-    if name in ("ollama", "fireworks", "openai") and not model:
-        raise ValueError(f"[summary.{name}] needs a model")
-    if name == "openai" and not url:
-        raise ValueError("[summary.openai] needs a url")
-    return ProviderSettings(url, model)
+    settings = ProviderSettings(DEFAULT_URLS.get(name, raw.get("url")), raw.get("model"))
+    if name == "ollama" and raw.get("url"):
+        settings = replace(settings, url=raw["url"])
+    for needed in NEEDS.get(name, ()):
+        if not getattr(settings, needed):
+            raise ValueError(f"[summary.{name}] needs a {needed}")
+    return settings
 
 
 def _resources(path: Path, data: Mapping[str, object]) -> ResourceSettings:

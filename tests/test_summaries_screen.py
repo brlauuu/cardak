@@ -348,3 +348,10 @@ async def test_typing_in_the_form_is_not_a_command() -> None:
         await pilot.pause()
         assert app.screen.query_one("#f-model", Input).value == "ten"
         assert fake.made == []
+
+
+async def test_in_use_without_key_says_so() -> None:
+    app = Host(FakeControl(), FakeTools().tools())  # anthropic in use, no anthropic_key
+    async with app.run_test(size=(110, 30)) as pilot:
+        await pilot.pause()
+        assert rows(app)[0].split() == ["●", "anthropic", "in", "use", "·", "no", "key"]

@@ -145,7 +145,8 @@ class SummariesScreen(ModalScreen[None]):
 
     def _row(self, name: str, summary: SummarySettings) -> Text:
         if name == summary.provider:
-            return Text(f"● {name:<11} in use")
+            ready = self._control.is_set_up(name) or name not in KEYED
+            return Text(f"● {name:<11} in use" + ("" if ready else " · no key"))
         if self._control.is_set_up(name):
             return Text(f"○ {name:<11} set up")
         return Text(f"· {name:<11} —")

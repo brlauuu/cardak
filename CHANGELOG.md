@@ -10,6 +10,7 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 ## Unreleased
 
 ### Added
+- Pick who writes the waiting summaries: Anthropic, a local Ollama model, Fireworks, any OpenAI-compatible API, or Codex on your own plan. Press `s` in the deck to set one up, test it on a made-up wait and switch between them; several can be set up and exactly one is in use. Local models and Codex cost nothing against the monthly cap. (#47, #48, #49)
 - See how much of your Claude plan's 5-hour and weekly limits is left, and when each resets, as two bars on one row in the deck and on the phone page; a bar turns yellow below 20% left and red below 10%. Run `cardak statusline install` once: Claude Code hands these numbers only to your status line, so cardak sits in front of your status line command and passes everything on unchanged. That's a workaround until Claude Code offers another way (#97). (#70)
 
 ## 0.14.0 — 2026-10-30

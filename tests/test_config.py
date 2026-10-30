@@ -13,11 +13,10 @@ from cardak.core.config import (
     SummarySettings,
     WebSettings,
     add_project,
-    anthropic_key_path,
     config_dir,
     config_path,
+    key_file,
     load,
-    provider_key_path,
     remove_provider,
     set_project_theme,
     set_provider,
@@ -359,11 +358,11 @@ def test_summary_rejects_bad_values(tmp_path: Path, body: str) -> None:
         _summary_cfg(tmp_path, body)
 
 
-def test_anthropic_key_path() -> None:
-    assert anthropic_key_path({"XDG_CONFIG_HOME": "/x"}) == Path("/x/cardak/anthropic_key")
-    assert provider_key_path("fireworks", {"XDG_CONFIG_HOME": "/x"}) == Path(
-        "/x/cardak/fireworks_key"
+def test_key_file() -> None:
+    assert key_file(config_dir({"XDG_CONFIG_HOME": "/x"}), "anthropic") == Path(
+        "/x/cardak/anthropic_key"
     )
+    assert key_file(Path("/k"), "fireworks") == Path("/k/fireworks_key")
 
 
 def test_summary_defaults_to_anthropic(tmp_path: Path) -> None:
