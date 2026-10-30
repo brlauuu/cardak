@@ -9,9 +9,11 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.14.0 — 2026-10-30
+
 ### Added
-- See how full your sessions' context gets and how often they compact: each Claude row shows its context now, the history screen's `c` reaches a **context** figure with each day's peak, and Enter opens a day's plot with one line per session on a log scale, where a compaction is a sharp drop and a cleared session a line that ends. On the phone, Trends → context adds a 30-day plot of every session. Subagents' replies are left out; cardak flags the ones it already stored, once, when this version first runs. (#86)
 - Waiting sessions, memory alerts and everything else can each have their own sound: random, off (the notification still shows) or one you name. Copy sound packs in the openpeon format into `src/cardak/sounds/packs/` and random plays their voice lines: "input required" clips when a session waits, "resource limit" clips on memory alerts, a chime for the rest. Packs stay on your machine; mp3 clips play too. (#91)
+- See how full your sessions' context gets and how often they compact: each Claude row shows its context now, the history screen's `c` reaches a **context** figure with each day's peak, and Enter opens a day's plot with one line per session on a log scale, where a compaction is a sharp drop and a cleared session a line that ends. On the phone, Trends → context adds a 30-day plot of every session. Subagents' replies are left out; cardak flags the ones it already stored, once, when this version first runs. (#86)
 
 ## 0.13.0 — 2026-10-29
 
