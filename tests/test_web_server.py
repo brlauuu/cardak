@@ -178,3 +178,31 @@ def test_trends_carry_context(serve) -> None:
     assert status == 200 and json.loads(body)["context"] is None
     status, _, body = get(base + "/api/trends?context=1")
     assert status == 200 and json.loads(body)["context"]["rows"][0]["name"] == "webshop"
+
+
+def test_pm_needs_the_key_and_serves_before_any_snapshot() -> None:
+    from cardak.collectors.github import Label
+    from cardak.core.pm import Band, Board, Card, Done
+
+    card = Card(
+        "issue", 1, "One", (Label("bug", "d73a4a"),), 100.0, "https://github.com/e/r/issues/1"
+    )
+    board = Board((Band("webshop", "/w", "e/r", (card,), (), Done((), None), 100.0, None),), 100.0)
+    server = make_server(
+        "127.0.0.1", 0, KEY, Latest(), session_ok, clock=lambda: 112.0, board=lambda: board
+    )
+    start(server, poll_interval=0.02)
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        assert get(base + "/api/pm", key=None)[0] == 401
+        status, _, body = get(base + "/api/pm")
+        assert status == 200 and json.loads(body)["bands"][0]["todo"][0]["updated_ago"] == 12
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_pm_without_a_board(serve) -> None:
+    base, _ = serve()
+    status, _, body = get(base + "/api/pm")
+    assert status == 200 and json.loads(body) == {"board": None}

@@ -18,8 +18,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 
 from cardak.core.agents import SessionState
+from cardak.core.pm import Board
 from cardak.core.snapshot import DeckSnapshot
-from cardak.web.view import find_agent, session_json, snapshot_json, trends_json
+from cardak.web.view import find_agent, pm_json, session_json, snapshot_json, trends_json
 
 PAGE = files("cardak.web").joinpath("page.html").read_bytes()
 SESSION = re.compile(r"/api/session/([A-Za-z0-9_-]{1,128})")
@@ -73,6 +74,7 @@ def make_server(
     session: Session,
     clock: Callable[[], float] = time.time,
     timeout: float = 10.0,
+    board: Callable[[], Board | None] = lambda: None,
 ) -> ThreadingHTTPServer:
     """Bound and ready for `start`; raises OSError when the address can't be bound."""
     expected = key.encode()
@@ -116,10 +118,12 @@ def make_server(
             if path == "/":
                 return self._send(200, PAGE, "text/html; charset=utf-8")
             found = SESSION.fullmatch(path)
-            if path not in ("/api/snapshot", "/api/trends") and found is None:
+            if path not in ("/api/snapshot", "/api/trends", "/api/pm") and found is None:
                 return self._send(404)
             if not self._authorized():
                 return self._send(401)
+            if path == "/api/pm":  # the deck's board file: no snapshot needed (#68)
+                return self._json(200, pm_json(board(), clock()))
             current = latest.get()
             if current is None:
                 return self._json(503, {"starting": True})

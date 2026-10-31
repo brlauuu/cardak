@@ -1419,3 +1419,82 @@ async def test_s_opens_summaries(tmp_path: Path) -> None:
         await pilot.press("s")
         await pilot.pause()
         assert isinstance(app.screen, SummariesScreen)
+
+
+class PmStub:
+    def __init__(self) -> None:
+        self.refreshed: list[Path | None] = []
+        self.observed: list[list[tuple[Path, Path | None, str]]] = []
+
+    def board(self) -> None:
+        return None
+
+    def refresh(self, project: Path | None = None) -> None:
+        self.refreshed.append(project)
+
+    def observe(self, sessions) -> None:  # noqa: ANN001
+        self.observed.append(list(sessions))
+
+
+async def test_p_on_pane_row_opens_its_project() -> None:
+    from cardak.ui.pm import PmScreen
+
+    pm = PmStub()
+    app = DeckApp(StubSource(SNAP), interval=3600, pm=pm)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        project = app.deck_tree.root.children[1]
+        project.expand()
+        await pilot.pause()
+        app.deck_tree.move_cursor(project.children[0])
+        await pilot.press("p")
+        await pilot.pause()
+        assert isinstance(app.screen, PmScreen)
+        assert app.screen._project == Path("/repos/cardak")  # noqa: SLF001
+
+
+async def test_P_opens_all_projects_and_p_on_other_refuses() -> None:
+    from cardak.ui.pm import PmScreen
+
+    app = DeckApp(StubSource(SNAP), interval=3600, pm=PmStub())
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[2])
+        await pilot.press("p")
+        await pilot.pause()
+        assert "Select a project or one of its panes." in notices(app)
+        await pilot.press("P")
+        await pilot.pause()
+        assert isinstance(app.screen, PmScreen) and app.screen._project is None  # noqa: SLF001
+
+
+async def test_R_in_deck_polls_and_refreshes_pm() -> None:
+    pm = PmStub()
+    source = StubSource(SNAP)
+    app = DeckApp(source, interval=3600, pm=pm)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("R")
+        await settle(app, pilot)
+        assert pm.refreshed == [None]
+
+
+async def test_no_pm_notifies() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("P")
+        await pilot.pause()
+        assert "The PM view isn't available in this deck." in notices(app)
+
+
+async def test_snapshot_feeds_pm_the_claude_sessions() -> None:
+    claude = replace(agent_row(7, "working"), cwd=Path("/repos/webshop/wt"))
+    snap = DeckSnapshot(
+        groups=(group("config", "webshop", Path("/repos/webshop"), claude, row(8)),)
+    )
+    pm = PmStub()
+    app = DeckApp(StubSource(snap), interval=3600, pm=pm)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        assert pm.observed[-1] == [(Path("/repos/webshop"), Path("/repos/webshop/wt"), "working")]

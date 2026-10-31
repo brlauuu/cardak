@@ -24,10 +24,13 @@ from cardak.core.config import (
 
 if TYPE_CHECKING:
     import argparse
+    import threading
 
     from cardak.core.config import ProviderSettings
     from cardak.core.daemon import Publish, WebStart
+    from cardak.core.pm_service import PmService
     from cardak.core.source import LiveSource
+    from cardak.core.store import Store
     from cardak.core.summary import ProviderTools, Summarizer
     from cardak.core.themes import SchemeStore
 
@@ -622,11 +625,13 @@ def _web_start() -> WebStart | None:
         return None
 
     def start_web(source: LiveSource) -> Publish | None:
+        from cardak.core.pm_service import BoardFile, board_path
         from cardak.web.server import Latest, make_server, start
 
         latest = Latest()
+        board = BoardFile(board_path())  # the deck writes it; the daemon only reads (#68)
         try:
-            server = make_server(web.host, web.port, key, latest, source.session)
+            server = make_server(web.host, web.port, key, latest, source.session, board=board.get)
         except OSError as e:
             log(f"web view off: can't listen on {web.host}:{web.port}: {e.strerror or e}")
             return None
@@ -862,6 +867,37 @@ def _summarize(session_id: str, wait_since: str) -> int:
     return summarize.main([session_id, wait_since], _make_summarizer)
 
 
+def _pm_service(
+    source: LiveSource,
+) -> tuple[PmService | None, threading.Event | None, Store | None]:
+    """The PM view's thread (#68), with its own store connection; Nones when the database
+    can't be opened."""
+    import os
+    import subprocess
+
+    from cardak.collectors import github
+    from cardak.core.hook import log_problem
+    from cardak.core.pm_service import PmService, background, board_path, repo_cache_dir
+    from cardak.core.store import Store, StoreError, db_path
+
+    try:
+        store = Store(db_path())
+    except StoreError as e:
+        log_problem(os.environ, f"pm view unavailable: {e}")
+        return None, None, None
+    service = PmService(
+        lambda: source.config,
+        store,
+        keys_dir=config_dir(),
+        tools=_provider_tools(),
+        fetch=lambda repo, since: github.fetch(repo, since),
+        git_runner=subprocess.run,
+        board_file=board_path(),
+        cache=repo_cache_dir(),
+    )
+    return service, background(service, lambda message: log_problem(os.environ, message)), store
+
+
 def _deck(config_arg: str | None) -> int:
     import os
 
@@ -901,6 +937,7 @@ def _deck(config_arg: str | None) -> int:
         focus_history=lambda: read_history(focus_path()),
         keys_dir=config_dir(),
     )
+    pm, stop_pm, pm_store = _pm_service(source)
     DeckApp(
         source,
         navigator=Navigator.live(lua_dir / "cardak.lua"),
@@ -916,10 +953,13 @@ def _deck(config_arg: str | None) -> int:
         open_tab=lambda cwd, near: wezterm.spawn(cwd, near),
         summaries=source,
         providers=_provider_tools(),
+        pm=pm,
     ).run()
     if counted is not None:
         counted[1].set()
-    for db in (agents, log):
+    if stop_pm is not None:
+        stop_pm.set()
+    for db in (agents, log, pm_store):
         if db is not None:
             db.close()
     return 0

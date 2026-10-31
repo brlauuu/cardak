@@ -1,0 +1,26 @@
+{
+ "data": {
+  "repository": {
+   "issues": {
+    "nodes": [],
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    }
+   },
+   "pullRequests": {
+    "nodes": [],
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    }
+   },
+   "merged": {
+    "nodes": []
+   },
+   "closed": {
+    "nodes": []
+   }
+  }
+ }
+}

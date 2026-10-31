@@ -31,14 +31,17 @@ src/cardak/
   core/context.py                                      # #86: each session's context over the window
   core/{limits, statusline, hooklog}.py                # #70: plan limits, `cardak statusline`, hook.log
   core/cleanup.py                                      # #65: where `x` opens /repo-cleanup
+  core/{pm, pm_done, pm_service}.py                    # #68: the PM view's board, done column, refreshes
   core/detail.py                                       # how `i` and the web view word a session
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
   collectors/{handoff, git}.py                         # M6: the handoff note, read-only git
   collectors/{usage, prices}.py                        # #29: per-reply usage, LiteLLM's price list
   collectors/soundpacks.py                             # #91: the user's openpeon sound packs
   collectors/limits.py                                 # #70: plan limits in the status line input
+  collectors/github.py                                 # #68: issues and PRs through `gh api graphql`
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
   ui/summaries.py                                      # #47–#49: `s`, the summary providers
+  ui/pm.py                                             # #68: `p` / `P`, the PM view
   ui/context_plot.py                                   # #86: one project's sessions over a day
   web/{view, server, key, lan}.py, page.html          # M7: the read-only page for phones
   wezterm/{cardak.lua, generate.py, install.py, schemes.py, files.py, tint.zsh}
@@ -68,7 +71,7 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   `collectors/wezterm.py`; all Claude Code parsing lives in `collectors/claude.py`
   (session files), `collectors/hooks.py` (hook payloads), `collectors/transcripts.py` and
   `collectors/usage.py` (token usage and prompts, #29), `collectors/limits.py` (the status line
-input, #70).
+input, #70), `collectors/github.py` (every `gh` call, #68).
   Nothing else touches raw `wezterm cli` output or reads files under `~/.claude/`; the one
   writers there are `claude/install.py` and `claude/statusline.py` (#70). Neither format is a stable API. Sound packs'
   `openpeon.json` is read only in `collectors/soundpacks.py` (#91).
@@ -138,8 +141,10 @@ input, #70).
   | `~/.config/cardak/anthropic_key` | the user, or the deck's Summaries screen (`s`, #47–#49: atomic, mode 0600); read by `cardak summarize` and the screen's test, refused with group/other bits | the Anthropic API key for waiting summaries |
   | `~/.config/cardak/{fireworks,openai}_key` | the deck's Summaries screen, or the user (same rules as `anthropic_key`; `openai_key` is optional) | the key of that summary provider (#48) |
   | `~/.cache/cardak/schemes-<wezterm version>.json` | scheme probe | built-in schemes and their colors |
+  | `~/.cache/cardak/github/<owner>__<repo>.json` | the deck's PM view, after each GitHub read (#68) | that repository's last fetch (open issues and PRs, the last 7 days' merges and closes), its error, and the done column with the hash of its input |
+  | `~/.local/state/cardak/pm.json` | the deck's PM view, atomically, when the board changes (#68) | the board the deck shows; `cardak daemon` reads it for `GET /api/pm` and never reads GitHub |
   | `~/.cache/cardak/prices.json` | the deck and `cardak daemon`, at most daily while one runs (#29) | the Anthropic entries of LiteLLM's price list |
-  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`); the deck and the daemon (`claude_replies`, `claude_prompts`, `transcript_offsets`, #29) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days); one row per Claude Code reply and per typed prompt (62 days; both feed the usage trends, #88) and how far each transcript was read; the keys of the replies that were a subagent's and the one-time passes that filled them in (`claude_sidechain_replies`, `usage_backfills`, #86). `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
+  | `~/.local/state/cardak/cardak.db` | `cardak hook`; the deck (`seen_at`, `dismissed_reports`); `cardak summarize` (`summaries`); the deck's PM view (`pm_summaries`, #68); `cardak daemon` (`resource_events`, `resource_minutes`, `resource_days`); the deck and the daemon (`claude_replies`, `claude_prompts`, `transcript_offsets`, #29) | agent sessions and raw hook events (7 days); waiting summaries with their cost or error (62 days); resource alerts, crash reports and per-minute / per-day usage per project (30 days); one row per Claude Code reply and per typed prompt (62 days; both feed the usage trends, #88) and how far each transcript was read; the keys of the replies that were a subagent's and the one-time passes that filled them in (`claude_sidechain_replies`, `usage_backfills`, #86); the PM view's done summaries with their cost or error (`pm_summaries`, 62 days, schema 7, #68). `user_version` is the schema; `application_id` the oldest schema whose code can still use the file (`MIN_READER`, #54): an older cardak opens a newer file when that allows it, without upgrading it. Only a new table is safe for older code; any change to an existing table, a new column included, must raise `MIN_READER`. Opening a current file writes nothing (no write lock needed) |
   | `~/.local/state/cardak/limits.json` (+ `limits.lock`) | `cardak statusline` (#70), atomically, mode 0600, under `flock` on the lock file | the 5-hour and weekly windows (`used`, `resets_at`) merged across sessions, and `read_at`; the deck and the web-enabled daemon read it when it changes |
   | `~/.local/state/cardak/focus` | `cardak.lua` (module 3), via `focus.tmp.<gui pid>` (`wezterm.procinfo.pid()`, checked on 20240203) | `# cardak-focus: 1`, then the last 64 `<pane_id|none> <unix_ms>`; several GUIs share it, last writer wins (#43) |
   | `~/.local/state/cardak/wezterm_dir` | `cardak wezterm install [--dir]` | the directory `cardak.lua` was installed to; the deck, `themes apply` and `themes zsh` use it while `cardak.lua` is there, else `~/.config/wezterm` (#19) |
@@ -275,7 +280,7 @@ input, #70).
   the stored session when the user confirms (`checkpoint.recheck`), since Claude can move on while
   the dialog is open. Hooks can't see a half-typed draft; the dialog says it goes along.
 - Recap runs only `git --no-optional-locks` reads (`collectors/git.py`, 3 s timeout) in a worker;
-  no `gh`, no network. GitHub is `/where-were-we`'s job.
+  no `gh`, no network. GitHub is `/where-were-we`'s job, and the PM view's (#68).
 
 ## Monthly spend (#29)
 - The deck and `cardak daemon` each run a `SpendCounter` thread (`core/spend.background`) with its
@@ -395,6 +400,39 @@ input, #70).
 - The Summaries screen's test sends `summary.SAMPLE_INPUT`, a made-up wait, never a session's
   text, from a worker thread; it is not stored and not counted. Textual selects an `Input`'s text
   on focus, so a key typed into a just-focused field replaces it.
+
+### PM view (#68)
+- `P` / `p` in the deck (`ui/pm.py`), the Projects sheet on the phone. `core/pm_service.PmService`
+  runs on a thread of the deck only, with its own store connection; the daemon only serves the
+  board file the deck writes (`BoardFile`, `/api/pm`), so with the deck closed the phone shows the
+  last board and its age.
+- **GitHub**: `collectors/github.py` runs `gh api graphql` (20 s timeout), one query per repository
+  plus one per further page of open issues or PRs (100 a page). Checked 2026-10-31 with gh 2.45:
+  `gh pr list --json` has no `closingIssuesReferences`, GraphQL does. Merged PRs and closed issues
+  are the 50 most recently updated, kept when within 7 days; `NOT_PLANNED` closes are left out.
+  Measured: a fetch of this repository took 0.84 s. `gh` reads its login from `XDG_CONFIG_HOME/gh`,
+  so a live check with a scratch `XDG_CONFIG_HOME` needs `GH_CONFIG_DIR` pointed at the real one
+  (read-only) or it shows gh's "gh auth login" line, which is that error path.
+- **When**: at deck start if the cache is over `REFRESH_EVERY` (1 h) old, then hourly, on `R`
+  (the deck's refreshes everything, the one-project screen its project), 15 s after a stored
+  `PostToolUse` ran `gh issue|pr|release` or `git push` (or an `mcp__github*` tool) in the
+  project, never twice within 60 s per repository; 5 min after a failed fetch. Events are read
+  from the `events` table by rowid (`Store.tool_events_after`), so `cardak hook` is unchanged; one
+  newer than the repository's last fetch counts after a restart too. Local branches
+  (`for-each-ref refs/heads`, shared by worktrees) and the branch of each Claude pane's folder are
+  re-read every 10 s.
+- **onit**: an open issue whose number starts a local or open-PR branch (or its last `/` part),
+  followed by `-`, `_` or the end, or which an open PR closes; open PRs that claim no open issue
+  are PR cards.
+- **done**: `pm_done.write_done` sends titles and numbers only, the 30 newest items: measured
+  2026-10-31 on CPU at load 13–16, a week of 73 items took both `qwen2.5:3b` and `gemma4:e4b` past
+  Ollama's 60 s timeout, 30 items 28–47 s. gemma4's bullets were good; qwen2.5:3b echoed the
+  titles. Bullets citing no given number are dropped; none left → the plain list. A summary is
+  written only when the input's hash changed, and every call (failures too, at $0) is a
+  `pm_summaries` row counted by `Store.spend_since`, so the cap covers it.
+- The page's label chips use eight classes by a hash of the name (`.lc0`–`.lc7`): the CSP allows no
+  `style=`. The deck uses GitHub's colors. Checked in headless Chrome at 390×844 and 1180×820
+  against a scratch daemon, and the deck screen headless, on 2026-10-31.
 
 ### Plan limits (#70)
 - **A workaround (#97).** Measured 2026-10-30 (Claude Code 2.1.314, docs: statusline.md, "Rate limit
@@ -615,6 +653,18 @@ input, #70).
   screen's spend line); `config._read` as a hotspot (6 × 4: three more writers); and the
   Summaries screen's coordinators `_refresh` (6 × 8), `_show_detail` (6 × 8) and `_save`
   (4 × 9), each one step of the one screen.
+- **#68 (PM view)** split `pm.build_band` (11: `_by_number`), `pm_done.write_done` (11: `_key`),
+  `PmService._read_local` (12: `_read_project`, `_read_sessions`) and `PmService._read_events` (11:
+  `_changed`). Accepted: `write_done` at 10 (nothing done, no provider, no key, the cap, a failure,
+  an unusable reply: one guard each); `Column.Move` as dead code (Textual dispatches it through
+  `@on(Column.Move)`, which enola doesn't see); `config.state_dir` at fan-in 8, `config_dir` 10,
+  `key_file` and `month_start` 9 and `Store._query` 15 (the PM view's board file, keys, cap and
+  event query are one more reader each); `hooks.parse` as a hotspot (6 × 4: the PM view reads stored
+  payloads through it, as the one Claude Code parser should); `config._read` (6 × 4, unchanged code,
+  reported again); and the call-in-loop and nested-loop reports on `PmService.step` /
+  `_read_local` / `_take_requests`, `github.fetch`, `parse_done` and `PmScreen._build` (one fetch
+  per due repository, one git read per project, pages of one connection, lines of one reply, three
+  columns per band: each the unit of work).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

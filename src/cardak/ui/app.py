@@ -21,6 +21,7 @@ from textual.worker import Worker
 
 from cardak.core import checkpoint, cleanup, recap
 from cardak.core.agents import SessionState
+from cardak.core.checkpoint import PROJECT_KINDS
 from cardak.core.config import ConfigError
 from cardak.core.eventlog import sentences
 from cardak.core.filter import filter_snapshot, waiting_only
@@ -33,6 +34,7 @@ from cardak.ui.confirm import ConfirmScreen
 from cardak.ui.detail import DetailScreen
 from cardak.ui.events import EventLogScreen
 from cardak.ui.history import HistoryScreen
+from cardak.ui.pm import PmScreen, PmView
 from cardak.ui.recap import RecapScreen
 from cardak.ui.summaries import SummariesScreen, SummaryControl
 from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
@@ -233,7 +235,9 @@ class DeckApp(App[None]):
         Binding("r", "recap", "Recap"),
         Binding("x", "cleanup", "Cleanup"),
         Binding("s", "summaries", "Summaries"),
-        Binding("R", "refresh", "Refresh", show=False),
+        Binding("p", "pm_project", "PM"),
+        Binding("P", "pm_all", "All projects", show=False),
+        Binding("R", "refresh_all", "Refresh", show=False),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -270,6 +274,7 @@ class DeckApp(App[None]):
         open_tab: Callable[[Path, int | None], int] | None = None,
         summaries: SummaryControl | None = None,
         providers: ProviderTools | None = None,
+        pm: PmView | None = None,
     ) -> None:
         super().__init__()
         self.source = source
@@ -285,6 +290,7 @@ class DeckApp(App[None]):
         self.open_tab = open_tab  # a shell tab in a project, for `x`; returns its pane id
         self.summaries = summaries  # the provider settings `s` shows and writes (#47)
         self.providers = providers
+        self.pm = pm  # the PM view's board, and what reads GitHub for it (#68)
         self.resource_log = log  # its own cardak.db connection: events, crash banner, history
         self._crash: ResourceEvent | None = None
         self._cap_noticed = False  # the summary-limit notice shows once per run
@@ -389,6 +395,7 @@ class DeckApp(App[None]):
         if snap == self.raw:
             return
         self.raw = snap
+        self._observe(snap)
         machine = self.query_one("#machine", Static)
         if snap.machine_view is not None:
             machine.update(machine_label(snap.machine_view))
@@ -608,6 +615,44 @@ class DeckApp(App[None]):
             self.notify("summaries aren't available in this deck", severity="warning")
             return
         self.push_screen(SummariesScreen(self.summaries, self.providers))
+
+    def action_pm_project(self) -> None:
+        node = self.deck_tree.cursor_node
+        if node is None or node.data is None:
+            return
+        place = cleanup.place(node.data.group, node.data.row, self.raw.groups if self.raw else ())
+        if isinstance(place, str):
+            self.notify(place, severity="warning")
+            return
+        self._open_pm(place.cwd)
+
+    def action_pm_all(self) -> None:
+        self._open_pm(None)
+
+    def _open_pm(self, project: Path | None) -> None:
+        if self.pm is None:
+            self.notify("The PM view isn't available in this deck.", severity="warning")
+            return
+        self.push_screen(PmScreen(self.pm, project))
+
+    def action_refresh_all(self) -> None:
+        self.action_refresh()
+        if self.pm is not None:
+            self.pm.refresh()
+
+    def _observe(self, snap: DeckSnapshot) -> None:
+        """The PM view's onit cards show the Claude sessions on their branches."""
+        if self.pm is None:
+            return
+        self.pm.observe(
+            [
+                (g.key, r.cwd, r.agent.status)
+                for g in snap.groups
+                if g.kind in PROJECT_KINDS and g.key is not None
+                for r in g.panes
+                if r.agent is not None
+            ]
+        )
 
     def action_recap(self) -> None:
         node = self.deck_tree.cursor_node

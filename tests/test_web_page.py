@@ -20,8 +20,11 @@ def test_page_has_no_html_injection_sinks() -> None:
 
 
 def test_page_is_self_contained() -> None:
-    # SVG's namespace is a name, never fetched (#86); nothing else may look like a URL
-    page = PAGE.replace('"http://www.w3.org/2000/svg"', "", 1)
+    # SVG's namespace is a name, never fetched (#86), and the PM view's link prefix a check
+    # on the links it makes (#68); nothing else may look like a URL
+    page = PAGE.replace('"http://www.w3.org/2000/svg"', "", 1).replace(
+        '"https://github.com/"', "", 1
+    )
     for ref in ("http://", "https://", "//cdn", "<script src"):
         assert ref not in page, ref
     assert re.findall(r"<link[^>]*>", PAGE) == ['<link rel="icon" href="data:,">']
@@ -196,3 +199,9 @@ def test_page_script_parses(tmp_path: Path) -> None:
     (tmp_path / "page.js").write_text(script.group(1))
     done = subprocess.run(["node", "--check", str(tmp_path / "page.js")], capture_output=True)
     assert done.returncode == 0, done.stderr.decode()
+
+
+def test_page_has_projects_sheet() -> None:
+    assert 'id="pm"' in PAGE and '"/api/pm"' in PAGE and "PM_EVERY_MS = 30000" in PAGE
+    assert ".lc0" in PAGE and ".lc7" in PAGE
+    assert 'const GITHUB = "https://github.com/"' in PAGE and "url.startsWith(GITHUB)" in PAGE

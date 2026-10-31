@@ -3,6 +3,7 @@
 New snapshot fields stay off the network until they are added here; pids never go out.
 """
 
+import re
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
@@ -18,6 +19,7 @@ from cardak.core.context import (
 )
 from cardak.core.detail import shown_path, turn_text, words
 from cardak.core.limits import LimitView
+from cardak.core.pm import Band, Board, Card
 from cardak.core.snapshot import AgentView, DeckSnapshot, Group, PaneRow
 from cardak.core.summary import TAGS
 from cardak.core.trends import (
@@ -35,6 +37,8 @@ from cardak.core.trends import (
 )
 
 Json = dict[str, Any]  # JSON-shaped; Any so callers can index nested values
+GITHUB = "https://github.com/"
+_HEX = re.compile(r"^[0-9a-fA-F]{6}$")
 MAX_POINTS = 200  # per session line on the phone (#86): the plot is 300 units wide
 
 
@@ -296,4 +300,52 @@ def trends_json(
         "context": context_json(context)
         if context is not None and shown and with_context
         else None,
+    }
+
+
+def _github_url(url: str | None) -> str | None:
+    return url if url and url.startswith(GITHUB) else None
+
+
+def _pm_card(c: Card, now: float) -> Json:
+    return {
+        "kind": c.kind,
+        "number": c.number,
+        "title": c.title,
+        "labels": [
+            {"name": x.name, "color": x.color if _HEX.match(x.color) else None} for x in c.labels
+        ],
+        "updated_ago": round(now - c.updated_at),
+        "url": _github_url(c.url),
+        "branch": c.branch,
+        "pr": c.pr,
+        "session": c.session,
+    }
+
+
+def _pm_band(b: Band, now: float) -> Json:
+    return {
+        "name": b.name,
+        "repo": b.repo,
+        "fetched_ago": None if b.fetched_at is None else round(now - b.fetched_at),
+        "error": b.error,
+        "todo": [_pm_card(c, now) for c in b.todo],
+        "onit": [_pm_card(c, now) for c in b.onit],
+        "done": {
+            "bullets": [
+                {"text": x.text, "refs": list(x.refs), "url": _github_url(x.url)}
+                for x in b.done.bullets
+            ],
+            "note": b.done.note,
+        },
+    }
+
+
+def pm_json(board: Board | None, now: float) -> Json:
+    """The PM view for the phone (#68): no paths, and links only to github.com."""
+    if board is None:
+        return {"board": None}
+    return {
+        "built_ago": round(now - board.built_at),
+        "bands": [_pm_band(b, now) for b in board.bands],
     }

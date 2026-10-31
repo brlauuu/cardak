@@ -90,9 +90,9 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
 #sheet h4 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
   margin: 14px 0 4px; }
 #sheet p { margin: 2px 0; overflow-wrap: anywhere; }
-#trends, #figure { background: none; border: 1px solid var(--line); color: var(--text);
+#pm, #trends, #figure { background: none; border: 1px solid var(--line); color: var(--text);
   border-radius: 8px; padding: 2px 10px; font: inherit; font-size: 13px; }
-#trends { margin-left: auto; }
+#pm { margin-left: auto; }
 #figure { margin: 6px 0 4px; padding: 4px 8px; }
 .trend { padding: 8px 0 6px; border-bottom: 1px solid var(--line); }
 .trend:last-child { border-bottom: none; }
@@ -109,6 +109,19 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
 .cplot polyline { fill: none; stroke-width: 1.1; stroke-linejoin: round; }
 .s0 { stroke: #56b6c2; } .s1 { stroke: #c678dd; } .s2 { stroke: #e5c07b; } .s3 { stroke: #98c379; }
 .s4 { stroke: #61afef; } .s5 { stroke: #e06c75; } .s6 { stroke: #7fdbe6; } .s7 { stroke: #e08cf0; }
+.pm-col { margin-top: 6px; }
+a.pm-card { display: block; color: inherit; text-decoration: none; padding: 6px 0 5px;
+  border-bottom: 1px solid var(--line); }
+a.pm-card:last-child { border-bottom: none; }
+.pm-card .num { color: var(--muted); }
+.chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 7px; margin-left: 4px;
+  color: #111; white-space: nowrap; }
+.lc0 { background: #e06c75; } .lc1 { background: #98c379; } .lc2 { background: #e5c07b; }
+.lc3 { background: #61afef; } .lc4 { background: #c678dd; } .lc5 { background: #56b6c2; }
+.lc6 { background: #f0a040; } .lc7 { background: #b4b4c8; }
+.pm-done { margin: 3px 0; }
+.pm-done a { color: var(--link); margin-left: 4px; }
+.pm-error { color: var(--waiting); }
 #close { float: right; background: none; border: 1px solid var(--line); color: var(--text);
   border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; }
 @media (min-width: 820px) {
@@ -124,6 +137,7 @@ h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: v
   <span id="machine"></span>
   <span id="spend"></span>
   <span id="limits"></span>
+  <button id="pm" type="button">Projects</button>
   <button id="trends" type="button">Trends</button>
   <span id="fresh">connecting…</span>
 </header>
@@ -140,6 +154,9 @@ const POLL_MS = 3000;
 const FETCH_TIMEOUT_MS = 5000;
 const STALE_S = 10;
 const TRENDS_EVERY_MS = 30000;
+const PM_EVERY_MS = 30000;
+const GITHUB = "https://github.com/";  // the only links the PM view makes, checked (#68)
+const NO_BOARD = "No board yet: the PM view fills while the deck runs (press P there).";
 const NO_USAGE = "No usage yet: cardak counts it while the deck or the daemon runs.";
 const NO_KEY = "open the link from `cardak web setup` (or scan its QR code) on this device";
 const BAD_KEY = "this link's key is no longer valid · run `cardak web setup` on the computer";
@@ -151,6 +168,7 @@ const $ = (id) => document.getElementById(id);
 let key = null, last = null, timer = null, sheetId = null, stopped = false, inflight = false;
 const opened = new Set();
 let trends = null, trendsOpen = false, trendsTimer = null, figure = "cost";
+let pm = null, pmOpen = false, pmTimer = null;
 const ctxDay = new Map();  // project name -> the day picked on its context plot, across refreshes
 
 function el(tag, cls, text) {
@@ -661,6 +679,102 @@ function openTrends() {
   trendsTimer = setInterval(loadTrends, TRENDS_EVERY_MS);
 }
 
+// the PM view (#68): a label keeps one of the page's 8 colors, by its name
+function labelClass(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return "lc" + (h % 8);
+}
+
+function githubLink(url, text, cls) {
+  const a = el("a", cls, text);
+  if (url && url.startsWith(GITHUB)) {
+    a.setAttribute("href", url);
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener");
+  }
+  return a;
+}
+
+function pmCard(c) {
+  const a = githubLink(c.url, null, "pm-card");
+  const top = add(el("div"), el("span", "num", "#" + c.number + " "), el("span", null, c.title));
+  for (const l of c.labels) add(top, el("span", "chip " + labelClass(l.name), l.name));
+  const where = [c.branch, c.pr !== null ? "PR #" + c.pr + " open" : null].filter(Boolean);
+  if (c.kind === "pr") where.reverse();
+  const line = el("div", "muted small", where.length ? where.join(" · ") : "updated " + age(c.updated_ago) + " ago");
+  if (c.session) { add(line, el("span", null, " "), el("span", "dot " + c.session)); add(line, el("span", null, " " + c.session)); }
+  return add(a, top, line);
+}
+
+function pmBand(b) {
+  const box = el("div", "trend");
+  const issues = b.todo.length + b.onit.filter((c) => c.kind === "issue").length;
+  add(box, el("h3", null, b.name));
+  const head = [];
+  if (b.repo && (b.fetched_ago !== null || !b.error)) head.push(issues + " open");
+  if (b.fetched_ago !== null) head.push("fetched " + age(b.fetched_ago) + " ago");
+  add(box, el("p", "muted small", head.join(" · ")));
+  if (b.error) add(box, el("p", "small pm-error", b.error));
+  const col = (title, cards) => {
+    const c = add(el("div", "pm-col"), el("h4", null, title));
+    for (const card of cards) add(c, pmCard(card));
+    return c;
+  };
+  add(box, col("todo (" + b.todo.length + ")", b.todo), col("onit (" + b.onit.length + ")", b.onit));
+  const done = add(el("div", "pm-col"), el("h4", null, "done · 7 days"));
+  if (b.done.note) add(done, el("p", "muted small", b.done.note));
+  for (const x of b.done.bullets) {
+    const p = add(el("p", "pm-done"), el("span", null, x.text));
+    x.refs.forEach((r, i) => add(p, githubLink(i === 0 ? x.url : null, "#" + r)));
+    add(done, p);
+  }
+  return add(box, done);
+}
+
+function renderPm() {
+  const body = $("sheet-body");
+  const panel = body.parentElement, scroll = panel.scrollTop;
+  clear(body);
+  add(body, el("h3", null, "Projects"));
+  if (!pm.bands) { add(body, el("p", "muted", NO_BOARD)); return; }
+  for (const b of pm.bands) add(body, pmBand(b));
+  panel.scrollTop = scroll;
+}
+
+async function loadPm() {
+  if (!pmOpen || document.visibilityState !== "visible") return;
+  let r;
+  try {
+    r = await get("/api/pm");
+  } catch (e) {
+    return; // the list says the computer can't be reached
+  }
+  if (!pmOpen) return;
+  if (r.status === 401) { closeSheet(); stop(BAD_KEY); return; }
+  let b = null;
+  if (r.ok) {
+    try { b = await r.json(); } catch (e) { return; }
+  }
+  if (!pmOpen) return;
+  if (!b) {
+    if (!pm) { clear($("sheet-body")); add($("sheet-body"), el("p", "muted", "couldn't load the projects")); }
+    return; // keep what the sheet shows
+  }
+  pm = b;
+  renderPm();
+}
+
+function openPm() {
+  closeSheet();
+  pmOpen = true;
+  clear($("sheet-body"));
+  add($("sheet-body"), el("p", "muted", "loading…"));
+  $("sheet").classList.add("show");
+  loadPm();
+  pmTimer = setInterval(loadPm, PM_EVERY_MS);
+}
+
 function openSheet(id) {
   closeSheet();
   sheetId = id;
@@ -675,15 +789,19 @@ function closeSheet() {
   trendsOpen = false;
   if (trendsTimer) clearInterval(trendsTimer);
   trendsTimer = null;
+  pmOpen = false;
+  if (pmTimer) clearInterval(pmTimer);
+  pmTimer = null;
   $("sheet").classList.remove("show");
 }
 
 $("close").addEventListener("click", closeSheet);
 $("trends").addEventListener("click", openTrends);
+$("pm").addEventListener("click", openPm);
 $("sheet").addEventListener("click", (e) => { if (e.target === $("sheet")) closeSheet(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") { poll(); loadTrends(); }
+  if (document.visibilityState === "visible") { poll(); loadTrends(); loadPm(); }
 });
 
 key = readKey();

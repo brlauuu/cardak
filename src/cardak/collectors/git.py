@@ -1,4 +1,5 @@
-"""Read-only git for recaps: the top level, the branch, changed files and recent commits.
+"""Read-only git for recaps and the PM view: the top level, branches, the remote, changed files
+and recent commits.
 
 Every call is `git --no-optional-locks -C <dir>` with a timeout; any failure is None.
 """
@@ -45,6 +46,25 @@ def toplevel(path: Path, runner: Runner = subprocess.run) -> Path | None:
     """The git top level of path (a worktree's own), or None outside git."""
     out = _git(path, ["rev-parse", "--show-toplevel"], runner)
     return Path(out.strip()) if out and out.strip() else None
+
+
+def branch(path: Path, runner: Runner = subprocess.run) -> str | None:
+    """The branch checked out in path's worktree; None when detached or outside git."""
+    out = _git(path, ["branch", "--show-current"], runner)
+    return out.strip() or None if out is not None else None
+
+
+def branches(top: Path, runner: Runner = subprocess.run) -> tuple[str, ...] | None:
+    """Every local branch; worktrees share them, so any of a repo's worktrees gives all."""
+    out = _git(top, ["for-each-ref", "--format=%(refname:short)", "refs/heads"], runner)
+    if out is None:
+        return None
+    return tuple(line.strip() for line in out.splitlines() if line.strip())
+
+
+def remote_url(top: Path, runner: Runner = subprocess.run) -> str | None:
+    out = _git(top, ["remote", "get-url", "origin"], runner)
+    return out.strip() or None if out is not None else None
 
 
 def _commits(top: Path, since: float, limit: int, runner: Runner) -> tuple[Commit, ...] | None:
