@@ -390,7 +390,9 @@ class Store:
 
     def add_pm_summary(self, row: PmSummaryRow) -> None:
         try:
-            self._con.execute("INSERT INTO pm_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?)", astuple(row))
+            self._con.execute(
+                "INSERT INTO pm_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?)", astuple(row)
+            )
         except sqlite3.Error as e:
             raise StoreError(str(e)) from e
 
