@@ -31,7 +31,9 @@ week. It is not a tracker and changes nothing on GitHub.
 
 - No writes to GitHub, no starting sessions from a card, no moving cards. The deck stays read-only.
 - No per-project GitHub accounts: one `gh` login reaches every project (the user confirmed).
-- Not on the phone page, and not in `cardak daemon`.
+- No GitHub reading in `cardak daemon`: the PM view works while the deck runs (the user: "the PM
+  feature works only when cardak is on"). With the deck closed the phone shows the last board with
+  its age, and nothing refreshes it.
 - No matching of issue numbers in what the user typed into sessions (noisy; branches and PRs say
   it better).
 - No GitHub token handling in cardak: `gh` owns authentication.
@@ -42,6 +44,25 @@ week. It is not a tracker and changes nothing on GitHub.
 - A stale view that looks fresh: the fetch time is always on screen.
 - Breaking the deck when `gh` is missing, logged out or offline: the bands say so, the rest of the
   deck is untouched.
+
+## On the phone
+
+The user wants the overview on the phone page too (M7's web view, served by `cardak daemon`).
+
+- The deck writes the board it shows (every project's three columns, card fields, the onit
+  sessions' states, the done bullets, fetch times and errors) to a file atomically, whenever it
+  changes. The daemon reads that file when it changes and serves it at `GET /api/pm` (Bearer, like
+  the others). The daemon never calls `gh`, git or a summarizer for it.
+- `web/view.py` whitelists what goes out: names, numbers, titles, labels and their colors, branch
+  names, relative times, bullet text, and `https://github.com/` URLs only. No paths.
+- The page gets a **Projects** sheet, opened like the Trends sheet: one section per project,
+  stacked, each with todo, onit and done one below the other, every card shown (the page scrolls);
+  a tap on a card or a bullet's number opens it on GitHub. It fetches `/api/pm` when the sheet opens
+  and every 30 s while it is open. The header line shows "fetched N min ago" from the board.
+  Phone layout within that is my call; checked at 390×844 and 1180×820 like the other sheets.
+- Links are set with `setAttribute` after checking the `https://github.com/` prefix; text through
+  `textContent`, as the page's CSP and conventions require.
+- Read-only: no refresh from the phone.
 
 ## Which repository a project is
 
@@ -145,7 +166,7 @@ its age:
   summarizer factory over as it does for `s`.
 - Tests never call `gh`, git on real repos, the network or a real provider: recorded GraphQL
   replies go in `tests/fixtures/github/` (made-up repositories).
-- The file table in AGENTS.md gains the cache file and the new table.
+- The file table in AGENTS.md gains the cache file, the board file and the new table.
 
 ## Left to the builder
 
