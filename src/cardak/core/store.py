@@ -19,7 +19,7 @@ from cardak.core.config import state_dir
 if TYPE_CHECKING:  # the hook imports this module; it never reads transcripts
     from cardak.collectors.usage import Prompt, Reply, Usage
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 # The oldest schema whose code can still use this database, kept in PRAGMA application_id so
 # that an older cardak (from this one on) opens a newer file instead of refusing it. Only a
 # new table is safe for older code. Any change to an existing table, a new column included,
@@ -127,6 +127,19 @@ CREATE TABLE IF NOT EXISTS transcript_offsets (
 -- subagent, and the one-time passes that filled it in for rows stored before.
 CREATE TABLE IF NOT EXISTS claude_sidechain_replies (reply_key TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS usage_backfills (name TEXT PRIMARY KEY, done_at REAL NOT NULL);
+-- schema 7 (#68): new table only, so MIN_READER stays. The PM view's done summaries: spend
+-- that counts toward [summary] monthly_limit_usd with the waiting summaries.
+CREATE TABLE IF NOT EXISTS pm_summaries (
+    repo TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    created_at REAL NOT NULL,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS pm_summaries_created ON pm_summaries (created_at);
 """
 ALERT_KINDS = ("memory", "big", "growth", "busy", "machine_busy")
 
@@ -144,6 +157,20 @@ class SummaryRow:
     cost_usd: float
     created_at: float
     error: str | None = None  # why no summary could be made (API error, key problem)
+
+
+@dataclass(frozen=True)
+class PmSummaryRow:
+    """One done summary of the PM view (#68), for `input_hash` of a repo's last 7 days."""
+
+    repo: str
+    input_hash: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+    created_at: float
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -331,6 +358,17 @@ class Store:
         except sqlite3.Error as e:
             raise StoreError(str(e)) from e
 
+    def tool_events_after(self, rowid: int) -> list[tuple[int, float, str]]:
+        """`PostToolUse` events after `rowid` that may have changed GitHub (#68), oldest first:
+        (rowid, ts, payload). A cheap filter only; the PM view parses the payload."""
+        rows = self._query(
+            "SELECT rowid, ts, payload_json FROM events WHERE rowid > ? AND event = 'PostToolUse'"
+            " AND (payload_json LIKE '%gh %' OR payload_json LIKE '%git push%'"
+            " OR payload_json LIKE '%mcp\\_\\_github%' ESCAPE '\\') ORDER BY rowid",
+            (rowid,),
+        )
+        return [(int(r[0]), float(r[1]), str(r[2])) for r in rows]
+
     def event_at(self, session_id: str, ts: float) -> tuple[str, str] | None:
         """The event (name, payload) a session recorded at exactly `ts`."""
         try:
@@ -347,6 +385,12 @@ class Store:
             self._con.execute(
                 "INSERT OR IGNORE INTO summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", astuple(row)
             )
+        except sqlite3.Error as e:
+            raise StoreError(str(e)) from e
+
+    def add_pm_summary(self, row: PmSummaryRow) -> None:
+        try:
+            self._con.execute("INSERT INTO pm_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?)", astuple(row))
         except sqlite3.Error as e:
             raise StoreError(str(e)) from e
 
@@ -390,7 +434,9 @@ class Store:
     def spend_since(self, ts: float) -> float:
         try:
             row = self._con.execute(
-                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM summaries WHERE created_at >= ?", (ts,)
+                "SELECT (SELECT COALESCE(SUM(cost_usd), 0.0) FROM summaries WHERE created_at >= ?)"
+                " + (SELECT COALESCE(SUM(cost_usd), 0.0) FROM pm_summaries WHERE created_at >= ?)",
+                (ts, ts),
             ).fetchone()
         except sqlite3.Error as e:
             raise StoreError(str(e)) from e
@@ -606,6 +652,9 @@ class Store:
             self._con.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
             self._con.execute(
                 "DELETE FROM summaries WHERE created_at < ?", (now - SUMMARY_KEEP_SECONDS,)
+            )
+            self._con.execute(
+                "DELETE FROM pm_summaries WHERE created_at < ?", (now - SUMMARY_KEEP_SECONDS,)
             )
             usage_cutoff = now - USAGE_KEEP_SECONDS
             self._con.execute("DELETE FROM claude_replies WHERE ts < ?", (usage_cutoff,))
