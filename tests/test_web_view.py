@@ -299,3 +299,49 @@ def test_snapshot_json_limits() -> None:
         "age_s": 42.0,
     }
     assert snapshot_json(snap(), 1.0, 2.0)["plan_limits"] is None
+
+
+def _pm_board(url: str = "https://github.com/example/webshop/issues/212", color: str = "d73a4a"):  # noqa: ANN202
+    from cardak.collectors.github import Label
+    from cardak.core.pm import Band, Board, Bullet, Card, Done
+
+    card = Card(
+        "issue", 212, "Checkout", (Label("bug", color),), 1000.0, url, "212-x", 214, "working"
+    )
+    done = Done((Bullet("Fixed it", (203,), "javascript:alert(1)"),), None)
+    band = Band(
+        "webshop", "/home/user/w/webshop", "example/webshop", (card,), (), done, 500.0, None
+    )
+    return Board((band,), 900.0)
+
+
+def test_pm_json_whitelists() -> None:
+    from cardak.web.view import pm_json
+
+    got = pm_json(_pm_board(url="javascript:alert(1)", color="red;x"), 8200.0)
+    band = got["bands"][0]  # type: ignore[index]
+    card = band["todo"][0]
+    assert card["url"] is None and card["labels"] == [{"name": "bug", "color": None}]
+    assert card["updated_ago"] == 7200 and band["fetched_ago"] == 7700 and got["built_ago"] == 7300
+    assert band["done"]["bullets"][0] == {"text": "Fixed it", "refs": [203], "url": None}
+    assert "/home/user" not in json.dumps(got) and "path" not in band
+    assert (card["branch"], card["pr"], card["session"], card["kind"]) == (
+        "212-x",
+        214,
+        "working",
+        "issue",
+    )
+
+
+def test_pm_json_keeps_github_links_and_colors() -> None:
+    from cardak.web.view import pm_json
+
+    card = pm_json(_pm_board(), 1000.0)["bands"][0]["todo"][0]  # type: ignore[index]
+    assert card["url"] == "https://github.com/example/webshop/issues/212"
+    assert card["labels"][0]["color"] == "d73a4a"
+
+
+def test_pm_json_none() -> None:
+    from cardak.web.view import pm_json
+
+    assert pm_json(None, 1.0) == {"board": None}

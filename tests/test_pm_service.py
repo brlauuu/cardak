@@ -324,3 +324,22 @@ def test_step_survives_a_store_error(parts) -> None:  # noqa: ANN001
     store.close()
     svc.step()  # events can't be read; the board still builds
     assert band(svc, "webshop").todo
+
+
+def test_board_file_rereads_on_change(tmp_path: Path) -> None:
+    import os
+
+    from cardak.core.pm import Board, board_to_json
+    from cardak.core.pm_service import BoardFile
+
+    path = tmp_path / "pm.json"
+    reader = BoardFile(path)
+    assert reader.get() is None
+    path.write_text(json.dumps(board_to_json(Board((), 1.0))))
+    assert reader.get() == Board((), 1.0)
+    path.write_text(json.dumps(board_to_json(Board((), 22.0))))
+    os.utime(path, ns=(1, 1))  # a different mtime, whatever the clock's resolution
+    assert reader.get() == Board((), 22.0)
+    path.write_text("garbage")
+    os.utime(path, ns=(2, 2))
+    assert reader.get() is None

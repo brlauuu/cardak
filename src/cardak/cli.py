@@ -625,11 +625,13 @@ def _web_start() -> WebStart | None:
         return None
 
     def start_web(source: LiveSource) -> Publish | None:
+        from cardak.core.pm_service import BoardFile, board_path
         from cardak.web.server import Latest, make_server, start
 
         latest = Latest()
+        board = BoardFile(board_path())  # the deck writes it; the daemon only reads (#68)
         try:
-            server = make_server(web.host, web.port, key, latest, source.session)
+            server = make_server(web.host, web.port, key, latest, source.session, board=board.get)
         except OSError as e:
             log(f"web view off: can't listen on {web.host}:{web.port}: {e.strerror or e}")
             return None
