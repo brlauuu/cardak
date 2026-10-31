@@ -1,0 +1,42 @@
+{
+ "data": {
+  "repository": {
+   "issues": {
+    "nodes": [
+     {
+      "number": 205,
+      "title": "Search filters",
+      "url": "https://github.com/example/webshop/issues/205",
+      "updatedAt": "2026-10-22T10:00:00Z",
+      "labels": {
+       "nodes": [
+        {
+         "name": "feature",
+         "color": "a2eeef"
+        }
+       ]
+      }
+     },
+     {
+      "number": 190,
+      "title": "Cart badge count",
+      "url": "https://github.com/example/webshop/issues/190",
+      "updatedAt": "2026-10-20T10:00:00Z",
+      "labels": {
+       "nodes": [
+        {
+         "name": "ui",
+         "color": "7057ff"
+        }
+       ]
+      }
+     }
+    ],
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": "C2"
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,156 @@
+{
+ "data": {
+  "repository": {
+   "issues": {
+    "nodes": [
+     {
+      "number": 212,
+      "title": "Checkout loses the coupon",
+      "url": "https://github.com/example/webshop/issues/212",
+      "updatedAt": "2026-10-30T08:00:00Z",
+      "labels": {
+       "nodes": [
+        {
+         "name": "bug",
+         "color": "d73a4a"
+        }
+       ]
+      }
+     },
+     {
+      "number": 198,
+      "title": "Wishlist sharing",
+      "url": "https://github.com/example/webshop/issues/198",
+      "updatedAt": "2026-10-29T12:00:00Z",
+      "labels": {
+       "nodes": [
+        {
+         "name": "feature",
+         "color": "a2eeef"
+        },
+        {
+         "name": "ui",
+         "color": "7057ff"
+        }
+       ]
+      }
+     }
+    ],
+    "pageInfo": {
+     "hasNextPage": true,
+     "endCursor": "C1"
+    }
+   },
+   "pullRequests": {
+    "nodes": [
+     {
+      "number": 207,
+      "title": "Cart badge",
+      "url": "https://github.com/example/webshop/pull/207",
+      "updatedAt": "2026-10-30T09:00:00Z",
+      "headRefName": "190-cart-badge",
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "nodes": [
+        {
+         "number": 190
+        }
+       ]
+      }
+     },
+     {
+      "number": 210,
+      "title": "Fix a typo in the footer",
+      "url": "https://github.com/example/webshop/pull/210",
+      "updatedAt": "2026-10-28T09:00:00Z",
+      "headRefName": "fix-typo",
+      "labels": {
+       "nodes": [
+        {
+         "name": "docs",
+         "color": "0075ca"
+        }
+       ]
+      },
+      "closingIssuesReferences": {
+       "nodes": []
+      }
+     }
+    ],
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    }
+   },
+   "merged": {
+    "nodes": [
+     {
+      "number": 203,
+      "title": "Fix tax rounding",
+      "url": "https://github.com/example/webshop/pull/203",
+      "mergedAt": "2026-10-28T10:00:00Z",
+      "closingIssuesReferences": {
+       "nodes": []
+      }
+     },
+     {
+      "number": 201,
+      "title": "Add order export",
+      "url": "https://github.com/example/webshop/pull/201",
+      "mergedAt": "2026-10-26T10:00:00Z",
+      "closingIssuesReferences": {
+       "nodes": [
+        {
+         "number": 180
+        }
+       ]
+      }
+     },
+     {
+      "number": 150,
+      "title": "Old work",
+      "url": "https://github.com/example/webshop/pull/150",
+      "mergedAt": "2026-10-01T10:00:00Z",
+      "closingIssuesReferences": {
+       "nodes": []
+      }
+     }
+    ]
+   },
+   "closed": {
+    "nodes": [
+     {
+      "number": 180,
+      "title": "Export orders",
+      "url": "https://github.com/example/webshop/issues/180",
+      "closedAt": "2026-10-26T10:00:05Z",
+      "stateReason": "COMPLETED"
+     },
+     {
+      "number": 204,
+      "title": "Old idea",
+      "url": "https://github.com/example/webshop/issues/204",
+      "closedAt": "2026-10-29T10:00:00Z",
+      "stateReason": "COMPLETED"
+     },
+     {
+      "number": 151,
+      "title": "Won't do this",
+      "url": "https://github.com/example/webshop/issues/151",
+      "closedAt": "2026-10-27T10:00:00Z",
+      "stateReason": "NOT_PLANNED"
+     },
+     {
+      "number": 120,
+      "title": "Ancient",
+      "url": "https://github.com/example/webshop/issues/120",
+      "closedAt": "2026-10-02T10:00:00Z",
+      "stateReason": "COMPLETED"
+     }
+    ]
+   }
+  }
+ }
+}

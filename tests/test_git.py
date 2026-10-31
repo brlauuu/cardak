@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from cardak.collectors.git import Commit, GitState, state, toplevel
+from cardak.collectors.git import Commit, GitState, branch, branches, remote_url, state, toplevel
 
 T0 = 1792000000  # commits at T0, T0 + 100, T0 + 200
 
@@ -109,3 +109,23 @@ def test_no_git_is_none(repo: Path) -> None:
         raise FileNotFoundError("git")
 
     assert state(repo, None, runner=missing) is None
+
+
+def test_branches_include_every_worktrees(repo: Path, tmp_path: Path) -> None:
+    git(repo, "branch", "68-pm-view")
+    git(repo, "worktree", "add", "-q", "-b", "feat/70-limits", str(tmp_path / "wt"))
+    assert sorted(branches(repo) or ()) == ["68-pm-view", "feat/70-limits", "main"]
+    assert branches(tmp_path / "wt") == branches(repo)
+
+
+def test_branch_of_a_folder(repo: Path, tmp_path: Path) -> None:
+    assert branch(repo / ".") == "main"
+    git(repo, "checkout", "-q", "--detach")
+    assert branch(repo) is None
+    assert branch(tmp_path) is None  # not git
+
+
+def test_remote_url(repo: Path) -> None:
+    assert remote_url(repo) is None
+    git(repo, "remote", "add", "origin", "git@github.com:example/webshop.git")
+    assert remote_url(repo) == "git@github.com:example/webshop.git"
