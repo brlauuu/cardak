@@ -16,6 +16,7 @@ from cardak.core.store import PmSummaryRow, Store
 from cardak.core.summary import KeyProblem, ProviderTools, cost, month_start, provider_key
 
 MAX_BULLETS = 6
+MAX_ITEMS = 30  # the newest only: a CPU model read a busy week's 73 items for over 60 s (measured)
 MAX_BULLET = 160
 MAX_ERROR = 80
 NOT_READY = "summaries are off: set one up with s"
@@ -47,8 +48,15 @@ def _items(data: RepoData) -> list[tuple[float, int, str, str]]:
     return sorted(items)
 
 
+def _sent(data: RepoData) -> list[tuple[float, int, str, str]]:
+    return _items(data)[-MAX_ITEMS:]
+
+
 def done_input(data: RepoData) -> str:
-    return "\n".join(line for *_, line in _items(data))
+    items = _items(data)
+    left_out = len(items) - MAX_ITEMS
+    head = [f"({left_out} older items left out)"] if left_out > 0 else []
+    return "\n".join(head + [line for *_, line in items[-MAX_ITEMS:]])
 
 
 def done_hash(data: RepoData) -> str:
@@ -57,7 +65,7 @@ def done_hash(data: RepoData) -> str:
 
 def parse_done(text: str, data: RepoData) -> tuple[Bullet, ...]:
     """The reply's bullets that cite at least one number they were given."""
-    urls = {number: url for _, number, url, _ in _items(data)}
+    urls = {number: url for _, number, url, _ in _sent(data)}
     bullets: list[Bullet] = []
     for line in text.splitlines():
         found = _BULLET.match(line)

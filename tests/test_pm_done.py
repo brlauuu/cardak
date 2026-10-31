@@ -183,3 +183,19 @@ def test_unusable_reply_falls_back(tmp_path: Path, keys: Path) -> None:
     done, settled = run(Stub(R("I can't help with that")), store, keys)
     assert settled and done.note == "the summary couldn't be used"
     assert store.spend_since(0) > 0  # it still cost money
+
+
+def test_input_keeps_the_newest_items() -> None:
+    from cardak.core.pm_done import MAX_ITEMS
+
+    many = RepoData(
+        (),
+        (),
+        tuple(Merged(n, f"pr {n}", f"{U}/pull/{n}", NOW - 1000 + n, ()) for n in range(1, 41)),
+        (),
+    )
+    lines = done_input(many).splitlines()
+    assert MAX_ITEMS == 30 and len(lines) == 31
+    assert lines[0] == "(10 older items left out)" and lines[1].startswith("PR #11 ")
+    assert lines[-1].startswith("PR #40 ")
+    assert [b.refs for b in parse_done("- old one (#3)\n- new one (#40)", many)] == [(40,)]
