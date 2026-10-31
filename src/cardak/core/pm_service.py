@@ -229,15 +229,22 @@ class PmService:
         self._publish(projects, now)
 
     def _read_local(self, projects: Sequence[Project]) -> None:
+        for p in projects:
+            self._read_project(p)
         with self._lock:
             observed = list(self._observed)
-        for p in projects:
-            self._local[p.path] = git.branches(p.path, self._git) or ()
-            remote = git.remote_url(p.path, self._git)
-            repo = p.github or (repo_from_url(remote) if remote else None)
-            self._repo_of[p.path] = repo
-            if repo is not None and repo not in self._repos:
-                self._repos[repo] = self._cached(repo)
+        self._read_sessions(observed)
+
+    def _read_project(self, p: Project) -> None:
+        self._local[p.path] = git.branches(p.path, self._git) or ()
+        remote = git.remote_url(p.path, self._git)
+        repo = p.github or (repo_from_url(remote) if remote else None)
+        self._repo_of[p.path] = repo
+        if repo is not None and repo not in self._repos:
+            self._repos[repo] = self._cached(repo)
+
+    def _read_sessions(self, observed: Sequence[Observed]) -> None:
+        """Each project's branches with a Claude session on them, and its most urgent state."""
         sessions: dict[Path, dict[str, list[Status]]] = {}
         for project, cwd, status in observed:
             branch = git.branch(cwd, self._git) if cwd is not None else None
@@ -266,14 +273,18 @@ class PmService:
             return
         for rowid, ts, payload in events:
             self._watermark = rowid
-            event = parse(payload)
-            if event is None or event.cwd is None or not changes_github(payload):
-                continue
-            project = self._project_of(event.cwd, projects)
-            name = self._repo_of.get(project.path) if project else None
-            repo = self._repos.get(name) if name else None
+            repo = self._changed(payload, projects)
             if repo is not None and ts > (repo.fetched_at or 0.0):
                 repo.due = min(repo.due, self._allowed(repo, ts + TRIGGER_DELAY))
+
+    def _changed(self, payload: str, projects: Sequence[Project]) -> "_Repo | None":
+        """The repository a stored event changed on GitHub, if it did."""
+        event = parse(payload)
+        if event is None or event.cwd is None or not changes_github(payload):
+            return None
+        project = self._project_of(event.cwd, projects)
+        name = self._repo_of.get(project.path) if project else None
+        return self._repos.get(name) if name else None
 
     def _allowed(self, repo: _Repo, when: float) -> float:
         return when if repo.attempted is None else max(when, repo.attempted + MIN_GAP)

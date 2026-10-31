@@ -312,6 +312,31 @@ that project's panes, types `claude /repo-cleanup` into it and takes you there, 
 `/repo-cleanup` isn't one of cardak's skills: it runs whatever skill of that name you have in
 `~/.claude/skills/`. The tab is an ordinary shell and stays open when Claude exits.
 
+## PM view
+
+Press `P` in the deck for an overview of every project in cardak, to pick what to work on next,
+or `p` on a project (or one of its panes) for just that one. Each project is a band with three
+columns, each scrolling on its own:
+
+- **todo**: every open GitHub issue, most recently updated first, with its labels.
+- **onit**: issues being worked on (a local branch starts with the issue number, like
+  `68-pm-view` or `feat/68-pm-view`, or an open pull request closes it) and open pull requests
+  that close no issue. A Claude session on that branch shows its state.
+- **done · 7 days**: what was merged and closed in the last week, in a few bullets written by
+  the summary provider you chose under `s`, each with its PR numbers. These calls count toward
+  your monthly summary limit. With summaries off, it lists the merged pull requests instead.
+
+↑/↓ move within a column and on to the next project, ←/→ between columns, Enter opens the
+card on GitHub, `R` reads GitHub again.
+
+It reads GitHub with `gh`, so run `gh auth login` once; cardak handles no token. The repository
+is the project's `origin` remote, or `github = "owner/repo"` in its `[[project]]` entry. GitHub
+is read only while the deck runs: when it starts (if the last read is an hour old), every hour,
+on `R`, and shortly after a Claude session runs `gh issue …`, `gh pr …`, `gh release …` or
+`git push`. Local branches are re-read every few seconds without asking GitHub.
+
+On the phone page, **Projects** shows the same, as the deck last saw it.
+
 ## Development
 
 See `AGENTS.md` for conventions and `PLAN.md` for the roadmap.

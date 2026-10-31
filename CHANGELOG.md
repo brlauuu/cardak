@@ -9,6 +9,11 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+- A PM view: press `P` for every project's open GitHub issues, the work in progress and what
+  got done in the last 7 days, or `p` for one project; also on the phone page's Projects sheet.
+  It reads GitHub through `gh` while the deck runs (#68)
+
 ## 0.15.0 — 2026-10-30
 
 ### Added

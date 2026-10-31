@@ -118,6 +118,15 @@ def text_of(screen: PmScreen) -> str:
 BOARD = Board((webshop(), api()), NOW)
 
 
+async def until(pilot, check, limit: float = 10.0) -> None:  # noqa: ANN001
+    """Wait for the screen's 1 s redraw, however slow the machine is."""
+    for _ in range(int(limit / 0.1)):
+        if check():
+            return
+        await pilot.pause(0.1)
+    assert check()
+
+
 async def test_all_projects_shows_a_band_per_project() -> None:
     _, screen = screen_for(BOARD)
     async with Host(screen).run_test() as pilot:
@@ -215,8 +224,7 @@ async def test_no_board_yet() -> None:
         await pilot.pause()
         assert "Reading GitHub…" in text_of(screen)
         pm.current = BOARD
-        await pilot.pause(1.2)
-        assert "webshop · 3 open" in text_of(screen)
+        await until(pilot, lambda: "webshop · 3 open" in text_of(screen))
 
 
 async def test_redraw_keeps_the_highlighted_card() -> None:
@@ -229,7 +237,7 @@ async def test_redraw_keeps_the_highlighted_card() -> None:
         pm.current = Board(
             (Band(**{**moved.__dict__, "todo": (newer, *moved.todo)}), api()), NOW + 1
         )
-        await pilot.pause(1.2)
+        await until(pilot, lambda: "#300 New one" in text_of(screen))
         focused = screen.focused
         assert isinstance(focused, OptionList)
         assert focused.highlighted == 2  # still #198, now third

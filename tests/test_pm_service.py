@@ -96,7 +96,8 @@ def parts(tmp_path: Path):  # noqa: ANN201
         cache=tmp_path / "cache",
         clock=clock,
     )
-    return svc, clock, git, fetch, store, tmp_path
+    yield svc, clock, git, fetch, store, tmp_path
+    store.close()
 
 
 def band(svc: PmService, name: str):  # noqa: ANN201

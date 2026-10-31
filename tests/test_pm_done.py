@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -64,6 +65,21 @@ def tools(stub: Stub) -> ProviderTools:
     return ProviderTools(stub.make, lambda url: [], lambda: None, lambda: BUILTIN, lambda n: None)
 
 
+OPENED: list[Store] = []
+
+
+def new_store(path: Path) -> Store:
+    OPENED.append(Store(path))
+    return OPENED[-1]
+
+
+@pytest.fixture(autouse=True)
+def close_stores() -> Iterator[None]:
+    yield
+    while OPENED:
+        OPENED.pop().close()
+
+
 @pytest.fixture
 def keys(tmp_path: Path) -> Path:
     key = tmp_path / "anthropic_key"
@@ -127,12 +143,12 @@ def test_fallback_lists_prs_then_lone_closed_issues() -> None:
 
 def test_nothing_done_makes_no_call(tmp_path: Path, keys: Path) -> None:
     stub = Stub()
-    assert run(stub, Store(tmp_path / "db"), keys, EMPTY) == (Done((), NOTHING_DONE), True)
+    assert run(stub, new_store(tmp_path / "db"), keys, EMPTY) == (Done((), NOTHING_DONE), True)
     assert stub.calls == []
 
 
 def test_summary_is_recorded_as_spend(tmp_path: Path, keys: Path) -> None:
-    store = Store(tmp_path / "db")
+    store = new_store(tmp_path / "db")
     stub = Stub()
     done, settled = run(stub, store, keys)
     assert settled and done.bullets[0].refs == (203,) and done.note is None
@@ -142,7 +158,7 @@ def test_summary_is_recorded_as_spend(tmp_path: Path, keys: Path) -> None:
 
 
 def test_cap_reached_makes_no_call(tmp_path: Path, keys: Path) -> None:
-    store = Store(tmp_path / "db")
+    store = new_store(tmp_path / "db")
     store.add_pm_summary(PmSummaryRow("r", "h", "m", 1, 1, 2.0, NOW - 10))
     stub = Stub()
     done, settled = run(stub, store, keys, limit=1.0)
@@ -152,7 +168,7 @@ def test_cap_reached_makes_no_call(tmp_path: Path, keys: Path) -> None:
 
 def test_not_ready_lists_prs(tmp_path: Path) -> None:
     stub = Stub()
-    done, settled = run(stub, Store(tmp_path / "db"), tmp_path / "no-keys")
+    done, settled = run(stub, new_store(tmp_path / "db"), tmp_path / "no-keys")
     assert not settled and stub.calls == []
     assert done.note == "summaries are off: set one up with s" and done.bullets[0].refs == (203,)
 
@@ -165,13 +181,13 @@ def test_no_tools_is_not_ready(tmp_path: Path, keys: Path) -> None:
         summary=SummarySettings(),
         keys_dir=keys,
         tools=None,
-        store=Store(tmp_path / "db"),
+        store=new_store(tmp_path / "db"),
     )
     assert not settled and done.note == "summaries are off: set one up with s"
 
 
 def test_failure_is_recorded_and_retried(tmp_path: Path, keys: Path) -> None:
-    store = Store(tmp_path / "db")
+    store = new_store(tmp_path / "db")
     done, settled = run(Stub(RuntimeError("HTTP 500: busy")), store, keys)
     assert not settled and done.note == "the summary failed: HTTP 500: busy"
     row = store._con.execute("SELECT error, cost_usd FROM pm_summaries").fetchone()
@@ -179,7 +195,7 @@ def test_failure_is_recorded_and_retried(tmp_path: Path, keys: Path) -> None:
 
 
 def test_unusable_reply_falls_back(tmp_path: Path, keys: Path) -> None:
-    store = Store(tmp_path / "db")
+    store = new_store(tmp_path / "db")
     done, settled = run(Stub(R("I can't help with that")), store, keys)
     assert settled and done.note == "the summary couldn't be used"
     assert store.spend_since(0) > 0  # it still cost money

@@ -122,6 +122,16 @@ def _newest_first(cards: Sequence[Card]) -> tuple[Card, ...]:
     return tuple(sorted(cards, key=lambda c: (-c.updated_at, -c.number)))
 
 
+def _by_number(branches: Sequence[str]) -> dict[int, str]:
+    """Each issue number's first branch."""
+    found: dict[int, str] = {}
+    for branch in branches:
+        number = issue_number(branch)
+        if number is not None:
+            found.setdefault(number, branch)
+    return found
+
+
 def build_band(
     name: str,
     path: str,
@@ -137,11 +147,7 @@ def build_band(
         return Band(name, path, None, (), (), done, None, NOT_ON_GITHUB)
     if data is None:
         return Band(name, path, repo, (), (), done, fetched_at, error)
-    by_number: dict[int, str] = {}
-    for branch in local:
-        number = issue_number(branch)
-        if number is not None:
-            by_number.setdefault(number, branch)
+    by_number = _by_number(local)
     open_numbers = {i.number for i in data.issues}
     claimed = set(by_number).union(*(_claims(p) for p in data.prs))
     cards = [_issue_card(i, by_number, data.prs, sessions) for i in data.issues]

@@ -607,6 +607,7 @@ def test_pm_summaries_count_toward_spend(tmp_path: Path) -> None:
     store.add_pm_summary(PmSummaryRow("example/webshop", "h1", "m", 10, 5, 0.5, 100.0))
     assert store.spend_since(50.0) == 0.75
     assert store.spend_since(150.0) == 0.0
+    store.close()
 
 
 def test_schema_7_keeps_min_reader(tmp_path: Path) -> None:
@@ -621,6 +622,7 @@ def test_pm_summaries_pruned_with_summaries(tmp_path: Path) -> None:
     store.add_pm_summary(PmSummaryRow("r", "h", "m", 1, 1, 1.0, 0.0))
     store.prune(SUMMARY_KEEP_SECONDS + 1.0)
     assert store.spend_since(-1.0) == 0.0
+    store.close()
 
 
 def test_tool_events_after(tmp_path: Path) -> None:
@@ -632,3 +634,4 @@ def test_tool_events_after(tmp_path: Path) -> None:
     got = store.tool_events_after(0)
     assert [(ts, p) for _, ts, p in got] == [(1.0, push)]
     assert store.tool_events_after(got[0][0]) == []
+    store.close()

@@ -93,6 +93,17 @@ def fallback(data: RepoData, note: str | None) -> Done:
     return Done(tuple(bullets), note) if bullets else Done((), NOTHING_DONE)
 
 
+def _key(summary: SummarySettings, keys_dir: Path) -> str | None | Done:
+    """The provider's key (None for one that needs none), or a Done whose note says why no
+    summary can be made."""
+    if not summary_ready(summary, keys_dir):
+        return Done((), NOT_READY)
+    try:
+        return provider_key(summary.provider, keys_dir)
+    except KeyProblem:
+        return Done((), f"{NOT_READY} ({key_file(keys_dir, summary.provider).name} can't be used)")
+
+
 def write_done(
     repo: str,
     data: RepoData,
@@ -107,15 +118,14 @@ def write_done(
     (a summary, or nothing to summarize), False when the next fetch should try again."""
     if not data.merged and not data.closed:
         return Done((), NOTHING_DONE), True
-    if tools is None or not summary_ready(summary, keys_dir):
+    if tools is None:
         return fallback(data, NOT_READY), False
-    name, settings = summary.provider, summary.active
-    try:
-        key = provider_key(name, keys_dir)
-    except KeyProblem:
-        return fallback(data, f"{NOT_READY} ({key_file(keys_dir, name).name} can't be used)"), False
+    key = _key(summary, keys_dir)
+    if isinstance(key, Done):
+        return fallback(data, key.note), False
     if store.spend_since(month_start(now)) >= summary.monthly_limit_usd:
         return fallback(data, CAPPED), False
+    name, settings = summary.provider, summary.active
     user, input_hash = done_input(data), done_hash(data)
     try:
         reply = tools.make(name, settings, key).summarize(DONE_SYSTEM_PROMPT, user)
