@@ -251,3 +251,22 @@ async def test_escape_closes() -> None:
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, PmScreen)
+
+
+async def test_ages_move_on_without_a_new_board() -> None:
+    pm = FakePm(BOARD)
+    clock = [NOW]
+    screen = PmScreen(pm, None, open_url=lambda u: None, clock=lambda: clock[0])
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        assert "fetched 12 minutes ago" in text_of(screen)
+        clock[0] = NOW + 3600
+        await until(pilot, lambda: "fetched 1 hour ago" in text_of(screen), limit=40)
+
+
+async def test_project_not_in_the_board_says_so() -> None:
+    _, screen = screen_for(BOARD, project=Path("/w/elsewhere"))
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        assert "Reading GitHub…" not in text_of(screen)
+        assert "isn't in projects.toml" in text_of(screen)

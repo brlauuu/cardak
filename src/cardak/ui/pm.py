@@ -30,6 +30,8 @@ from cardak.core.recap import ago
 from cardak.ui.widgets import IDLE, WAITING, WORKING
 
 LOADING = "Reading GitHub…"
+NOT_LISTED = "{} isn't in projects.toml: press a on it in the deck to add it, then it shows here."
+REDRAW_EVERY = 30.0  # the ages ("fetched 12 minutes ago") move on without a new board
 _HEX = re.compile(r"^[0-9a-fA-F]{6}$")
 _STATE_STYLE: dict[Status, str] = {"waiting": f"bold {WAITING}", "working": WORKING, "idle": IDLE}
 
@@ -175,6 +177,7 @@ class PmScreen(Screen[None]):
         self._open_url = open_url
         self._clock = clock
         self._shown: Board | None = None
+        self._filled_at = 0.0
         self._names: tuple[str, ...] | None = None
         self._grid: list[list[Column]] = []
 
@@ -196,11 +199,16 @@ class PmScreen(Screen[None]):
 
     async def _tick(self) -> None:
         board = self._view.board()
-        if board is None or board is self._shown:
+        if board is None:
             return
-        self._shown = board
+        if board is self._shown and self._clock() - self._filled_at < REDRAW_EVERY:
+            return
+        self._shown, self._filled_at = board, self._clock()
         bands = self._bands(board)
-        self.query_one("#loading", Static).display = not bands
+        loading = self.query_one("#loading", Static)
+        loading.display = not bands
+        if not bands and self._project is not None:
+            loading.update(NOT_LISTED.format(self._project))
         names = tuple(b.name for b in bands)
         if names != self._names:
             self._names = names

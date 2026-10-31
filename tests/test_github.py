@@ -52,9 +52,10 @@ def test_fetch_second_page_asks_for_issues_only() -> None:
     fetch("example/webshop", SINCE, run=replies)
     argv, kw = replies.calls[0]
     assert list(argv[:3]) == ["gh", "api", "graphql"] and kw["timeout"] == TIMEOUT
-    assert "owner=example" in argv and "name=webshop" in argv  # variables, never interpolated
+    assert argv[argv.index("owner=example") - 1] == "-f"  # strings, never typed by gh's -F
+    assert argv[argv.index("name=webshop") - 1] == "-f"
     second = replies.calls[1][0]
-    assert "after=C1" in second and "merged" not in " ".join(second)
+    assert second[second.index("after=C1") - 1] == "-f" and "merged" not in " ".join(second)
 
 
 def test_fetch_empty_repo() -> None:

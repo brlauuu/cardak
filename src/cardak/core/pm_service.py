@@ -223,9 +223,10 @@ class PmService:
             self._events_at = now
             self._read_events(projects)
         self._take_requests(now)
-        for name, repo in self._repos.items():
+        self._publish(projects, now)  # the cached boards and new branches, before any fetch
+        for name, repo in list(self._repos.items()):
             if repo.due <= now:
-                self._fetch_one(name, repo, now)
+                self._fetch_one(name, repo, now, projects)
         self._publish(projects, now)
 
     def _read_local(self, projects: Sequence[Project]) -> None:
@@ -299,7 +300,7 @@ class PmService:
                     repo = self._repos[name]
                     repo.due = min(repo.due, self._allowed(repo, now))
 
-    def _fetch_one(self, name: str, repo: _Repo, now: float) -> None:
+    def _fetch_one(self, name: str, repo: _Repo, now: float, projects: Sequence[Project]) -> None:
         repo.attempted = now
         try:
             data = self._fetch(name, now - DONE_DAYS * 86_400)
@@ -309,6 +310,7 @@ class PmService:
             self._save(name, repo)
             return
         repo.data, repo.fetched_at, repo.error, repo.due = data, now, None, now + REFRESH_EVERY
+        self._publish(projects, now)  # the cards now; a summary can take a minute
         if repo.done_hash is None or repo.done_hash != done_hash(data):
             try:
                 done, settled = write_done(

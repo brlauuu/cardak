@@ -156,9 +156,10 @@ def _query(
 ) -> Mapping[str, Any]:
     owner, name = repo.split("/", 1)
     argv = ["gh", "api", "graphql", "-f", f"query={_HEAD} {body} }} }}"]
-    argv += ["-F", f"owner={owner}", "-F", f"name={name}"]
+    # -f, not -F: -F would turn a repo named 2048 into a number, and `@x` into a file's contents
+    argv += ["-f", f"owner={owner}", "-f", f"name={name}"]
     if after is not None:
-        argv += ["-F", f"after={after}"]
+        argv += ["-f", f"after={after}"]
     try:
         out = run(argv, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError as e:

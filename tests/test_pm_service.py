@@ -344,3 +344,35 @@ def test_board_file_rereads_on_change(tmp_path: Path) -> None:
     path.write_text("garbage")
     os.utime(path, ns=(2, 2))
     assert reader.get() is None
+
+
+def test_board_shows_each_repo_as_soon_as_it_is_read(parts) -> None:  # noqa: ANN001
+    svc, clock, git, fetch, *_ = parts
+    seen: list[object] = []
+
+    def watching(repo: str, since: float) -> RepoData:
+        board = svc.board()
+        seen.append(None if board is None else [b.name for b in board.bands if b.todo])
+        return data(1, 2)
+
+    svc._fetch = watching  # noqa: SLF001
+    svc.step()
+    assert seen[0] == []  # a board, without data yet, before the first fetch
+    assert seen[1] == ["webshop"]  # the first repo shows while the second is read
+
+
+def test_cards_show_before_the_done_summary(parts, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    from cardak.core import pm_service
+    from cardak.core.pm import Done as DoneView
+
+    svc, *_ = parts
+    during: list[bool] = []
+
+    def write_done(repo: str, data: RepoData, now: float, **kw: Any) -> tuple[DoneView, bool]:
+        board = svc.board()
+        during.append(board is not None and any(b.repo == repo and b.todo for b in board.bands))
+        return DoneView((), "x"), True
+
+    monkeypatch.setattr(pm_service, "write_done", write_done)
+    svc.step()
+    assert during and all(during)
