@@ -13,8 +13,9 @@ from cardak.core.backgrounds import (
     Tools,
     art_files,
     ensure_art,
-    find_logo,
+    find_logos,
     images,
+    logo_candidates,
     pick_logo,
     preview_image,
     read_art,
@@ -33,8 +34,8 @@ def paths(tmp_path: Path) -> Paths:
     return Paths(tmp_path / "logos", tmp_path / "state" / "backgrounds.json", tmp_path / "cache")
 
 
-def no_logo(_: Path) -> Path | None:
-    return None
+def no_logo(_: Path) -> list[Path]:
+    return []
 
 
 def project(tmp_path: Path, name: str = "cardak", **kw: object) -> Project:
@@ -122,15 +123,37 @@ def test_existing_art_file_is_kept(tmp_path: Path, paths: Paths) -> None:
 
 def test_logo_becomes_the_art(tmp_path: Path, paths: Paths) -> None:
     p = project(tmp_path)
-    ensure_art(config(p), paths, lambda _: FIXTURES / "logos" / "mark.svg")
+    ensure_art(config(p), paths, lambda _: [FIXTURES / "logos" / "mark.svg"])
     assert "@" in (paths.art_dir / "cardak.txt").read_text()
+
+
+def test_next_logo_when_the_first_is_a_wordmark(tmp_path: Path, paths: Paths) -> None:
+    from PIL import ImageDraw
+
+    p = project(tmp_path)
+    wide = tmp_path / "wordmark.png"
+    img = PilImage.new("RGBA", (420, 70))
+    ImageDraw.Draw(img).rectangle((10, 10, 409, 59), fill=(255, 0, 0, 255))
+    img.save(wide)
+    ensure_art(config(p), paths, lambda _: [wide, FIXTURES / "logos" / "mark.svg"])
+    assert "@" in (paths.art_dir / "cardak.txt").read_text()
+
+
+def test_logo_candidates_in_order() -> None:
+    readme = ["site/cardak-wordmark-light.svg"]
+    tracked = ["site/cardak-mark-dark.svg", "site/cardak-icon.svg", "x.txt"]
+    assert logo_candidates(readme, tracked) == [
+        "site/cardak-wordmark-light.svg",
+        "site/cardak-mark-dark.svg",
+        "site/cardak-icon.svg",
+    ]
 
 
 def test_broken_logo_falls_back_to_the_name(tmp_path: Path, paths: Paths) -> None:
     p = project(tmp_path)
     bad = tmp_path / "logo.png"
     bad.write_bytes(b"\x89PNG broken")
-    ensure_art(config(p), paths, lambda _: bad)
+    ensure_art(config(p), paths, lambda _: [bad])
     assert (paths.art_dir / "cardak.txt").read_text() == name_art("cardak") + "\n"
 
 
@@ -245,7 +268,7 @@ def test_preview_image(tmp_path: Path, paths: Paths) -> None:
 # find_logo on a real repository
 
 
-def test_find_logo_in_a_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_logos_in_a_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
     repo = tmp_path / "r"
     (repo / "assets").mkdir(parents=True)
@@ -253,22 +276,22 @@ def test_find_logo_in_a_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     (repo / "untracked-logo.svg").write_text("<svg/>")
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
     subprocess.run(["git", "-C", str(repo), "add", "assets"], check=True)
-    assert find_logo(repo) == repo / "assets" / "logo.svg"
+    assert find_logos(repo) == [repo / "assets" / "logo.svg"]
 
 
-def test_find_logo_from_the_readme_outside_git(tmp_path: Path) -> None:
+def test_find_logos_from_the_readme_outside_git(tmp_path: Path) -> None:
     (tmp_path / "brand").mkdir()
     (tmp_path / "brand" / "w.png").write_bytes(b"x")
     (tmp_path / "README.md").write_text("![w](brand/w.png) ![x](../outside.png)")
-    assert find_logo(tmp_path) == tmp_path / "brand" / "w.png"
+    assert find_logos(tmp_path) == [tmp_path / "brand" / "w.png"]
 
 
-def test_find_logo_never_leaves_the_project(tmp_path: Path) -> None:
+def test_find_logos_never_leaves_the_project(tmp_path: Path) -> None:
     (tmp_path / "outside.png").write_bytes(b"x")
     project_dir = tmp_path / "p"
     project_dir.mkdir()
     (project_dir / "README.md").write_text("![x](../outside.png)")
-    assert find_logo(project_dir) is None
+    assert find_logos(project_dir) == []
 
 
 def test_tools_for_the_picker(tmp_path: Path, paths: Paths) -> None:

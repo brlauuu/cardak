@@ -40,13 +40,24 @@ def test_logo_art_of_an_opaque_png(tmp_path: Path) -> None:
     assert "@" in lines[len(lines) // 2]  # cropped to the square: it fills the art
 
 
-def test_wide_logo_keeps_its_aspect(tmp_path: Path) -> None:
+def test_a_wordmark_is_refused(tmp_path: Path) -> None:
+    # too wide to read in a few rows: the name's own letters say it better
     img = Image.new("RGBA", (420, 70))
     ImageDraw.Draw(img).rectangle((10, 10, 409, 59), fill=(255, 0, 0, 255))
     img.save(tmp_path / "bar.png")
-    lines = logo_art(load_image(tmp_path / "bar.png")).splitlines()
-    assert max(map(len, lines)) == MAX_COLS
-    assert len(lines) <= 3
+    with pytest.raises(ArtError, match="wordmark"):
+        logo_art(load_image(tmp_path / "bar.png"))
+
+
+def test_a_tile_shows_the_mark_inside(tmp_path: Path) -> None:
+    img = Image.new("RGBA", (200, 200))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle((0, 0, 199, 199), radius=40, fill=(30, 120, 60, 255))
+    draw.ellipse((70, 70, 130, 130), fill=(255, 255, 255, 255))
+    img.save(tmp_path / "tile.png")
+    lines = logo_art(load_image(tmp_path / "tile.png")).splitlines()
+    assert "@" in lines[len(lines) // 2]
+    assert lines[0].startswith(" " * 6)  # the circle's round top, not the tile's square edge
 
 
 def test_tall_logo_is_capped_by_rows(tmp_path: Path) -> None:

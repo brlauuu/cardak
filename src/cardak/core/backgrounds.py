@@ -32,6 +32,7 @@ RANKS = (("logo",), ("mark", "wordmark"), ("icon",))
 SKIP_NAMES = {"next.svg", "vercel.svg", "file.svg", "globe.svg", "window.svg", "favicon.ico"}
 SKIP_PARTS = {"screens", "screenshots", "design", "node_modules", "test", "tests", "fixtures"}
 RECORD_VERSION = 1
+MAX_TRIES = 8  # logo candidates tried before the name is used
 
 
 @dataclass(frozen=True)
@@ -67,25 +68,30 @@ def _usable(path: str) -> bool:
     )
 
 
-def pick_logo(readme: Sequence[str], tracked: Sequence[str]) -> str | None:
-    """The README's first image, else the best-named tracked image: logo, mark, icon; a `dark`
-    variant first (terminals are mostly dark), then the shortest path."""
-    for path in readme:
-        if _usable(path):
-            return path
+def logo_candidates(readme: Sequence[str], tracked: Sequence[str]) -> list[str]:
+    """Logo files, best first: the README's images, then tracked images named logo, then mark,
+    then icon; within each, a `dark` variant first (terminals are mostly dark), then the
+    shortest path."""
+    found = [p for p in readme if _usable(p)]
     for words in RANKS:
-        found = [
+        named = [
             p
             for p in tracked
             if _usable(p) and any(w in PurePosixPath(p).name.lower() for w in words)
         ]
-        if found:
-            return min(found, key=lambda p: ("dark" not in PurePosixPath(p).name.lower(), len(p)))
-    return None
+        named.sort(key=lambda p: ("dark" not in PurePosixPath(p).name.lower(), len(p)))
+        found += named
+    return list(dict.fromkeys(found))
 
 
-def find_logo(project: Path) -> Path | None:
-    """The project's logo file, read-only: the README's images, then git's tracked files."""
+def pick_logo(readme: Sequence[str], tracked: Sequence[str]) -> str | None:
+    """The best logo candidate."""
+    return next(iter(logo_candidates(readme, tracked)), None)
+
+
+def find_logos(project: Path) -> list[Path]:
+    """The project's logo files, best first, read-only: the README's images, then git's
+    tracked files. Only files inside the project."""
     root = real_path(project)
 
     def inside(rel: str) -> Path | None:
@@ -94,8 +100,7 @@ def find_logo(project: Path) -> Path | None:
 
     readme = [rel for rel in readme_images(project) if inside(rel)]
     tracked = git.tracked_files(project) or ()  # relative to the project, even in a subfolder
-    picked = pick_logo(readme, tracked)
-    return inside(picked) if picked else None
+    return [path for rel in logo_candidates(readme, tracked) if (path := inside(rel))]
 
 
 def _slug(name: str) -> str:
@@ -163,14 +168,19 @@ def _read_record(record: Path) -> set[str]:
     return set(generated)
 
 
-def _make(project: Project, file: Path, find: Callable[[Path], Path | None]) -> None:
-    """Write the project's art unless the file exists. Raises OSError."""
-    art = None
-    if (logo := find(project.path)) is not None:
+def _logo_art(logos: Sequence[Path]) -> str | None:
+    """The first candidate that makes art; a wordmark or a broken file is skipped."""
+    for logo in logos[:MAX_TRIES]:
         try:
-            art = logo_art(load_image(logo))
+            return logo_art(load_image(logo))
         except ArtError:
-            art = None
+            continue
+    return None
+
+
+def _make(project: Project, file: Path, find: Callable[[Path], Sequence[Path]]) -> None:
+    """Write the project's art unless the file exists. Raises OSError."""
+    art = _logo_art(find(project.path))
     file.parent.mkdir(parents=True, exist_ok=True)
     try:
         with file.open("x", encoding="utf-8") as f:
@@ -186,7 +196,7 @@ def _wanted(config: Config) -> list[Project]:
 
 
 def ensure_art(
-    config: Config, paths: Paths, find: Callable[[Path], Path | None] = find_logo
+    config: Config, paths: Paths, find: Callable[[Path], Sequence[Path]] = find_logos
 ) -> list[str]:
     """Make the art of every project that never had it; returns problems for the deck."""
     wanted = _wanted(config)
