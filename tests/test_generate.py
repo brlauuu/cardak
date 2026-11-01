@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from cardak.core.config import Config, Project
+from cardak.core.backgrounds import Image
+from cardak.core.config import BackgroundSettings, Config, Project
 from cardak.core.themes import Scheme
 from cardak.wezterm.generate import (
     MODULE_VERSION,
@@ -43,6 +44,7 @@ def test_render_projects_lua() -> None:
     assert text == (
         f"{MARKER} by cardak from projects.toml; edits are overwritten.\n"
         "return {\n"
+        "  background_opacity = 0.06,\n"
         "  default = [[Nord]],\n"
         "  projects = {\n"
         "    { path = [[/r/web]], name = [[web]], scheme = [[Nord]] },\n"
@@ -72,10 +74,10 @@ def test_module_version(tmp_path: Path) -> None:
     lua.write_text(MARKER + " by `cardak wezterm install`\nlocal wezterm\n")
     assert module_version(lua) == 1
     install(tmp_path)
-    assert module_version(lua) == MODULE_VERSION == 4
+    assert module_version(lua) == MODULE_VERSION == 5
     lua.write_text("-- mine\n")
     assert module_version(lua) is None
-    assert module_text().splitlines()[1] == "-- cardak-module: 4"
+    assert module_text().splitlines()[1] == "-- cardak-module: 5"
 
 
 def test_write_generated_needs_the_module(tmp_path: Path) -> None:
@@ -237,3 +239,24 @@ def test_two_projects_with_the_same_real_directory_are_duplicates(tmp_path: Path
     text, problems = render_projects_lua(config, None)
     assert "Dracula" not in text  # one scheme per directory: WezTerm can't pick at random
     assert problems == [f"duplicate path {real}: B is ignored, A is used"]
+
+
+def test_lua_data_lists_backgrounds() -> None:
+    web = Project(name="web", path=Path("/r/web"), theme="Nord")
+    cfg = Config(projects=(web,), background=BackgroundSettings(opacity=0.1))
+    text, _ = render_projects_lua(cfg, None, {web.path: Image(Path("/c/x.png"), 32, 5)})
+    assert "  background_opacity = 0.1,\n" in text
+    assert "background = { file = [[/c/x.png]], cols = 32, rows = 5 }" in text
+
+
+def test_lua_data_without_images_has_no_background_entries() -> None:
+    text, _ = render_projects_lua(CONFIG, None)
+    assert "background = {" not in text
+
+
+def test_write_generated_passes_the_images(tmp_path: Path) -> None:
+    install(tmp_path)
+    web = Project(name="web", path=Path("/r/web"))
+    images = {web.path: Image(Path("/c/x.png"), 3, 1)}
+    write_generated(tmp_path, tmp_path / "c", Config(projects=(web,)), None, images)
+    assert "file = [[/c/x.png]]" in (tmp_path / "cardak_projects.lua").read_text()
