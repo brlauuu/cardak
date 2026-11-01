@@ -31,7 +31,7 @@ IMAGE_EXTS = {".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico"}
 RANKS = (("logo",), ("mark", "wordmark"), ("icon",))
 SKIP_NAMES = {"next.svg", "vercel.svg", "file.svg", "globe.svg", "window.svg", "favicon.ico"}
 SKIP_PARTS = {"screens", "screenshots", "design", "node_modules", "test", "tests", "fixtures"}
-RECORD_VERSION = 1
+RECORD_VERSION = 2
 MAX_TRIES = 8  # logo candidates tried before the name is used
 
 
@@ -109,18 +109,34 @@ def _first_per_path(projects: Iterable[Project]) -> list[Project]:
     return list(kept.values())
 
 
-def art_files(projects: Sequence[Project], art_dir: Path) -> dict[Path, Path]:
-    """Each project's text file, keyed by its path; a slug two projects share gets a suffix."""
-    slugs = {p.path: _slug(p.name) for p in projects}
-    counts: dict[str, int] = {}
-    for slug in slugs.values():
-        counts[slug] = counts.get(slug, 0) + 1
+def art_files(
+    projects: Sequence[Project], art_dir: Path, assigned: Mapping[str, str] | None = None
+) -> dict[Path, Path]:
+    """Each project's text file, keyed by its path. A project keeps the file it was given
+    (`assigned`, by real path), whatever it's called now; a newcomer gets its name's slug, with
+    a suffix when another project has that file."""
+    assigned = assigned or {}
+    keys = {p.path: str(real_path(p.path)) for p in projects}
+    taken = {assigned[k] for k in keys.values() if k in assigned}
     files: dict[Path, Path] = {}
-    for path, slug in slugs.items():
-        if counts[slug] > 1:
-            slug += "-" + hashlib.sha1(str(real_path(path)).encode()).hexdigest()[:6]
-        files[path] = art_dir / f"{slug}.txt"
+    for p in projects:
+        name = assigned.get(keys[p.path])
+        if name is None:
+            name = f"{_slug(p.name)}.txt"
+            if name in taken:
+                suffix = hashlib.sha1(keys[p.path].encode()).hexdigest()[:6]
+                name = f"{_slug(p.name)}-{suffix}.txt"
+            taken.add(name)
+        files[p.path] = art_dir / name
     return files
+
+
+def record_names(record: Path) -> dict[str, str]:
+    """The record's project → art file name; empty when it can't be read."""
+    try:
+        return _read_record(record)
+    except ValueError:
+        return {}
 
 
 def art_stamp(art_dir: Path) -> tuple[tuple[str, int, int], ...]:
@@ -158,18 +174,22 @@ def _write_atomic(target: Path, data: bytes) -> None:
         raise
 
 
-def _read_record(record: Path) -> set[str]:
-    """The projects whose art was made. Raises ValueError when the file can't be trusted."""
+def _read_record(record: Path) -> dict[str, str]:
+    """The projects whose art was made (real path → its file's name). Raises ValueError when
+    the file can't be trusted."""
     try:
         data = json.loads(record.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return set()
+        return {}
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
         raise ValueError(str(e)) from e
     generated = data.get("generated") if isinstance(data, dict) else None
-    if not isinstance(generated, list) or not all(isinstance(g, str) for g in generated):
-        raise ValueError("not a list of projects")
-    return set(generated)
+    if not isinstance(generated, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) and Path(v).name == v and v.endswith(".txt")
+        for k, v in generated.items()
+    ):
+        raise ValueError("not a table of projects and their files")
+    return dict(generated)
 
 
 def _logo_art(logos: Sequence[Path]) -> str | None:
@@ -210,7 +230,7 @@ def ensure_art(
         done = _read_record(paths.record)
     except ValueError as e:
         return [f"{paths.record.name}: {e}; no project background is made until it's fixed"]
-    files = art_files(_first_per_path(config.projects), paths.art_dir)
+    files = art_files(_first_per_path(config.projects), paths.art_dir, done)
     problems: list[str] = []
     made = False
     for p in wanted:
@@ -222,10 +242,10 @@ def ensure_art(
         except OSError as e:
             problems.append(f"{p.name}: couldn't write its background art: {e}")
             continue
-        done.add(key)
+        done[key] = files[p.path].name
         made = True
     if made:
-        data = {"version": RECORD_VERSION, "generated": sorted(done)}
+        data = {"version": RECORD_VERSION, "generated": dict(sorted(done.items()))}
         try:
             _write_atomic(paths.record, (json.dumps(data, indent=1) + "\n").encode())
         except OSError as e:
@@ -285,7 +305,7 @@ def images(
     if not wanted:
         return {}, []
     problems = ensure_art(config, paths)
-    files = art_files(_first_per_path(config.projects), paths.art_dir)
+    files = art_files(_first_per_path(config.projects), paths.art_dir, record_names(paths.record))
     found: dict[Path, Image] = {}
     for p in wanted:
         if (art := read_art(files[p.path])) is None:
@@ -337,7 +357,8 @@ class Tools:
         project = next((p for p in projects if p.path == project_path), None)
         if project is None:
             return None
-        return project, art_files(projects, self._paths.art_dir)[project.path]
+        names = record_names(self._paths.record)
+        return project, art_files(projects, self._paths.art_dir, names)[project.path]
 
     def art_file(self, project_path: Path) -> Path | None:
         found = self._project(project_path)

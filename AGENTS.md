@@ -144,7 +144,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   | `~/.config/wezterm/cardak_projects.lua` | deck on every config change; `cardak themes apply` | project path → name, scheme and background image, every project, and `background_opacity` (only when cardak.lua is installed there) |
   | `~/.config/cardak/tints` | same | `path<TAB>#rrggbb` for the zsh hook |
   | `~/.config/cardak/logos/<slug>.txt` | the deck's theme writer and `cardak themes apply`, **once** per configured project with its background on, opened with `x` (never over an existing file, never again: the user's from then on) | the project's ASCII art (#9): its logo's, else its name in figlet letters |
-  | `~/.local/state/cardak/backgrounds.json` | same, atomically, when a project's art was made | `{"version": 1, "generated": [<real project paths>]}`: so a deleted art file stays deleted; unreadable → a warning and no art made |
+  | `~/.local/state/cardak/backgrounds.json` | same, atomically, when a project's art was made | `{"version": 2, "generated": {<real project path>: "<file>.txt"}}`: so a deleted art file stays deleted, and a project keeps its file when it is renamed or a same-named one is added; unreadable → a warning and no art made |
   | `~/.cache/cardak/backgrounds/<hash>.png` | same, and the picker's previews; unused ones removed on each write | the art drawn in the scheme's foreground, listed in `cardak_projects.lua` with its size in cells |
   | `~/.config/cardak/tint.zsh` | `cardak themes zsh` | the opt-in per-pane tint hook |
   | `~/.config/cardak/web_key` | `cardak web setup` (mode 0600; `--new-key` replaces it) | the web view's key; `cardak daemon` reads it at start and refuses it with group/other bits |

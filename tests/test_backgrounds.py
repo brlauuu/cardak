@@ -19,6 +19,7 @@ from cardak.core.backgrounds import (
     logo_candidates,
     preview_image,
     read_art,
+    record_names,
     render,
 )
 from cardak.core.config import BackgroundSettings, Config, Project
@@ -313,3 +314,26 @@ def test_art_stamp_follows_edits(tmp_path: Path, paths: Paths) -> None:
     first = art_stamp(paths.art_dir)
     (paths.art_dir / "a.txt").write_text("xy")
     assert art_stamp(paths.art_dir) != first
+
+
+def test_a_same_named_newcomer_leaves_the_first_art_alone(tmp_path: Path, paths: Paths) -> None:
+    first = project(tmp_path, "Foo")
+    ensure_art(config(first), paths, no_logo)
+    second = Project("foo", tmp_path / "elsewhere" / "foo")
+    found, _ = images(config(first, second), {}, paths, None)
+    assert (paths.art_dir / "foo.txt").exists()
+    assert set(found) == {first.path, second.path}
+    files = art_files([first, second], paths.art_dir, record_names(paths.record))
+    assert files[first.path] == paths.art_dir / "foo.txt"
+    assert files[second.path] != files[first.path]
+
+
+def test_renaming_a_project_keeps_its_art(tmp_path: Path, paths: Paths) -> None:
+    p = project(tmp_path)
+    ensure_art(config(p), paths, no_logo)
+    (paths.art_dir / "cardak.txt").write_text("mine\n")
+    renamed = Project("deck", p.path)
+    found, _ = images(config(renamed), {}, paths, None)
+    tools = Tools(paths, lambda: config(renamed), lambda: {}, lambda: None)
+    assert tools.art_file(p.path) == paths.art_dir / "cardak.txt"
+    assert found[p.path].cols == 4  # "mine"
