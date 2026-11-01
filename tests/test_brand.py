@@ -1,4 +1,5 @@
 import re
+import struct
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -73,3 +74,18 @@ def test_wordmark_letters_follow_the_spec(name: str) -> None:
         assert d in paths
     # one háček drawn, one in the mask: only the Č has it
     assert paths.count(HACEK) == 2
+
+
+PNGS = [("cardak-icon-32.png", 32), ("cardak-icon-180.png", 180), ("cardak-mark-mono-512.png", 512)]
+
+
+@pytest.mark.parametrize(("name", "size"), PNGS)
+def test_png_has_its_size(name: str, size: int) -> None:
+    data = (ASSETS / name).read_bytes()
+    assert data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert struct.unpack(">II", data[16:24]) == (size, size)
+
+
+def test_mono_png_is_transparent() -> None:
+    data = (ASSETS / "cardak-mark-mono-512.png").read_bytes()
+    assert data[25] == 6  # color type RGBA
