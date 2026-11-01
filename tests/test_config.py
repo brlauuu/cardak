@@ -4,6 +4,7 @@ import pytest
 
 from cardak.core.config import (
     THEMES,
+    BackgroundSettings,
     Config,
     ConfigError,
     NotifySettings,
@@ -18,6 +19,7 @@ from cardak.core.config import (
     key_file,
     load,
     remove_provider,
+    set_project_background,
     set_project_theme,
     set_provider,
     set_summary_provider,
@@ -656,3 +658,61 @@ def test_dotted_summary_keys_are_refused_not_crashed(tmp_path: Path) -> None:
     path.write_text("summary.monthly_limit_usd = 3\n\n[summary.codex]\n")
     with pytest.raises(ConfigError, match="by hand"):  # tomlkit hands back a plain dict here
         set_summary_provider(path, "codex", tmp_path)
+
+
+def _cfg(tmp_path: Path, text: str) -> Path:
+    f = tmp_path / "projects.toml"
+    f.write_text(text)
+    return f
+
+
+def test_background_defaults(tmp_path: Path, home: Path) -> None:
+    cfg = load(_cfg(tmp_path, SAMPLE))
+    assert cfg.background == BackgroundSettings(True, 0.06)
+    assert all(p.background for p in cfg.projects)
+
+
+def test_project_background_off(tmp_path: Path) -> None:
+    cfg = load(_cfg(tmp_path, '[[project]]\nname = "a"\npath = "/a"\nbackground = false\n'))
+    assert cfg.projects[0].background is False
+
+
+def test_background_table(tmp_path: Path) -> None:
+    cfg = load(_cfg(tmp_path, "[background]\nenabled = false\nopacity = 0.1\n"))
+    assert cfg.background == BackgroundSettings(False, 0.1)
+
+
+@pytest.mark.parametrize(
+    "body", ["opacity = 0", "opacity = 1.5", "opacity = 'x'", "opacity = true", "enabled = 'no'"]
+)
+def test_bad_background_table(tmp_path: Path, body: str) -> None:
+    with pytest.raises(ConfigError, match="background"):
+        load(_cfg(tmp_path, f"[background]\n{body}\n"))
+
+
+def test_bad_project_background(tmp_path: Path) -> None:
+    text = '[[project]]\nname = "a"\npath = "/a"\nbackground = "no"\n'
+    with pytest.raises(ConfigError, match="project #1"):
+        load(_cfg(tmp_path, text))
+
+
+def test_set_project_background_off_then_on_keeps_comments(tmp_path: Path, home: Path) -> None:
+    f = _cfg(tmp_path, SAMPLE)
+    set_project_background(f, home / "repos/webshop", False)
+    text = f.read_text()
+    assert "background = false" in text and "# my projects" in text
+    assert load(f).projects[0].background is False
+    set_project_background(f, home / "repos/webshop", True)
+    assert f.read_text() == SAMPLE
+
+
+def test_set_project_background_unknown_project(tmp_path: Path, home: Path) -> None:
+    with pytest.raises(ConfigError, match="not a configured project"):
+        set_project_background(_cfg(tmp_path, SAMPLE), home / "nope", False)
+
+
+def test_add_project_with_background_off(tmp_path: Path, home: Path) -> None:
+    f = tmp_path / "projects.toml"
+    add_project(f, "x", home / "x", background=False)
+    assert "background = false" in f.read_text()
+    assert load(f).projects[0].background is False

@@ -8,6 +8,8 @@ agent status (working / waiting / idle), and attributes CPU/RAM to the pane that
 ## Stack
 - **Python 3.13**, managed with **uv** (`uv run`, `uv add`; never pip into the system).
 - **Textual** for the TUI, served in a browser via `textual-serve`.
+- **Pillow**, **pyfiglet** and **resvg-py** for the project background's art (#9), imported only
+  where art is made.
 - **psutil** for processes, **SQLite** for storage, TOML config at `~/.config/cardak/projects.toml`:
   read with `tomllib`, new projects appended with `tomli-w`, existing keys edited in place with
   **`tomlkit`** (keeps comments and layout).
@@ -33,12 +35,14 @@ src/cardak/
   core/cleanup.py                                      # #65: where `x` opens /repo-cleanup
   core/{pm, pm_done, pm_service}.py                    # #68: the PM view's board, done column, refreshes
   core/detail.py                                       # how `i` and the web view word a session
+  core/{ascii_art, backgrounds}.py                     # #9: each project's art, made once, and its image
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
   collectors/{handoff, git}.py                         # M6: the handoff note, read-only git
   collectors/{usage, prices}.py                        # #29: per-reply usage, LiteLLM's price list
   collectors/soundpacks.py                             # #91: the user's openpeon sound packs
   collectors/limits.py                                 # #70: plan limits in the status line input
   collectors/github.py                                 # #68: issues and PRs through `gh api graphql`
+  collectors/{logos, fonts}.py                         # #9: README images, the monospace font
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
   ui/summaries.py                                      # #47–#49: `s`, the summary providers
   ui/pm.py                                             # #68: `p` / `P`, the PM view
@@ -137,8 +141,11 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   | Path | Written by | Content |
   |---|---|---|
   | `~/.config/wezterm/cardak.lua` | `cardak wezterm install` | static module: focus, theming, preview, tab titles |
-  | `~/.config/wezterm/cardak_projects.lua` | deck on every config change; `cardak themes apply` | project path → name and scheme, every project (only when cardak.lua is installed there) |
+  | `~/.config/wezterm/cardak_projects.lua` | deck on every config change; `cardak themes apply` | project path → name, scheme and background image, every project, and `background_opacity` (only when cardak.lua is installed there) |
   | `~/.config/cardak/tints` | same | `path<TAB>#rrggbb` for the zsh hook |
+  | `~/.config/cardak/logos/<slug>.txt` | the deck's theme writer and `cardak themes apply`, **once** per configured project with its background on, opened with `x` (never over an existing file, never again: the user's from then on) | the project's ASCII art (#9): its logo's, else its name in figlet letters |
+  | `~/.local/state/cardak/backgrounds.json` | same, atomically, when a project's art was made | `{"version": 2, "generated": {<real project path>: "<file>.txt"}}`: so a deleted art file stays deleted, and a project keeps its file when it is renamed or a same-named one is added; unreadable → a warning and no art made |
+  | `~/.cache/cardak/backgrounds/<hash>.png` | same, and the picker's previews; unused ones removed on each write | the art drawn in the scheme's foreground, listed in `cardak_projects.lua` with its size in cells |
   | `~/.config/cardak/tint.zsh` | `cardak themes zsh` | the opt-in per-pane tint hook |
   | `~/.config/cardak/web_key` | `cardak web setup` (mode 0600; `--new-key` replaces it) | the web view's key; `cardak daemon` reads it at start and refuses it with group/other bits |
   | `~/.config/cardak/anthropic_key` | the user, or the deck's Summaries screen (`s`, #47–#49: atomic, mode 0600); read by `cardak summarize` and the screen's test, refused with group/other bits | the Anthropic API key for waiting summaries |
@@ -166,6 +173,15 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   evaluates a config that dumps `wezterm.color.get_builtin_schemes()`, without opening a window.
 - Preview is keyed by **project path** (`cardak_preview` user var with JSON), lives only in
   WezTerm's Lua state, and is cleared by any config reload, which is also what saving does.
+- **Project background (#9, module 5).** Measured on WezTerm 20240203 (`spikes/07_background.py`):
+  `set_config_overrides{ background = {…} }` works per window; the layer list needs the scheme's
+  background color as its first layer, and the image layer needs **both** `width` and `height` in
+  cells (`'32cell'`; one alone stretches it); per-layer `opacity` works; an OSC 11 pane tint is
+  no longer visible once layers are set. `sync` sets it next to the scheme and leaves a window
+  alone whose `background` override it didn't set. Logos: README images first, then tracked
+  files named logo / mark / icon (`git ls-files`), skipping wordmarks (art under 8 rows) and
+  broken files; an opaque tile (an app icon) is read by the mark inside it. Measured on the
+  dev machine: `cardak themes apply` making four projects' art took 0.6 s.
 - Live checks with a user WezTerm already running: start the test GUI with
   `--always-new-process`, address it through its own `gui-sock-<pid>`, and capture windows
   filtered by `_NET_WM_PID`, so nothing touches the user's windows.
@@ -689,6 +705,13 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `_read_local` / `_take_requests`, `github.fetch`, `parse_done` and `PmScreen._build` (one fetch
   per due repository, one git read per project, pages of one connection, lines of one reply, three
   columns per band: each the unit of work).
+- **#9 (project background)** split `logo_art` (11: `_characters`) and `render_projects_lua` (11:
+  `_project_lines`), and dropped `pick_logo` once only tests used it. Accepted: `config.real_path`
+  at fan-in 11, `config_dir` 12 and `state_dir` 10 (the art, its record and its images are one
+  more reader each); `config.load` as a hotspot (15 × 13, one more field); and the call-in-loop
+  and nested-loop reports on `ensure_art`, `images`, `_characters` and
+  `logo_candidates` (one art and one image per project, a few logo candidates, rows × columns of
+  at most 40 × 16, three name ranks over a project's files: each the unit of work).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

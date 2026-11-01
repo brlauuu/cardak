@@ -1,6 +1,8 @@
-"""Pick a color scheme for a project, previewing it live on the project's windows."""
+"""Pick a color scheme for a project, and whether its ASCII art shows behind its windows (#9),
+previewing both live on the project's windows."""
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
@@ -13,9 +15,10 @@ from textual.fuzzy import Matcher
 from textual.markup import escape
 from textual.screen import ModalScreen
 from textual.timer import Timer
-from textual.widgets import Input, Label, OptionList, Static
+from textual.widgets import Checkbox, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
+from cardak.core.backgrounds import Image
 from cardak.core.themes import Scheme
 
 SchemeLoader = Callable[[], Mapping[str, Scheme]]
@@ -24,7 +27,28 @@ SchemeLoader = Callable[[], Mapping[str, Scheme]]
 class ThemePreviewer(Protocol):
     in_wezterm: bool
 
-    def preview(self, project_path: Path, scheme: str) -> bool: ...
+    def preview(
+        self, project_path: Path, scheme: str, background: Image | bool | None = None
+    ) -> bool: ...
+
+
+class Backgrounds(Protocol):
+    """What the picker needs to show a project's art (#9)."""
+
+    def art_file(self, project_path: Path) -> Path | None: ...
+
+    def preview_image(self, project_path: Path, scheme: str) -> Image | None: ...
+
+
+@dataclass(frozen=True)
+class ThemeChoice:
+    scheme: str
+    background: bool
+
+
+def _tilde(path: Path) -> str:
+    home = Path.home()
+    return f"~/{path.relative_to(home)}" if path.is_relative_to(home) else str(path)
 
 
 def swatch_label(scheme: Scheme, current: bool) -> Text:
@@ -38,16 +62,19 @@ def swatch_label(scheme: Scheme, current: bool) -> Text:
     return text
 
 
-class ThemePickerScreen(ModalScreen[str | None]):
+class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
     DEBOUNCE = 0.15
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
         Binding("down", "move(1)", show=False),
         Binding("up", "move(-1)", show=False),
+        Binding("ctrl+b", "toggle_background", "Background", priority=True),
     ]
     DEFAULT_CSS = """
     ThemePickerScreen { align: center middle; }
-    #picker { width: 70; height: 24; border: round $accent; background: $surface; padding: 0 1; }
+    #picker { width: 70; height: 27; border: round $accent; background: $surface; padding: 0 1; }
+    #background { border: none; padding: 0; height: 1; }
+    #art-path { color: $text-muted; }
     #schemes { height: 1fr; }
     """
 
@@ -58,6 +85,9 @@ class ThemePickerScreen(ModalScreen[str | None]):
         current: str | None,
         load: SchemeLoader,
         previewer: ThemePreviewer | None,
+        background: bool = True,
+        art_file: Path | None = None,
+        preview_image: Callable[[str], Image | None] | None = None,
     ) -> None:
         super().__init__()
         self._name = project_name
@@ -69,6 +99,9 @@ class ThemePickerScreen(ModalScreen[str | None]):
         self._timer: Timer | None = None
         self._previewed = False
         self._last_previewed: str | None = None
+        self._background = background
+        self._art_file = art_file
+        self._preview_image = preview_image
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker"):
@@ -79,6 +112,15 @@ class ThemePickerScreen(ModalScreen[str | None]):
                 "No live preview: the deck isn't running inside WezTerm.", id="preview-note"
             )
             yield OptionList(id="schemes")
+            yield Checkbox(
+                "Background: the project's ASCII art (ctrl+b)", self._background, id="background"
+            )
+            art = (
+                f"art: {_tilde(self._art_file)}; replace its text to change it"
+                if self._art_file
+                else "art: made when you save"
+            )
+            yield Static(escape(art), id="art-path")
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
@@ -140,8 +182,32 @@ class ThemePickerScreen(ModalScreen[str | None]):
             return
         self._timer = self.set_timer(self.DEBOUNCE, lambda: self._preview(name))
 
+    def _background_arg(self, name: str) -> Image | bool | None:
+        """Off → False; on → the art in that scheme's color, None (the saved one) without it."""
+        if not self.query_one("#background", Checkbox).value:
+            return False
+        return self._preview_image(name) if self._preview_image else None
+
+    def action_toggle_background(self) -> None:
+        box = self.query_one("#background", Checkbox)
+        box.value = not box.value
+
+    @on(Checkbox.Changed, "#background")
+    def _background_changed(self) -> None:
+        options = self.query_one(OptionList)
+        highlighted = options.highlighted
+        name = None
+        if highlighted is not None and options.option_count:
+            name = options.get_option_at_index(highlighted).id
+        name = name or self._last_previewed or self._current
+        if name:
+            if self._timer is not None:
+                self._timer.stop()
+            self._preview(name)
+
     def _preview(self, name: str) -> None:
-        if self._previewer is not None and self._previewer.preview(self._path, name):
+        background = self._background_arg(name)
+        if self._previewer is not None and self._previewer.preview(self._path, name, background):
             self._previewed = True
             self._last_previewed = name
 
@@ -175,8 +241,11 @@ class ThemePickerScreen(ModalScreen[str | None]):
         if self._timer is not None:
             self._timer.stop()
         if self._previewed and self._last_previewed != name and self._previewer is not None:
-            self._previewer.preview(self._path, name if name in self._schemes else "")
-        self.dismiss(name)
+            known = name in self._schemes
+            self._previewer.preview(
+                self._path, name if known else "", self._background_arg(name) if known else None
+            )
+        self.dismiss(ThemeChoice(name, self.query_one("#background", Checkbox).value))
 
     def action_cancel(self) -> None:
         self._clear_preview()

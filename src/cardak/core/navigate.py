@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from cardak.collectors import wezterm
+from cardak.core.backgrounds import Image
 
 FOCUS_VAR = "cardak_focus"
 
@@ -34,10 +35,20 @@ def _user_var(name: str, value: str) -> bytes:
     return f"\x1b]1337;SetUserVar={name}={encoded}\x07".encode()
 
 
-def preview_request(project_path: Path, scheme: str, nonce: str) -> bytes:
-    return _user_var(
-        PREVIEW_VAR, json.dumps({"path": str(project_path), "scheme": scheme, "n": nonce})
-    )
+def preview_request(
+    project_path: Path, scheme: str, nonce: str, background: Image | bool | None = None
+) -> bytes:
+    """background: an image to show, False to show none, None to keep the saved one (#9)."""
+    request: dict[str, object] = {"path": str(project_path), "scheme": scheme, "n": nonce}
+    if isinstance(background, Image):
+        request["background"] = {
+            "file": str(background.file),
+            "cols": background.cols,
+            "rows": background.rows,
+        }
+    elif background is False:
+        request["background"] = False
+    return _user_var(PREVIEW_VAR, json.dumps(request))
 
 
 def focus_request(pane_id: int, nonce: str) -> bytes:
@@ -118,12 +129,14 @@ class Previewer:
         env = os.environ if env is None else env
         return cls(_write_dev_tty, "WEZTERM_PANE" in env)
 
-    def preview(self, project_path: Path, scheme: str) -> bool:
+    def preview(
+        self, project_path: Path, scheme: str, background: Image | bool | None = None
+    ) -> bool:
         if not self.in_wezterm:
             return False
         nonce = f"{time.time_ns()}.{next(self._counter)}"
         try:
-            self.write_tty(preview_request(project_path, scheme, nonce))
+            self.write_tty(preview_request(project_path, scheme, nonce, background))
         except OSError:
             return False
         return True

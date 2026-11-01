@@ -89,6 +89,7 @@ class LiveSource:
         write_seen: bool = True,
         spend: Callable[[], MonthSpend | None] = lambda: None,
         limits_file: Path | None = None,
+        art_stamp: Callable[[], object] | None = None,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -123,6 +124,8 @@ class LiveSource:
         self._warnings: tuple[str, ...] = ()
         self._config_error: str | None = None
         self._resolver = ProjectResolver(Config(), git)
+        self._art_stamp = art_stamp  # the projects' art files: an edit redraws their images (#9)
+        self._art_seen: object = None
         self._stamp: Stamp | bool = False  # never equal to a real stamp, so the first check loads
         self._reload_if_changed()
 
@@ -145,8 +148,14 @@ class LiveSource:
 
     def _reload_if_changed(self) -> None:
         stamp = self._current_stamp()
+        art = self._art_stamp() if self._art_stamp else None
         if stamp == self._stamp:
+            if art != self._art_seen:
+                self._art_seen = art
+                if self._config_error is None:
+                    self._run_on_config()
             return
+        self._art_seen = art
         self._stamp = stamp
         try:
             cfg = config_mod.load(self.config_file)
@@ -180,14 +189,31 @@ class LiveSource:
         project = next((p for p in self._config.projects if p.path == resolved.key), None)
         return project_accent(project, self._schemes()) if project else None
 
-    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None:
+    def background_on(self, project_path: Path) -> bool:
+        """Whether the project shows its art (#9); a project not yet configured would."""
         with self._lock:
-            if any(p.path == project_path for p in self._config.projects):
-                config_mod.set_project_theme(self.config_file, project_path, theme)
-            else:
+            project = next((p for p in self._config.projects if p.path == project_path), None)
+            return project.background if project else True
+
+    def set_look(
+        self, project_path: Path, theme: str, background: bool, name: str | None = None
+    ) -> None:
+        """Save the picker's scheme and background switch, writing only what changed."""
+        with self._lock:
+            project = next((p for p in self._config.projects if p.path == project_path), None)
+            if project is None:
                 config_mod.add_project(
-                    self.config_file, name or project_path.name, project_path, theme=theme
+                    self.config_file,
+                    name or project_path.name,
+                    project_path,
+                    theme=theme,
+                    background=background,
                 )
+            else:
+                if project.theme != theme:
+                    config_mod.set_project_theme(self.config_file, project_path, theme)
+                if project.background != background:
+                    config_mod.set_project_background(self.config_file, project_path, background)
             self._reload_if_changed()
 
     def summary_settings(self) -> SummarySettings:

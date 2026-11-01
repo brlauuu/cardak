@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from lupa.lua54 import LuaRuntime
 
+from cardak.core.backgrounds import Image
 from cardak.core.config import Config, Project
 from cardak.wezterm.generate import render_projects_lua
 
@@ -25,7 +26,12 @@ fake = {
   gui = { gui_windows = function() return windows end },
   json_parse = function(s) return py_json(s) end,
   time = { now = function() return { format = function() return NOW_MS end } end },
+  color = { get_builtin_schemes = function()
+    scheme_lookups = scheme_lookups + 1
+    return { Nord = { background = '#2e3440' }, Dracula = { background = '#282a36' } }
+  end },
 }
+scheme_lookups = 0
 NOW_MS = '1000'
 function make_window(id, cwd, scheme)
   local w = { id = id, cwd = cwd, sets = 0, focused = false, pane = id * 10 }
@@ -40,6 +46,7 @@ function make_window(id, cwd, scheme)
     }
   end
   function w:get_config_overrides() return self.overrides end
+  function w:effective_config() return { resolved_palette = { background = '#111111' } } end
   function w:set_config_overrides(o) self.overrides = o; self.sets = self.sets + 1 end
   table.insert(windows, w)
   return w
@@ -48,6 +55,7 @@ function fire(name, ...)
   for _, fn in ipairs(handlers[name] or {}) do fn(...) end
 end
 function scheme_of(w) return w.overrides and w.overrides.color_scheme end
+function background_of(w) return w.overrides and w.overrides.background end
 package.preload['wezterm'] = function() return fake end
 package.preload['cardak_projects'] = function()
   if DATA == nil then error('module not found') end
@@ -57,15 +65,22 @@ end
 
 
 class Wez:
-    def __init__(self, data: str | None) -> None:
+    def __init__(self, data: str | None, apply: str = "M.apply({})") -> None:
         self.lua = LuaRuntime(unpack_returned_tuples=True)
         g: Any = self.lua.globals()  # Lua tables are dynamic; attribute access is untyped
         self.g = g
-        g.py_json = lambda s: self.lua.table_from(json.loads(s))
+        g.py_json = lambda s: self.lua.table_from(json.loads(s), recursive=True)
         g.DATA = data
         self.lua.execute(HARNESS)
         g.M = self.lua.execute(MODULE)
-        self.lua.eval("M.apply({})")
+        self.lua.execute(apply)
+        self.apply = apply
+
+    def reload(self) -> None:
+        """WezTerm's config reload: a fresh Lua state for the module; windows keep overrides."""
+        self.lua.execute("handlers = {}")
+        self.g.M = self.lua.execute(MODULE)
+        self.lua.execute(self.apply)
 
     def window(self, id: int, cwd: str, scheme: str | None = None) -> Any:
         return self.g.make_window(id, cwd, scheme)
@@ -73,17 +88,32 @@ class Wez:
     def status(self, w: Any) -> None:
         self.g.fire("update-status", w, None)
 
-    def preview(self, w: Any, path: str, scheme: str) -> None:
-        value = json.dumps({"path": path, "scheme": scheme, "n": 1})
+    def preview(self, w: Any, path: str, scheme: str, background: object = None) -> None:
+        request: dict[str, object] = {"path": path, "scheme": scheme, "n": 1}
+        if background is not None:
+            request["background"] = background
+        value = json.dumps(request)
         self.g.fire("user-var-changed", w, None, "cardak_preview", value)
 
     def scheme(self, w: Any) -> str | None:
         return self.g.scheme_of(w)
 
+    def background(self, w: Any) -> list[dict[str, Any]] | None:
+        layers = self.g.background_of(w)
+        return None if layers is None else [_plain(layer) for layer in layers.values()]
 
-def data(*projects: Project, default: str | None = None) -> str:
+
+def _plain(table: Any) -> Any:
+    if hasattr(table, "items"):
+        return {k: _plain(v) for k, v in table.items()}
+    return table
+
+
+def data(
+    *projects: Project, default: str | None = None, images: dict[Path, Image] | None = None
+) -> str:
     defaults: dict[str, object] = {"theme": default} if default else {}
-    return render_projects_lua(Config(projects=projects, defaults=defaults), None)[0]
+    return render_projects_lua(Config(projects=projects, defaults=defaults), None, images)[0]
 
 
 WEB = Project(name="web", path=Path("/r/web"), theme="Nord")
@@ -232,8 +262,8 @@ def test_focus_is_harmless_without_a_state_dir(
     assert not (tmp_path / "missing").exists()
 
 
-def test_module_version_4() -> None:
-    assert MODULE.splitlines()[1] == "-- cardak-module: 4"
+def test_module_version_5() -> None:
+    assert MODULE.splitlines()[1] == "-- cardak-module: 5"
 
 
 def record_opens(wez: Wez) -> Any:
@@ -287,7 +317,7 @@ class Tabs(Wez):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
         g: Any = self.lua.globals()
         self.g = g
-        g.py_json = lambda s: self.lua.table_from(json.loads(s))
+        g.py_json = lambda s: self.lua.table_from(json.loads(s), recursive=True)
         g.DATA = data
         self.lua.execute(HARNESS + TABS)
         g.M = self.lua.execute(MODULE)
@@ -438,3 +468,143 @@ def test_module_3_still_themes_from_new_data() -> None:
     wez.status(themed)
     wez.status(plain)
     assert (wez.scheme(themed), wez.scheme(plain)) == ("Nord", "Dflt")
+
+
+ART = Image(Path("/c/bg/abc.png"), 32, 5)
+OTHER_ART = {"file": "/c/bg/preview.png", "cols": 10, "rows": 2}
+
+
+def _image_layer(layers: list[dict[str, Any]] | None) -> dict[str, Any]:
+    assert layers is not None and len(layers) == 2
+    return layers[1]
+
+
+def test_window_gets_its_project_background() -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}))
+    w = wez.window(1, "/r/web/src")
+    wez.status(w)
+    layers = wez.background(w)
+    assert layers is not None
+    assert layers[0]["source"] == {"Color": "#2e3440"}
+    assert (layers[0]["width"], layers[0]["height"]) == ("100%", "100%")
+    image = _image_layer(layers)
+    assert image["source"] == {"File": "/c/bg/abc.png"}
+    assert (image["width"], image["height"]) == ("32cell", "5cell")
+    assert image["opacity"] == pytest.approx(0.06)
+    assert (image["horizontal_align"], image["vertical_align"]) == ("Right", "Bottom")
+    assert (image["repeat_x"], image["repeat_y"]) == ("NoRepeat", "NoRepeat")
+
+
+def test_background_without_a_scheme_uses_the_windows_own_color() -> None:
+    plain = Project(name="plain", path=Path("/r/plain"))
+    wez = Wez(data(plain, images={plain.path: ART}))
+    w = wez.window(1, "/r/plain")
+    wez.status(w)
+    layers = wez.background(w)
+    assert layers is not None and layers[0]["source"] == {"Color": "#111111"}
+
+
+def test_no_background_outside_a_project() -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    w.cwd = "/elsewhere"
+    wez.status(w)
+    assert wez.background(w) is None
+
+
+def test_background_preview_on_and_off() -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    wez.preview(w, "/r/web", "Dracula", OTHER_ART)
+    image = _image_layer(wez.background(w))
+    assert image["source"] == {"File": "/c/bg/preview.png"} and image["width"] == "10cell"
+    assert wez.background(w)[0]["source"] == {"Color": "#282a36"}  # type: ignore[index]
+    wez.preview(w, "/r/web", "Dracula", False)
+    assert wez.background(w) is None
+    wez.preview(w, "/r/web", "")
+    assert _image_layer(wez.background(w))["source"] == {"File": "/c/bg/abc.png"}
+
+
+def test_a_background_preview_for_a_project_without_one() -> None:
+    wez = Wez(data())
+    w = wez.window(1, "/r/new")
+    wez.preview(w, "/r/new", "Nord", OTHER_ART)
+    assert _image_layer(wez.background(w))["source"] == {"File": "/c/bg/preview.png"}
+
+
+def test_a_background_set_by_someone_else_is_left_alone() -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}))
+    w = wez.window(1, "/r/web")
+    wez.lua.execute("function set_user_bg(w) w.overrides = { background = { 'theirs' } } end")
+    wez.g.set_user_bg(w)
+    wez.status(w)
+    assert wez.background(w) == ["theirs"]
+
+
+def test_background_opt_out() -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}), apply="M.apply({}, { background = false })")
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    assert wez.background(w) is None and wez.scheme(w) == "Nord"
+
+
+@pytest.mark.parametrize("key", ["background", "window_background_image"])
+def test_users_own_background_wins(key: str) -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}), apply=f"M.apply({{ {key} = 'x' }})")
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    assert wez.background(w) is None
+
+
+def test_no_redundant_background_writes() -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    wez.status(w)
+    assert w.sets == 1
+    assert wez.g.scheme_lookups == 1  # the scheme table is read once
+
+
+def test_module_4_data_still_loads_in_module_5() -> None:
+    wez = Wez("return { projects = { { path = '/r/web', name = 'web', scheme = 'Nord' } } }")
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    assert wez.scheme(w) == "Nord" and wez.background(w) is None
+
+
+def test_malformed_background_entries_are_ignored() -> None:
+    wez = Wez(
+        "return { background_opacity = 'x', projects = {"
+        " { path = '/r/a', scheme = 'Nord', background = { file = 3, cols = 1, rows = 1 } },"
+        " { path = '/r/b', scheme = 'Nord', background = 'junk' } } }"
+    )
+    for i, cwd in enumerate(("/r/a", "/r/b")):
+        w = wez.window(i + 1, cwd)
+        wez.status(w)
+        assert wez.background(w) is None and wez.scheme(w) == "Nord"
+
+
+def test_cardak_keeps_its_background_after_a_reload() -> None:
+    api = Project(name="api", path=Path("/r/api"), theme="Nord")
+    images = {WEB.path: ART, api.path: Image(Path("/c/bg/api.png"), 20, 5)}
+    wez = Wez(data(WEB, api, images=images))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    wez.reload()  # saving in the picker rewrites cardak_projects.lua
+    w.cwd = "/r/api"
+    wez.status(w)
+    assert _image_layer(wez.background(w))["source"] == {"File": "/c/bg/api.png"}
+    w.cwd = "/elsewhere"
+    wez.status(w)
+    assert wez.background(w) is None
+
+
+def test_a_translucent_window_stays_translucent() -> None:
+    apply = "M.apply({ window_background_opacity = 0.85 })"
+    wez = Wez(data(WEB, images={WEB.path: ART}), apply=apply)
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    layers = wez.background(w)
+    assert layers is not None and layers[0]["opacity"] == pytest.approx(0.85)

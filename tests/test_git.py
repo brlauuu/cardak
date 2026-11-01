@@ -4,7 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from cardak.collectors.git import Commit, GitState, branch, branches, remote_url, state, toplevel
+from cardak.collectors.git import (
+    Commit,
+    GitState,
+    branch,
+    branches,
+    remote_url,
+    state,
+    toplevel,
+    tracked_files,
+)
 
 T0 = 1792000000  # commits at T0, T0 + 100, T0 + 200
 
@@ -129,3 +138,14 @@ def test_remote_url(repo: Path) -> None:
     assert remote_url(repo) is None
     git(repo, "remote", "add", "origin", "git@github.com:example/webshop.git")
     assert remote_url(repo) == "git@github.com:example/webshop.git"
+
+
+def test_tracked_files(repo: Path) -> None:
+    (repo / "assets").mkdir()
+    (repo / "assets" / "logo mark.svg").write_text("<svg/>")
+    git(repo, "add", "assets")
+    assert tracked_files(repo) == ("assets/logo mark.svg", "one", "three", "two")
+
+
+def test_tracked_files_none_outside_git(tmp_path: Path) -> None:
+    assert tracked_files(tmp_path) is None

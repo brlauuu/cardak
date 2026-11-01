@@ -3,7 +3,7 @@
 import os
 import re
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -24,6 +24,7 @@ class Project:
     accent: str | None = None
     github: str | None = None
     tint: str | None = None
+    background: bool = True  # the project's ASCII art behind its windows (#9)
 
 
 Theme = Literal["waiting", "memory", "other"]  # which notification a sound is for (#91)
@@ -112,6 +113,14 @@ class WebSettings:
 
 
 @dataclass(frozen=True)
+class BackgroundSettings:
+    """[background]: each project's ASCII art, faint, in its windows' corner (#9)."""
+
+    enabled: bool = True
+    opacity: float = 0.06
+
+
+@dataclass(frozen=True)
 class Config:
     projects: tuple[Project, ...] = ()
     defaults: dict[str, object] = field(default_factory=dict)
@@ -119,6 +128,7 @@ class Config:
     summary: SummarySettings = SummarySettings()
     resources: ResourceSettings = ResourceSettings()
     web: WebSettings = WebSettings()
+    background: BackgroundSettings = BackgroundSettings()
 
 
 class ConfigError(Exception):
@@ -236,6 +246,9 @@ def load(path: Path) -> Config:
             or not isinstance(entry.get("path"), str)
         ):
             raise ConfigError(path, f"project #{i} needs a string 'name' and 'path'")
+        background = entry.get("background", True)
+        if not isinstance(background, bool):
+            raise ConfigError(path, f"project #{i}: 'background' must be true or false")
         projects.append(
             Project(
                 name=entry["name"],
@@ -244,6 +257,7 @@ def load(path: Path) -> Config:
                 accent=_opt_str(entry, "accent"),
                 github=_opt_str(entry, "github"),
                 tint=_opt_str(entry, "tint"),
+                background=background,
             )
         )
     defaults = data.get("defaults", {})
@@ -256,6 +270,7 @@ def load(path: Path) -> Config:
         summary=_summary(path, data),
         resources=_resources(path, data),
         web=_web(path, data),
+        background=_background(path, data),
     )
 
 
@@ -377,6 +392,18 @@ def _web(path: Path, data: Mapping[str, object]) -> WebSettings:
     return WebSettings(enabled, port, host)
 
 
+def _background(path: Path, data: Mapping[str, object]) -> BackgroundSettings:
+    raw = data.get("background", {})
+    if not isinstance(raw, dict):
+        raise ConfigError(path, "[background] must be a table")
+    enabled, opacity = raw.get("enabled", True), raw.get("opacity", 0.06)
+    if not isinstance(enabled, bool):
+        raise ConfigError(path, "[background] enabled must be true or false")
+    if isinstance(opacity, bool) or not isinstance(opacity, int | float) or not 0 < opacity <= 1:
+        raise ConfigError(path, "[background] opacity must be a number > 0 and ≤ 1")
+    return BackgroundSettings(enabled, float(opacity))
+
+
 def _resource(path: Path, name: str, value: object) -> float:
     percent = name == "machine_cpu_pct"
     limit = " and ≤ 100" if percent else ""
@@ -420,7 +447,9 @@ def _atomic_write(path: Path, target: Path, text: str) -> None:
         raise
 
 
-def add_project(path: Path, name: str, project_path: Path, theme: str | None = None) -> None:
+def add_project(
+    path: Path, name: str, project_path: Path, theme: str | None = None, background: bool = True
+) -> None:
     """Append a [[project]] block, keeping the existing text (and its comments) as is."""
     config = load(path)  # raises ConfigError on a broken file, before anything is written
     project_path = project_path.expanduser()
@@ -429,9 +458,11 @@ def add_project(path: Path, name: str, project_path: Path, theme: str | None = N
     target = path.resolve()  # write through a symlink (e.g. a dotfiles repo), don't replace it
     # The header is written by hand: tomli-w emits an array of tables inline
     # (`project = [...]`), which appended after a table would land inside it.
-    entry = {"name": name, "path": _with_tilde(project_path)}
+    entry: dict[str, object] = {"name": name, "path": _with_tilde(project_path)}
     if theme:
         entry["theme"] = theme
+    if not background:
+        entry["background"] = False
     import tomli_w
 
     block = "[[project]]\n" + tomli_w.dumps(entry)
@@ -579,6 +610,23 @@ def remove_provider(path: Path, name: str) -> None:
 
 def set_project_theme(path: Path, project_path: Path, theme: str) -> None:
     """Set one project's `theme` in place; comments and layout elsewhere are kept."""
+    _edit_project(path, project_path, lambda table: _set_key(table, "theme", theme))
+
+
+def set_project_background(path: Path, project_path: Path, on: bool) -> None:
+    """Turn one project's background off (`background = false`) or back on (no key)."""
+
+    def edit(table: "Table") -> None:
+        if not on:
+            _set_key(table, "background", False)
+        elif "background" in table:
+            del table["background"]
+
+    _edit_project(path, project_path, edit)
+
+
+def _edit_project(path: Path, project_path: Path, edit: Callable[["Table"], None]) -> None:
+    """Change one [[project]] table in place; comments and layout elsewhere are kept."""
     load(path)  # refuses a broken file before anything is written
     target = path.resolve()
     import tomlkit
@@ -592,7 +640,7 @@ def set_project_theme(path: Path, project_path: Path, theme: str) -> None:
     for table in projects or []:
         raw = table.get("path")
         if isinstance(raw, str) and Path(raw).expanduser() == project_path:
-            _set_key(table, "theme", theme)
+            edit(table)
             break
     else:
         raise ConfigError(path, f"{project_path} is not a configured project")

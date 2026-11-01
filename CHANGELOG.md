@@ -12,6 +12,7 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 ### Added
 
 - cardak has a logo and a page of its own at [brlauuu.dev/cardak](https://brlauuu.dev/cardak/), with what it does and how to install it (#66).
+- Each project's windows show its logo, or its name, as faint ASCII art in the bottom-right corner, so you always see which project you're in. The art is a text file you can replace; turn it off per project with `ctrl+b` in the theme picker. Run `cardak wezterm install` again to get it (#9).
 
 ## 0.16.0 — 2026-10-31
 

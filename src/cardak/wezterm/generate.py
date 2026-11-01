@@ -6,12 +6,13 @@ from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
+from cardak.core.backgrounds import Image
 from cardak.core.config import Config, Project, real_path
 from cardak.core.themes import Scheme, project_tint
 from cardak.wezterm.files import write_atomic
 from cardak.wezterm.install import MARKER
 
-MODULE_VERSION = 4
+MODULE_VERSION = 5
 ZSH_MARKER = "# cardak: generated"
 PROJECTS_FILE = "cardak_projects.lua"
 TINTS_FILE = "tints"
@@ -88,9 +89,33 @@ def tint_problems(config: Config) -> list[str]:
     ]
 
 
-def render_projects_lua(config: Config, known: Collection[str] | None) -> tuple[str, list[str]]:
+def _background(image: Image | None) -> str:
+    if image is None:
+        return ""
+    file = lua_str(str(image.file))
+    return f", background = {{ file = {file}, cols = {image.cols}, rows = {image.rows} }}"
+
+
+def _project_lines(
+    p: Project, known: Collection[str] | None, image: Image | None, problems: list[str]
+) -> list[str]:
+    scheme = ""
+    if p.theme is not None and known is not None and p.theme not in known:
+        problems.append(f'unknown scheme "{p.theme}" for {p.name}')
+    elif p.theme is not None:
+        scheme = f", scheme = {lua_str(p.theme)}"
+    rest = f"name = {lua_str(p.name)}{scheme}{_background(image)}"
+    # a symlinked project under its real path too: WezTerm may see either (#14)
+    paths = dict.fromkeys((str(p.path), str(real_path(p.path))))
+    return [f"    {{ path = {lua_str(path)}, {rest} }}," for path in paths]
+
+
+def render_projects_lua(
+    config: Config, known: Collection[str] | None, images: Mapping[Path, Image] | None = None
+) -> tuple[str, list[str]]:
     projects, problems = _first_per_path(config)
     lines = [f"{MARKER} by cardak from projects.toml; edits are overwritten.", "return {"]
+    lines.append(f"  background_opacity = {config.background.opacity:g},")
     default = config.defaults.get("theme")
     if isinstance(default, str):
         if known is not None and default not in known:
@@ -100,14 +125,7 @@ def render_projects_lua(config: Config, known: Collection[str] | None) -> tuple[
     lines.append("  projects = {")
     for p in projects:
         # every project, themed or not: the module names tabs after it (#31)
-        scheme = ""
-        if p.theme is not None and known is not None and p.theme not in known:
-            problems.append(f'unknown scheme "{p.theme}" for {p.name}')
-        elif p.theme is not None:
-            scheme = f", scheme = {lua_str(p.theme)}"
-        # a symlinked project under its real path too: WezTerm may see either (#14)
-        for path in dict.fromkeys((str(p.path), str(real_path(p.path)))):
-            lines.append(f"    {{ path = {lua_str(path)}, name = {lua_str(p.name)}{scheme} }},")
+        lines += _project_lines(p, known, (images or {}).get(p.path), problems)
     lines += ["  },", "}"]
     return "\n".join(lines) + "\n", problems
 
@@ -141,14 +159,18 @@ def _write_if_changed(path: Path, text: str, marker: str, force: bool = False) -
 
 
 def write_generated(
-    wezterm_dir: Path, cardak_dir: Path, config: Config, schemes: Mapping[str, Scheme] | None
+    wezterm_dir: Path,
+    cardak_dir: Path,
+    config: Config,
+    schemes: Mapping[str, Scheme] | None,
+    images: Mapping[Path, Image] | None = None,
 ) -> GenerateResult:
     written: list[Path] = []
     problems: list[str] = []
     version = module_version(wezterm_dir / "cardak.lua")
     jobs: list[tuple[Path, str, str]] = []
     if version is not None:
-        text, found = render_projects_lua(config, set(schemes) if schemes else None)
+        text, found = render_projects_lua(config, set(schemes) if schemes else None, images)
         problems += found
         jobs.append((wezterm_dir / PROJECTS_FILE, text, MARKER))
     jobs.append((cardak_dir / TINTS_FILE, render_tints(config, schemes or {}), ZSH_MARKER))
