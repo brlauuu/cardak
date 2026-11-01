@@ -96,6 +96,20 @@ def _background(image: Image | None) -> str:
     return f", background = {{ file = {file}, cols = {image.cols}, rows = {image.rows} }}"
 
 
+def _project_lines(
+    p: Project, known: Collection[str] | None, image: Image | None, problems: list[str]
+) -> list[str]:
+    scheme = ""
+    if p.theme is not None and known is not None and p.theme not in known:
+        problems.append(f'unknown scheme "{p.theme}" for {p.name}')
+    elif p.theme is not None:
+        scheme = f", scheme = {lua_str(p.theme)}"
+    rest = f"name = {lua_str(p.name)}{scheme}{_background(image)}"
+    # a symlinked project under its real path too: WezTerm may see either (#14)
+    paths = dict.fromkeys((str(p.path), str(real_path(p.path))))
+    return [f"    {{ path = {lua_str(path)}, {rest} }}," for path in paths]
+
+
 def render_projects_lua(
     config: Config, known: Collection[str] | None, images: Mapping[Path, Image] | None = None
 ) -> tuple[str, list[str]]:
@@ -111,16 +125,7 @@ def render_projects_lua(
     lines.append("  projects = {")
     for p in projects:
         # every project, themed or not: the module names tabs after it (#31)
-        scheme = ""
-        if p.theme is not None and known is not None and p.theme not in known:
-            problems.append(f'unknown scheme "{p.theme}" for {p.name}')
-        elif p.theme is not None:
-            scheme = f", scheme = {lua_str(p.theme)}"
-        background = _background((images or {}).get(p.path))
-        # a symlinked project under its real path too: WezTerm may see either (#14)
-        for path in dict.fromkeys((str(p.path), str(real_path(p.path)))):
-            name = lua_str(p.name)
-            lines.append(f"    {{ path = {lua_str(path)}, name = {name}{scheme}{background} }},")
+        lines += _project_lines(p, known, (images or {}).get(p.path), problems)
     lines += ["  },", "}"]
     return "\n".join(lines) + "\n", problems
 

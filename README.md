@@ -48,6 +48,23 @@ the deck asks you to.
 
 `cardak themes zsh` adds an optional zsh hook that tints each pane's background by project.
 
+### Project background
+
+Each project's windows show its logo, or else its name, as faint ASCII art in the bottom-right
+corner, in the color of its scheme's text. cardak makes the art once, when the project is
+added: from the first image in its README or a file named like a logo, mark or icon, skipping
+wordmarks that would be unreadable in characters; otherwise the name in large letters. The art
+is a text file, `~/.config/cardak/logos/<project>.txt`, and from then on it's yours: paste any
+ASCII art into it to replace it, at any size. cardak never makes it again, so a deleted file
+means no background for that project.
+
+In the theme picker (`t`), `ctrl+b` turns a project's background off or on, previewed live, and
+the picker shows where its file is. In `projects.toml`, `[background]` takes `enabled = false`
+(every project) and `opacity` (default `0.06`). A background set in your `wezterm.lua` before
+`require('cardak').apply(config)` wins; `apply(config, { background = false })` turns cardak's
+off. The background covers the zsh tint. After upgrading, run `cardak wezterm install` again
+(the deck reminds you).
+
 ## Claude Code status
 
 ```sh

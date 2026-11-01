@@ -16,7 +16,6 @@ from cardak.core.backgrounds import (
     find_logos,
     images,
     logo_candidates,
-    pick_logo,
     preview_image,
     read_art,
     render,
@@ -56,30 +55,30 @@ def opaque_colors(png: Path) -> set[tuple[int, int, int]]:
 # pick_logo
 
 
-def test_pick_logo_prefers_the_readme() -> None:
+def test_logo_candidates_prefers_the_readme() -> None:
     readme = ["apps/b/podlog-logo-dark-theme.svg"]
-    assert pick_logo(readme, ["x/logo.png"]) == "apps/b/podlog-logo-dark-theme.svg"
+    assert logo_candidates(readme, ["x/logo.png"])[:1] == ["apps/b/podlog-logo-dark-theme.svg"]
 
 
-def test_pick_logo_ranks_logo_mark_icon() -> None:
+def test_logo_candidates_ranks_logo_mark_icon() -> None:
     tracked = ["a/icon.png", "a/cardak-mark-dark.svg", "public/next.svg", "a/b.txt"]
-    assert pick_logo([], tracked) == "a/cardak-mark-dark.svg"
-    assert pick_logo([], ["a/icon.png", "z/logo.ico"]) == "z/logo.ico"
+    assert logo_candidates([], tracked)[:1] == ["a/cardak-mark-dark.svg"]
+    assert logo_candidates([], ["a/icon.png", "z/logo.ico"])[:1] == ["z/logo.ico"]
 
 
-def test_pick_logo_prefers_dark_then_short() -> None:
+def test_logo_candidates_prefers_dark_then_short() -> None:
     tracked = ["p/flatpare_logo_blue.svg", "p/flatpare_logo_dark.svg", "p/flatpare_logo.svg"]
-    assert pick_logo([], tracked) == "p/flatpare_logo_dark.svg"
-    assert pick_logo([], ["deep/er/logo.png", "p/logo.png"]) == "p/logo.png"
+    assert logo_candidates([], tracked)[:1] == ["p/flatpare_logo_dark.svg"]
+    assert logo_candidates([], ["deep/er/logo.png", "p/logo.png"])[:1] == ["p/logo.png"]
 
 
-def test_pick_logo_skips_screens_and_boilerplate() -> None:
+def test_logo_candidates_skips_screens_and_boilerplate() -> None:
     tracked = ["design/screens/01-quiet/logo.png", "public/vercel.svg", "tests/fixtures/logo.svg"]
-    assert pick_logo([], tracked) is None
+    assert logo_candidates([], tracked) == []
 
 
-def test_pick_logo_skips_readme_entries_that_are_not_images() -> None:
-    assert pick_logo(["docs/demo.gif.txt", "a/logo.svg"], []) == "a/logo.svg"
+def test_logo_candidates_skips_readme_entries_that_are_not_images() -> None:
+    assert logo_candidates(["docs/demo.gif.txt", "a/logo.svg"], [])[:1] == ["a/logo.svg"]
 
 
 # art files and the record

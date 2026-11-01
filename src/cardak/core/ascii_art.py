@@ -109,6 +109,17 @@ def _size(width: int, height: int) -> tuple[int, int]:
     return cols, rows
 
 
+def _characters(small: "Image") -> str:
+    """One RAMP character per pixel of an ink image already cut to cells."""
+    steps = len(RAMP) - 1
+    width, height = small.size
+    lut = [RAMP[v * steps // 255] for v in range(256)]
+    data = small.tobytes()
+    return "\n".join(
+        "".join(lut[b] for b in data[y * width : (y + 1) * width]) for y in range(height)
+    )
+
+
 def logo_art(image: "Image") -> str:
     """The logo in RAMP's characters, at most MAX_COLS × MAX_ROWS, cropped to the mark."""
     from PIL import Image as PilImage
@@ -124,13 +135,7 @@ def logo_art(image: "Image") -> str:
     cols, rows = _size(*ink.size)
     if rows < MIN_ROWS:
         raise ArtError("too wide: a wordmark")
-    small = ink.resize((cols, rows), PilImage.Resampling.BOX)
-    steps = len(RAMP) - 1
-    lines = []
-    for y in range(rows):
-        values = (small.getpixel((x, y)) for x in range(cols))
-        lines.append("".join(RAMP[v * steps // 255 if isinstance(v, int) else 0] for v in values))
-    art = _trimmed("\n".join(lines))
+    art = _trimmed(_characters(ink.resize((cols, rows), PilImage.Resampling.BOX)))
     if not art:
         raise ArtError("blank image")
     return art

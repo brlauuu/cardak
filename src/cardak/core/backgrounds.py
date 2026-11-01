@@ -84,11 +84,6 @@ def logo_candidates(readme: Sequence[str], tracked: Sequence[str]) -> list[str]:
     return list(dict.fromkeys(found))
 
 
-def pick_logo(readme: Sequence[str], tracked: Sequence[str]) -> str | None:
-    """The best logo candidate."""
-    return next(iter(logo_candidates(readme, tracked)), None)
-
-
 def find_logos(project: Path) -> list[Path]:
     """The project's logo files, best first, read-only: the README's images, then git's
     tracked files. Only files inside the project."""
