@@ -3,7 +3,15 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from cardak.core.ascii_art import MAX_COLS, MAX_ROWS, ArtError, load_image, logo_art, name_art
+from cardak.core.ascii_art import (
+    MAX_COLS,
+    MAX_ROWS,
+    NAME_COLS,
+    ArtError,
+    load_image,
+    logo_art,
+    name_art,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -85,3 +93,9 @@ def test_load_image_rejects_garbage(tmp_path: Path, name: str) -> None:
 def test_load_image_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ArtError):
         load_image(tmp_path / "gone.png")
+
+
+def test_a_long_name_wraps_to_a_watermark() -> None:
+    lines = name_art("webshop-frontend-and-api").splitlines()
+    assert max(map(len, lines)) <= NAME_COLS
+    assert len(lines) > 5  # wrapped onto more than one row of letters

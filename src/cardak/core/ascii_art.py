@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 MAX_COLS = 40
 MAX_ROWS = 16
+NAME_COLS = 60  # a longer name wraps onto more rows: a watermark, not a band across the window
 MIN_ROWS = 8  # fewer: a wordmark, unreadable in characters; the name's letters say it better
 TILE = 0.85  # an opaque shape filling this much of its box is a tile with the mark inside
 RAMP = " .:-=+*#%@"  # sparse to dense
@@ -50,7 +51,7 @@ def name_art(name: str) -> str:
     import pyfiglet
 
     text = _ascii(name).strip()
-    art = _trimmed(pyfiglet.figlet_format(text, font="standard", width=1000)) if text else ""
+    art = _trimmed(pyfiglet.figlet_format(text, font="standard", width=NAME_COLS)) if text else ""
     return art or name
 
 
