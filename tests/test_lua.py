@@ -74,6 +74,13 @@ class Wez:
         self.lua.execute(HARNESS)
         g.M = self.lua.execute(MODULE)
         self.lua.execute(apply)
+        self.apply = apply
+
+    def reload(self) -> None:
+        """WezTerm's config reload: a fresh Lua state for the module; windows keep overrides."""
+        self.lua.execute("handlers = {}")
+        self.g.M = self.lua.execute(MODULE)
+        self.lua.execute(self.apply)
 
     def window(self, id: int, cwd: str, scheme: str | None = None) -> Any:
         return self.g.make_window(id, cwd, scheme)
@@ -577,3 +584,27 @@ def test_malformed_background_entries_are_ignored() -> None:
         w = wez.window(i + 1, cwd)
         wez.status(w)
         assert wez.background(w) is None and wez.scheme(w) == "Nord"
+
+
+def test_cardak_keeps_its_background_after_a_reload() -> None:
+    api = Project(name="api", path=Path("/r/api"), theme="Nord")
+    images = {WEB.path: ART, api.path: Image(Path("/c/bg/api.png"), 20, 5)}
+    wez = Wez(data(WEB, api, images=images))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    wez.reload()  # saving in the picker rewrites cardak_projects.lua
+    w.cwd = "/r/api"
+    wez.status(w)
+    assert _image_layer(wez.background(w))["source"] == {"File": "/c/bg/api.png"}
+    w.cwd = "/elsewhere"
+    wez.status(w)
+    assert wez.background(w) is None
+
+
+def test_a_translucent_window_stays_translucent() -> None:
+    apply = "M.apply({ window_background_opacity = 0.85 })"
+    wez = Wez(data(WEB, images={WEB.path: ART}), apply=apply)
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    layers = wez.background(w)
+    assert layers is not None and layers[0]["opacity"] == pytest.approx(0.85)

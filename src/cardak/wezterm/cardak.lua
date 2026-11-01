@@ -45,7 +45,7 @@ table.sort(projects, function(a, b) return #a.path > #b.path end) -- longest pre
 -- project path -> { scheme = …, background = <image>|false|nil } previewed from the deck's picker
 local previews = {}
 local backgrounds_on = true -- apply() turns it off for a user's own background
-local shown = {} -- window id -> what cardak's background override shows, or nil
+local base_opacity = 1 -- a translucent window (window_background_opacity) stays translucent
 
 local function focus_target(id)
   local pane = wezterm.mux.get_pane(id)
@@ -116,7 +116,7 @@ end
 -- width and height must be in cells: either alone stretches the image (WezTerm 20240203).
 local function layers(bg, base)
   return {
-    { source = { Color = base }, width = '100%', height = '100%' },
+    { source = { Color = base }, width = '100%', height = '100%', opacity = base_opacity },
     {
       source = { File = bg.file }, opacity = opacity,
       repeat_x = 'NoRepeat', repeat_y = 'NoRepeat',
@@ -127,16 +127,32 @@ local function layers(bg, base)
   }
 end
 
+-- cardak's layers are known by their shape, not by memory: a config reload starts a fresh Lua
+-- state while windows keep their overrides, so remembering "set by cardak" wouldn't survive it.
+local function is_ours(b)
+  if type(b) ~= 'table' or #b ~= 2 then return false end
+  local base, img = b[1], b[2]
+  return type(base) == 'table' and type(base.source) == 'table' and base.source.Color ~= nil
+    and type(img) == 'table' and type(img.source) == 'table'
+    and type(img.source.File) == 'string'
+    and img.horizontal_align == 'Right' and img.vertical_align == 'Bottom'
+end
+
+local function shows(b)
+  if b == nil then return nil end
+  return table.concat({
+    b[2].source.File, tostring(b[2].width), tostring(b[2].height), tostring(b[2].opacity),
+    tostring(b[1].source.Color), tostring(b[1].opacity),
+  }, '|')
+end
+
 -- Sets overrides.background; true when it changed. One cardak didn't set is left alone.
 local function sync_background(window, overrides, path, preview, scheme)
-  local id = window:window_id()
-  if overrides.background ~= nil and shown[id] == nil then return false end
+  if overrides.background ~= nil and not is_ours(overrides.background) then return false end
   local bg = background_for(path, preview)
-  local base = bg and base_color(window, scheme)
-  local key = bg and table.concat({ bg.file, bg.cols, bg.rows, base }, '|') or nil
-  if key == shown[id] and (key == nil) == (overrides.background == nil) then return false end
-  overrides.background = bg and layers(bg, base) or nil
-  shown[id] = key
+  local want = bg and layers(bg, base_color(window, scheme)) or nil
+  if shows(want) == shows(overrides.background) then return false end
+  overrides.background = want
   return true
 end
 
@@ -319,6 +335,12 @@ local function on_user_var(_, _, name, value)
   end
 end
 
+local function window_opacity(config)
+  local ok, value = pcall(function() return config.window_background_opacity end)
+  if ok and type(value) == 'number' and value > 0 and value <= 1 then return value end
+  return 1
+end
+
 local function users_background(config)
   local ok, set = pcall(function()
     return config.background ~= nil or config.window_background_image ~= nil
@@ -329,6 +351,7 @@ end
 function M.apply(config, opts)
   backgrounds_on = not (type(opts) == 'table' and opts.background == false)
     and not (type(config) == 'table' and users_background(config))
+  base_opacity = type(config) == 'table' and window_opacity(config) or 1
   wezterm.on('user-var-changed', on_user_var)
   if not (type(opts) == 'table' and opts.tab_titles == false) then
     -- WezTerm runs only the first format-tab-title handler registered
