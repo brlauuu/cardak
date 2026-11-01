@@ -1,5 +1,5 @@
-"""Read-only git for recaps and the PM view: the top level, branches, the remote, changed files
-and recent commits.
+"""Read-only git for recaps, the PM view and the project background: the top level, branches,
+the remote, changed files, recent commits and the tracked files.
 
 Every call is `git --no-optional-locks -C <dir>` with a timeout; any failure is None.
 """
@@ -46,6 +46,12 @@ def toplevel(path: Path, runner: Runner = subprocess.run) -> Path | None:
     """The git top level of path (a worktree's own), or None outside git."""
     out = _git(path, ["rev-parse", "--show-toplevel"], runner)
     return Path(out.strip()) if out and out.strip() else None
+
+
+def tracked_files(top: Path, runner: Runner = subprocess.run) -> tuple[str, ...] | None:
+    """Every file git tracks under top, relative to it (where #9 looks for a logo)."""
+    out = _git(top, ["ls-files", "-z"], runner)
+    return tuple(f for f in out.split("\0") if f) if out is not None else None
 
 
 def branch(path: Path, runner: Runner = subprocess.run) -> str | None:
