@@ -113,3 +113,17 @@ def test_has_a_description_and_social_tags() -> None:
     # crawlers need an absolute URL for the preview image; the only absolute asset URL
     image = _find(tags, "meta", property="og:image")[0]["content"]
     assert image == "https://brlauuu.dev/cardak/assets/cardak-icon-180.png"
+
+
+def test_readme_shows_the_wordmark() -> None:
+    text = (ROOT / "README.md").read_text()
+    head, _, rest = text.partition("# cardak\n")
+    # the picture comes first; the heading stays for anything that reads the text
+    assert rest
+    tags = _Tags()
+    tags.feed(head)
+    links = [a for t, a, _ in tags.tags if t == "a"]
+    assert links and links[0]["href"] == "https://brlauuu.dev/cardak/"
+    dark = "(prefers-color-scheme: dark)"
+    assert _find(tags, "source", media=dark, srcset="site/assets/cardak-wordmark-dark.svg")
+    assert _find(tags, "img", src="site/assets/cardak-wordmark-light.svg", alt="cardak")

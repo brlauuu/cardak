@@ -9,6 +9,10 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+
+- cardak has a logo and a page of its own at [brlauuu.dev/cardak](https://brlauuu.dev/cardak/), with what it does and how to install it (#66).
+
 ## 0.16.0 — 2026-10-31
 
 ### Added

@@ -159,7 +159,7 @@ def test_site_is_not_packaged(): ...                   # in tests/test_packaging
 - [ ] **Step 1: Write the failing test**: `test_readme_shows_the_wordmark` — README starts with a `<picture>` whose sources are `site/assets/cardak-wordmark-dark.svg` (dark) and `site/assets/cardak-wordmark-light.svg`, with `alt="cardak"`, linked to `https://brlauuu.dev/cardak/`, and the `# cardak` heading kept for text readers.
 - [ ] **Step 2: Run** it — Expected: FAIL.
 - [ ] **Step 3: Edit.** README: the `<picture>` above the heading. AGENTS.md: `site/` (`index.html`, `assets/`), `scripts/{build_site, make_brand_pngs}.py` and `.github/workflows/pages.yml` in Layout; a short section: the palette with hex values, the stylized Č only in images, how to regenerate the PNGs, how to add the video, that the page is served at brlauuu.dev/cardak through a proxy and needs the trailing slash. CHANGELOG: "cardak has a logo and a page at brlauuu.dev/cardak (#66)".
-- [ ] **Step 4: Run** the full CI set from Task 4 Step 4 — Expected: green. `grep -rniE "podlog|flatpare|schnj|/home/" site scripts README.md AGENTS.md CHANGELOG.md docs/superpowers` on the staged diff — Expected: nothing.
+- [ ] **Step 4: Run** the full CI set from Task 4 Step 4 — Expected: green. Scan the branch's changed files for home paths and for names of the author's other projects — Expected: nothing.
 - [ ] **Step 5: Commit** `docs: the logo in the README, the site in AGENTS.md (#66)`.
 
 ### Task 6: Publish (live, with the user's settings changes)

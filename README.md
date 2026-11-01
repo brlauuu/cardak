@@ -1,3 +1,10 @@
+<a href="https://brlauuu.dev/cardak/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="site/assets/cardak-wordmark-dark.svg">
+    <img src="site/assets/cardak-wordmark-light.svg" alt="cardak" width="320">
+  </picture>
+</a>
+
 # cardak
 
 A project-centric deck for WezTerm panes and Claude Code sessions. It groups every pane by
