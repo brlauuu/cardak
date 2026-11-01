@@ -842,3 +842,30 @@ def test_set_look_adds_an_unconfigured_project_with_the_switch(tmp_path: Path) -
     source.set_look(HOME / "repos/webshop", "Nord", False, name="webshop")
     text = cfg.read_text()
     assert 'name = "webshop"' in text and "background = false" in text
+
+
+def test_edited_art_reruns_on_config(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\n')
+    runs: list[Config] = []
+    stamp = ["v1"]
+    source = LiveSource(
+        cfg,
+        env={},
+        list_panes=panes,
+        sample=sample,
+        claude_lookup=lambda p: None,
+        git=no_git,
+        home=HOME,
+        machine=no_machine,
+        docker=no_docker,
+        on_config=lambda c: runs.append(c) or [],
+        art_stamp=lambda: stamp[0],
+    )
+    source.poll()
+    assert len(runs) == 1
+    stamp[0] = "v2"  # the user saved their own art
+    source.poll()
+    assert len(runs) == 2
+    source.poll()
+    assert len(runs) == 2

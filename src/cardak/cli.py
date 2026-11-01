@@ -926,7 +926,7 @@ def _deck(config_arg: str | None) -> int:
     from cardak.collectors import wezterm
     from cardak.collectors.fonts import monospace_font
     from cardak.core import spend
-    from cardak.core.backgrounds import Paths, Tools
+    from cardak.core.backgrounds import Paths, Tools, art_stamp
     from cardak.core.focus import focus_path, read_history
     from cardak.core.hook import log_problem
     from cardak.core.limits import limits_path
@@ -961,6 +961,7 @@ def _deck(config_arg: str | None) -> int:
         store=agents,
         focus_history=lambda: read_history(focus_path()),
         keys_dir=config_dir(),
+        art_stamp=lambda: art_stamp(backgrounds.art_dir),
     )
     pm, stop_pm, pm_store = _pm_service(source)
     DeckApp(

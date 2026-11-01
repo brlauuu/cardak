@@ -89,6 +89,7 @@ class LiveSource:
         write_seen: bool = True,
         spend: Callable[[], MonthSpend | None] = lambda: None,
         limits_file: Path | None = None,
+        art_stamp: Callable[[], object] | None = None,
     ) -> None:
         self.config_file = config_file
         self._env = os.environ if env is None else env
@@ -123,6 +124,8 @@ class LiveSource:
         self._warnings: tuple[str, ...] = ()
         self._config_error: str | None = None
         self._resolver = ProjectResolver(Config(), git)
+        self._art_stamp = art_stamp  # the projects' art files: an edit redraws their images (#9)
+        self._art_seen: object = None
         self._stamp: Stamp | bool = False  # never equal to a real stamp, so the first check loads
         self._reload_if_changed()
 
@@ -145,8 +148,14 @@ class LiveSource:
 
     def _reload_if_changed(self) -> None:
         stamp = self._current_stamp()
+        art = self._art_stamp() if self._art_stamp else None
         if stamp == self._stamp:
+            if art != self._art_seen:
+                self._art_seen = art
+                if self._config_error is None:
+                    self._run_on_config()
             return
+        self._art_seen = art
         self._stamp = stamp
         try:
             cfg = config_mod.load(self.config_file)

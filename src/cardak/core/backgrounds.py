@@ -123,6 +123,15 @@ def art_files(projects: Sequence[Project], art_dir: Path) -> dict[Path, Path]:
     return files
 
 
+def art_stamp(art_dir: Path) -> tuple[tuple[str, int, int], ...]:
+    """The art files' names, sizes and times: a change means the user edited one."""
+    try:
+        files = [(f.name, f.stat()) for f in art_dir.glob("*.txt")]
+    except OSError:
+        return ()
+    return tuple(sorted((name, st.st_mtime_ns, st.st_size) for name, st in files))
+
+
 def read_art(file: Path) -> str | None:
     """The art with tabs expanded and trailing whitespace gone; None when there is none."""
     try:
