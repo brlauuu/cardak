@@ -139,3 +139,17 @@ def test_hint_once_under_concurrent_jumps() -> None:
     for t in threads:
         t.join()
     assert sum(r.hint for r in results) == 1
+
+
+def test_preview_request_carries_the_background() -> None:
+    from cardak.core.backgrounds import Image
+
+    def sent(background: object) -> dict[str, object]:
+        data = preview_request(Path("/r/web"), "Nord", "7", background)  # type: ignore[arg-type]
+        prefix = b"\x1b]1337;SetUserVar=cardak_preview="
+        return json.loads(base64.b64decode(data[len(prefix) : -1]))
+
+    assert "background" not in sent(None)
+    assert sent(False)["background"] is False
+    shown = sent(Image(Path("/c/x.png"), 30, 5))["background"]
+    assert shown == {"file": "/c/x.png", "cols": 30, "rows": 5}

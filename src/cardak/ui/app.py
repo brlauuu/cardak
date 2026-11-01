@@ -37,7 +37,7 @@ from cardak.ui.history import HistoryScreen
 from cardak.ui.pm import PmScreen, PmView
 from cardak.ui.recap import RecapScreen
 from cardak.ui.summaries import SummariesScreen, SummaryControl
-from cardak.ui.theme_picker import ThemePickerScreen, ThemePreviewer
+from cardak.ui.theme_picker import Backgrounds, ThemeChoice, ThemePickerScreen, ThemePreviewer
 from cardak.ui.widgets import (
     docker_label,
     fmt_usd,
@@ -81,7 +81,11 @@ class DeckSource(Protocol):
 
     def add_project(self, name: str, path: Path) -> None: ...
 
-    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None: ...
+    def set_look(
+        self, project_path: Path, theme: str, background: bool, name: str | None = None
+    ) -> None: ...
+
+    def background_on(self, project_path: Path) -> bool: ...
 
     def regenerate(self) -> None: ...
 
@@ -275,8 +279,10 @@ class DeckApp(App[None]):
         summaries: SummaryControl | None = None,
         providers: ProviderTools | None = None,
         pm: PmView | None = None,
+        backgrounds: Backgrounds | None = None,
     ) -> None:
         super().__init__()
+        self.backgrounds = backgrounds  # each project's art: its file, and previews of it (#9)
         self.source = source
         self.navigator = navigator
         self.previewer = previewer
@@ -822,26 +828,36 @@ class DeckApp(App[None]):
             self.notify("Fix projects.toml before changing themes.", severity="error")
             return
         name, path, current = group.name, group.key, group.theme
+        background = self.source.background_on(path)
 
-        def done(scheme: str | None) -> None:
-            if not scheme:
+        def done(choice: ThemeChoice | None) -> None:
+            if choice is None or not choice.scheme:
                 return
-            if scheme == current:  # nothing to write, so no reload replaces the preview
-                self._clear_preview(path)
-                self.notify(escape(f"{name}: {scheme}"))
+            said = f"{name}: {choice.scheme}" + ("" if choice.background else ", background off")
+            if (choice.scheme, choice.background) == (current, background):
+                self._clear_preview(path)  # nothing to write, so no reload replaces the preview
+                self.notify(escape(said))
                 return
             try:
-                self.source.set_theme(path, scheme, name)
+                self.source.set_look(path, choice.scheme, choice.background, name)
             except ConfigError as e:
                 self._clear_preview(path)
                 self.notify(escape(str(e)), severity="error")
                 return
-            self.notify(escape(f"{name}: {scheme}"))
+            self.notify(escape(said))
             if self.theme_status is not None and (hint := self.theme_status()):
                 self.notify(escape(hint), severity="warning")
             self.action_refresh()
 
-        self.push_screen(
-            ThemePickerScreen(name, path, group.theme, self._schemes_for_picker, self.previewer),
-            done,
+        tools = self.backgrounds
+        picker = ThemePickerScreen(
+            name,
+            path,
+            group.theme,
+            self._schemes_for_picker,
+            self.previewer,
+            background=background,
+            art_file=tools.art_file(path) if tools else None,
+            preview_image=(lambda scheme: tools.preview_image(path, scheme)) if tools else None,
         )
+        self.push_screen(picker, done)

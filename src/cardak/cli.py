@@ -921,10 +921,12 @@ def _pm_service(
 
 def _deck(config_arg: str | None) -> int:
     import os
+    from functools import cache
 
     from cardak.collectors import wezterm
+    from cardak.collectors.fonts import monospace_font
     from cardak.core import spend
-    from cardak.core.backgrounds import Paths
+    from cardak.core.backgrounds import Paths, Tools
     from cardak.core.focus import focus_path, read_history
     from cardak.core.hook import log_problem
     from cardak.core.limits import limits_path
@@ -939,6 +941,7 @@ def _deck(config_arg: str | None) -> int:
     cache_dir = default_cache_dir()
     lua_dir = _lua_dir()
     store = SchemeStore(read_cached_schemes(cache_dir))
+    backgrounds = Paths.default()
     try:
         agents: Store | None = Store(db_path())
     except StoreError as e:
@@ -953,7 +956,7 @@ def _deck(config_arg: str | None) -> int:
         config_path(config_arg),
         spend=counted[0] if counted else lambda: None,
         limits_file=limits_path(),
-        on_config=_theme_writer(lua_dir, config_dir(), store, Paths.default()),
+        on_config=_theme_writer(lua_dir, config_dir(), store, backgrounds),
         schemes=store.get,
         store=agents,
         focus_history=lambda: read_history(focus_path()),
@@ -976,6 +979,7 @@ def _deck(config_arg: str | None) -> int:
         summaries=source,
         providers=_provider_tools(),
         pm=pm,
+        backgrounds=Tools(backgrounds, lambda: source.config, store.get, cache(monospace_font)),
     ).run()
     if counted is not None:
         counted[1].set()

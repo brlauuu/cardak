@@ -301,3 +301,37 @@ def preview_image(
         return render(art, scheme.foreground if scheme else FALLBACK_COLOR, paths.cache, font)
     except OSError:
         return None
+
+
+class Tools:
+    """The theme picker's view of the backgrounds: a project's art file and previews of it."""
+
+    def __init__(
+        self,
+        paths: Paths,
+        config: Callable[[], Config],
+        schemes: Callable[[], Mapping[str, Scheme]],
+        font: Callable[[], Path | None],
+    ) -> None:
+        self._paths = paths
+        self._config = config
+        self._schemes = schemes
+        self._font = font
+
+    def _project(self, project_path: Path) -> tuple[Project, Path] | None:
+        projects = _first_per_path(self._config().projects)
+        project = next((p for p in projects if p.path == project_path), None)
+        if project is None:
+            return None
+        return project, art_files(projects, self._paths.art_dir)[project.path]
+
+    def art_file(self, project_path: Path) -> Path | None:
+        found = self._project(project_path)
+        return found[1] if found else None
+
+    def preview_image(self, project_path: Path, scheme: str) -> Image | None:
+        found = self._project(project_path)
+        if found is None:
+            return None
+        project, file = found
+        return preview_image(project, file, self._schemes().get(scheme), self._paths, self._font())

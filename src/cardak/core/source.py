@@ -180,14 +180,31 @@ class LiveSource:
         project = next((p for p in self._config.projects if p.path == resolved.key), None)
         return project_accent(project, self._schemes()) if project else None
 
-    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None:
+    def background_on(self, project_path: Path) -> bool:
+        """Whether the project shows its art (#9); a project not yet configured would."""
         with self._lock:
-            if any(p.path == project_path for p in self._config.projects):
-                config_mod.set_project_theme(self.config_file, project_path, theme)
-            else:
+            project = next((p for p in self._config.projects if p.path == project_path), None)
+            return project.background if project else True
+
+    def set_look(
+        self, project_path: Path, theme: str, background: bool, name: str | None = None
+    ) -> None:
+        """Save the picker's scheme and background switch, writing only what changed."""
+        with self._lock:
+            project = next((p for p in self._config.projects if p.path == project_path), None)
+            if project is None:
                 config_mod.add_project(
-                    self.config_file, name or project_path.name, project_path, theme=theme
+                    self.config_file,
+                    name or project_path.name,
+                    project_path,
+                    theme=theme,
+                    background=background,
                 )
+            else:
+                if project.theme != theme:
+                    config_mod.set_project_theme(self.config_file, project_path, theme)
+                if project.background != background:
+                    config_mod.set_project_background(self.config_file, project_path, background)
             self._reload_if_changed()
 
     def summary_settings(self) -> SummarySettings:

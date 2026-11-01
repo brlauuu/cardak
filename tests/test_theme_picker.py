@@ -2,10 +2,11 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from textual.app import App
-from textual.widgets import Input, OptionList, Static
+from textual.widgets import Checkbox, Input, OptionList, Static
 
+from cardak.core.backgrounds import Image
 from cardak.core.themes import Scheme
-from cardak.ui.theme_picker import ThemePickerScreen, swatch_label
+from cardak.ui.theme_picker import ThemeChoice, ThemePickerScreen, swatch_label
 
 ANSI = ("#000000",) * 8
 SCHEMES = {
@@ -18,10 +19,13 @@ class Recorder:
     in_wezterm = True
 
     def __init__(self) -> None:
-        self.calls: list[tuple[Path, str]] = []
+        self.calls: list[tuple[object, ...]] = []
 
-    def preview(self, project_path: Path, scheme: str) -> bool:
-        self.calls.append((project_path, scheme))
+    def preview(
+        self, project_path: Path, scheme: str, background: Image | bool | None = None
+    ) -> bool:
+        call = (project_path, scheme) if background is None else (project_path, scheme, background)
+        self.calls.append(call)
         return True
 
 
@@ -29,18 +33,20 @@ class Host(App[None]):
     def __init__(self, screen: ThemePickerScreen) -> None:
         super().__init__()
         self.picker = screen
-        self.result: str | None = "unset"
+        self.result: ThemeChoice | str | None = "unset"
 
     def on_mount(self) -> None:
-        def done(value: str | None) -> None:
+        def done(value: ThemeChoice | None) -> None:
             self.result = value
 
         self.push_screen(self.picker, done)
 
 
-def picker(load=lambda: SCHEMES, current: str | None = "Nord") -> tuple[Host, Recorder]:
+def picker(
+    load=lambda: SCHEMES, current: str | None = "Nord", **kw: object
+) -> tuple[Host, Recorder]:
     rec = Recorder()
-    return Host(ThemePickerScreen("web", PATH, current, load, rec)), rec
+    return Host(ThemePickerScreen("web", PATH, current, load, rec, **kw)), rec  # type: ignore[arg-type]
 
 
 async def ready(host: Host, pilot) -> None:  # noqa: ANN001
@@ -93,7 +99,7 @@ async def test_enter_saves_without_clearing_first() -> None:
         await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
         await pilot.press("enter")
         await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
-        assert host.result == "Tokyo Night"
+        assert host.result == ThemeChoice("Tokyo Night", True)
         # no "" first: the save's config reload replaces the preview, so nothing flashes (#22)
         assert rec.calls == [(PATH, "Tokyo Night")]
 
@@ -131,7 +137,7 @@ async def test_load_failure_accepts_an_exact_name() -> None:
         host.picker.query_one(Input).value = "My Scheme"
         await pilot.press("enter")
         await pilot.pause()
-        assert host.result == "My Scheme"
+        assert host.result == ThemeChoice("My Scheme", True)
 
 
 async def test_note_when_preview_is_unavailable() -> None:
@@ -161,7 +167,7 @@ async def test_fast_enter_after_a_preview_shows_the_saved_scheme() -> None:
         await pilot.press("up")  # back to Nord, then Enter before the debounce
         await pilot.press("enter")
         await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
-        assert host.result == "Nord"
+        assert host.result == ThemeChoice("Nord", True)
         assert rec.calls == [(PATH, "Tokyo Night"), (PATH, "Nord")]
 
 
@@ -175,5 +181,83 @@ async def test_unknown_typed_name_after_a_preview_clears_it() -> None:
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
-        assert host.result == "zzz"
+        assert host.result == ThemeChoice("zzz", True)
         assert rec.calls[-1] == (PATH, "")  # it will never reach cardak.lua's table
+
+
+ART = Image(Path("/c/bg/x.png"), 30, 5)
+
+
+async def test_picker_returns_the_switch() -> None:
+    host, _ = picker()
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        assert host.picker.query_one(Checkbox).value is False
+        await pilot.press("enter")
+        await pilot.pause()
+        assert host.result == ThemeChoice("Nord", False)
+
+
+async def test_picker_starts_from_the_saved_switch() -> None:
+    host, _ = picker(background=False)
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert host.result == ThemeChoice("Nord", False)
+
+
+async def test_picker_previews_the_switch() -> None:
+    host, rec = picker(preview_image=lambda scheme: ART)
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        assert rec.calls == [(PATH, "Nord", False)]
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        assert rec.calls[-1] == (PATH, "Nord", ART)
+
+
+async def test_picker_previews_the_art_in_the_highlighted_scheme() -> None:
+    asked: list[str] = []
+
+    def image(scheme: str) -> Image:
+        asked.append(scheme)
+        return ART
+
+    host, rec = picker(preview_image=image)
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("down")
+        await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
+        assert rec.calls == [(PATH, "Tokyo Night", ART)] and asked == ["Tokyo Night"]
+
+
+async def test_picker_shows_the_art_path() -> None:
+    host, _ = picker(art_file=Path.home() / ".config/cardak/logos/web.txt")
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        text = str(host.picker.query_one("#art-path", Static).render())
+        assert "~/.config/cardak/logos/web.txt" in text
+
+
+async def test_picker_says_when_art_is_made() -> None:
+    host, _ = picker()
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        assert "made when you save" in str(host.picker.query_one("#art-path", Static).render())
+
+
+async def test_escape_discards_the_switch() -> None:
+    host, rec = picker()
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        assert host.result is None
+        assert rec.calls[-1] == (PATH, "")

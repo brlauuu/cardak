@@ -208,12 +208,12 @@ def test_on_config_failure_becomes_a_warning(tmp_path: Path) -> None:
     assert source.poll().config_warnings == ("couldn't update theme files: OSError('disk full')",)
 
 
-def test_set_theme_existing_and_new(tmp_path: Path) -> None:
+def test_set_look_existing_and_new(tmp_path: Path) -> None:
     cfg = tmp_path / "projects.toml"
     cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\n')
     source = make(cfg)
-    source.set_theme(HOME / "notes", "Nord")
-    source.set_theme(HOME / "repos/webshop", "Tokyo Night", name="webshop")
+    source.set_look(HOME / "notes", "Nord", True)
+    source.set_look(HOME / "repos/webshop", "Tokyo Night", True, name="webshop")
     groups = {g.name: g.theme for g in source.poll().groups}
     assert groups == {"notes": "Nord", "webshop": "Tokyo Night"}
 
@@ -820,3 +820,25 @@ def test_source_reads_limits_when_changed(tmp_path: Path) -> None:
 
 def test_source_without_limits_file_reads_none(tmp_path: Path) -> None:
     assert spending(tmp_path / "p.toml", None).poll().plan_limits is None
+
+
+def test_set_look_writes_only_what_changed(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\ntheme = "Nord"\n')
+    source = make(cfg)
+    assert source.background_on(HOME / "notes") is True
+    source.set_look(HOME / "notes", "Nord", False)
+    assert cfg.read_text().count("theme = ") == 1 and "background = false" in cfg.read_text()
+    assert source.background_on(HOME / "notes") is False
+    before = cfg.read_text()
+    source.set_look(HOME / "notes", "Nord", False)
+    assert cfg.read_text() == before
+
+
+def test_set_look_adds_an_unconfigured_project_with_the_switch(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    source = make(cfg)
+    assert source.background_on(HOME / "repos/webshop") is True
+    source.set_look(HOME / "repos/webshop", "Nord", False, name="webshop")
+    text = cfg.read_text()
+    assert 'name = "webshop"' in text and "background = false" in text

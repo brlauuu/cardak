@@ -10,6 +10,7 @@ from cardak.core.backgrounds import (
     FALLBACK_COLOR,
     Image,
     Paths,
+    Tools,
     art_files,
     ensure_art,
     find_logo,
@@ -268,3 +269,15 @@ def test_find_logo_never_leaves_the_project(tmp_path: Path) -> None:
     project_dir.mkdir()
     (project_dir / "README.md").write_text("![x](../outside.png)")
     assert find_logo(project_dir) is None
+
+
+def test_tools_for_the_picker(tmp_path: Path, paths: Paths) -> None:
+    p = project(tmp_path)
+    cfg = config(p)
+    ensure_art(cfg, paths, no_logo)
+    tools = Tools(paths, lambda: cfg, lambda: {"Dark": DARK}, lambda: None)
+    assert tools.art_file(p.path) == paths.art_dir / "cardak.txt"
+    assert tools.art_file(tmp_path / "unknown") is None
+    shown = tools.preview_image(p.path, "Dark")
+    assert shown is not None and opaque_colors(shown.file) == {(0xE0, 0xE0, 0xE0)}
+    assert tools.preview_image(tmp_path / "unknown", "Dark") is None

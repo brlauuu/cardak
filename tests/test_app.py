@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from logfix import FakeLog
 from textual.pilot import Pilot
-from textual.widgets import Input, Static, Tree
+from textual.widgets import Checkbox, Input, Static, Tree
 
 from cardak.collectors.machine import MachineSample
 from cardak.core.agents import SessionState
@@ -73,6 +73,8 @@ class StubSource:
         self.fail_add = fail_add
         self.added: list[tuple[str, Path]] = []
         self.themes: list[tuple[Path, str, str | None]] = []
+        self.looks: list[tuple[Path, str, bool, str | None]] = []
+        self.backgrounds_off: set[Path] = set()
         self.regenerated = 0
         self.seen_panes: list[int] = []
         self.sessions: dict[str, SessionState] = {}
@@ -86,8 +88,14 @@ class StubSource:
             raise ConfigError(Path("projects.toml"), f"{path} is already configured")
         self.added.append((name, path))
 
-    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None:
+    def set_look(
+        self, project_path: Path, theme: str, background: bool, name: str | None = None
+    ) -> None:
         self.themes.append((project_path, theme, name))
+        self.looks.append((project_path, theme, background, name))
+
+    def background_on(self, project_path: Path) -> bool:
+        return project_path not in self.backgrounds_off
 
     def regenerate(self) -> None:
         self.regenerated += 1
@@ -1189,13 +1197,15 @@ class PreviewRecorder:
     def __init__(self) -> None:
         self.calls: list[tuple[Path, str]] = []
 
-    def preview(self, project_path: Path, scheme: str) -> bool:
+    def preview(self, project_path: Path, scheme: str, background: object = None) -> bool:
         self.calls.append((project_path, scheme))
         return True
 
 
 class FailingThemeSource(StubSource):
-    def set_theme(self, project_path: Path, theme: str, name: str | None = None) -> None:
+    def set_look(
+        self, project_path: Path, theme: str, background: bool, name: str | None = None
+    ) -> None:
         raise ConfigError(Path("projects.toml"), "is read-only")
 
 
@@ -1228,6 +1238,46 @@ async def test_saving_the_current_scheme_clears_the_preview() -> None:
     async with app.run_test() as pilot:
         await choose_nord(app, pilot, 1)
         assert rec.calls[-1] == (Path("/repos/cardak"), "")  # unchanged config: no reload
+
+
+async def test_deck_saves_background_off() -> None:
+    themed = replace(
+        SNAP, groups=(SNAP.groups[0], replace(SNAP.groups[1], theme="Nord"), SNAP.groups[2])
+    )
+    source = StubSource(themed)
+    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES))
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        await pilot.press("ctrl+b", "enter")
+        await settle(app, pilot)
+        assert source.looks == [(Path("/repos/cardak"), "Nord", False, "cardak")]
+        assert any("background off" in str(n.message) for n in app._notifications)  # noqa: SLF001
+
+
+async def test_picker_opens_with_the_saved_switch_and_art_path() -> None:
+    source = StubSource(SNAP)
+    source.backgrounds_off.add(Path("/repos/cardak"))
+
+    class Tools:
+        def art_file(self, project_path: Path) -> Path | None:
+            return Path("/art/cardak.txt")
+
+        def preview_image(self, project_path: Path, scheme: str) -> None:
+            return None
+
+    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES), backgrounds=Tools())
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        screen = app.screen
+        assert isinstance(screen, ThemePickerScreen)
+        assert screen.query_one(Checkbox).value is False
+        assert "/art/cardak.txt" in str(screen.query_one("#art-path", Static).render())
 
 
 async def test_picker_load_regenerates() -> None:
