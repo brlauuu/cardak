@@ -31,3 +31,4 @@ spikes/out/
 
 # the user's own sound packs (#91): not ours to publish
 src/cardak/sounds/packs/
+_site/
