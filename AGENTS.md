@@ -575,8 +575,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `/cardak` to the trailing slash so `assets/…` resolves. It loads nothing from elsewhere.
   `__VERSION__` is filled from `pyproject.toml` by `scripts/build_site.py` in the Pages workflow,
   which runs on `main` when the site, `pyproject.toml`, the script or the workflow changes.
-- The demo video: put it at `site/assets/cardak-demo.mp4` and replace the placeholder in `#demo`
-  with the `<video>` element written in the comment above it.
+- The demo video: put it at `site/assets/cardak-demo.mp4` and replace the contents of the `.video`
+  div in `#demo` with the `<video>` element written in the comment above it.
 - The project list on brlauuu.dev shows `cardak-mark-mono-512.png`: that list inverts logos for
   dark themes, which only a one-ink mark survives.
 

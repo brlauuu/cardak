@@ -12,9 +12,22 @@ SVG_NS = "{http://www.w3.org/2000/svg}"
 # Danube night, paprika red, linen, and graphite for the one-ink mark (#66)
 PALETTE = {"#0f2a44", "#c8352b", "#f6efe2", "#17181c"}
 HACEK = "M38 14 L50 33 L62 14"
-MARKS = ["cardak-mark-light.svg", "cardak-mark-dark.svg", "cardak-mark-mono.svg", "cardak-icon.svg"]
 WORDMARKS = ["cardak-wordmark-light.svg", "cardak-wordmark-dark.svg"]
-SVGS = MARKS + WORDMARKS
+# every SVG there, so one added later is checked too
+SVGS = sorted(p.name for p in ASSETS.glob("*.svg"))
+PAINT = ("fill", "stroke", "stop-color", "color")
+EDITORS = (
+    "inkscape",
+    "sodipodi",
+    "<metadata",
+    "data:",
+    "generator",
+    "illustrator",
+    "sketch",
+    "figma",
+    "<desc",
+    "xmlns:",
+)
 
 
 def _root(name: str) -> ET.Element:
@@ -23,6 +36,61 @@ def _root(name: str) -> ET.Element:
 
 def _colors(text: str) -> set[str]:
     return {c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}\b", text)}
+
+
+def _declarations(css: str) -> list[str]:
+    """The values of every paint property in a style sheet or style attribute."""
+    props = "|".join(PAINT)
+    return [v.strip() for v in re.findall(rf"(?<![\w-])(?:{props})\s*:\s*([^;}}]+)", css)]
+
+
+def _stray_colors(svg: str) -> list[str]:
+    """Paint values outside the palette; black and white may paint only inside a <mask>."""
+    root = ET.fromstring(svg)
+    masked = {id(e) for mask in root.iter(f"{SVG_NS}mask") for e in mask.iter()}
+    values: list[str] = []
+    for e in root.iter():
+        if e.tag == f"{SVG_NS}style":
+            values += _declarations(e.text or "")
+        if id(e) in masked:
+            continue
+        values += [e.get(name, "") for name in PAINT if e.get(name)]
+        values += _declarations(e.get("style", ""))
+    return [v for v in values if not _allowed(v)]
+
+
+def _allowed(paint: str) -> bool:
+    return paint == "none" or paint.startswith("url(#") or paint.lower() in PALETTE
+
+
+@pytest.mark.parametrize(
+    "paint",
+    [
+        'stroke="#f00"',
+        'stroke="#c8352bcc"',
+        'stroke="red"',
+        'fill="gray"',
+        'stroke="rgb(200,0,0)"',
+        'style="stroke: #abcdef"',
+    ],
+)
+def test_stray_colors_are_caught(paint: str) -> None:
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0" {paint}/></svg>'
+    assert _stray_colors(svg)
+
+
+def test_stray_colors_in_a_style_sheet_are_caught() -> None:
+    svg = '<svg xmlns="http://www.w3.org/2000/svg"><style>.c { stroke: teal; }</style></svg>'
+    assert _stray_colors(svg) == ["teal"]
+
+
+def test_palette_paint_is_not_stray() -> None:
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg"><style>.t { fill: #0F2A44; }</style>'
+        '<mask id="m"><rect fill="#fff"/></mask>'
+        '<path fill="none" stroke="#c8352b" mask="url(#m)" style="stroke: #f6efe2"/></svg>'
+    )
+    assert _stray_colors(svg) == []
 
 
 @pytest.mark.parametrize("name", SVGS)
@@ -34,18 +102,14 @@ def test_svg_parses_and_has_a_view_box(name: str) -> None:
 
 @pytest.mark.parametrize("name", SVGS)
 def test_svg_uses_only_the_palette(name: str) -> None:
-    text = (ASSETS / name).read_text()
-    assert _colors(text) <= PALETTE
-    # black and white only paint the mask that cuts the háček out of the C
-    outside = re.sub(r"<mask.*?</mask>", "", text, flags=re.S)
-    assert not re.search(r"#(fff|000)\b|\b(white|black)\b", outside, flags=re.I)
+    assert _stray_colors((ASSETS / name).read_text()) == []
 
 
 @pytest.mark.parametrize("name", SVGS)
 def test_svg_has_no_editor_metadata(name: str) -> None:
     text = (ASSETS / name).read_text().lower()
-    for word in ("inkscape", "sodipodi", "<metadata", "data:"):
-        assert word not in text
+    for word in EDITORS:
+        assert word not in text, word
 
 
 @pytest.mark.parametrize("name", SVGS)

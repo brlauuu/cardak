@@ -127,3 +127,18 @@ def test_readme_shows_the_wordmark() -> None:
     dark = "(prefers-color-scheme: dark)"
     assert _find(tags, "source", media=dark, srcset="site/assets/cardak-wordmark-dark.svg")
     assert _find(tags, "img", src="site/assets/cardak-wordmark-light.svg", alt="cardak")
+
+
+def test_install_says_what_the_wezterm_step_needs() -> None:
+    # `cardak wezterm install` asks nothing; the user adds one line to wezterm.lua
+    text = PAGE.read_text()
+    assert "require('cardak').apply(config)" in text
+    assert "Each one shows what it will change" not in text
+
+
+def test_a_video_fits_however_it_is_swapped_in() -> None:
+    # replacing the placeholder or its contents: either way the video is never wider than the page
+    css = re.search(r"<style>(.*?)</style>", PAGE.read_text(), flags=re.S)
+    assert css
+    rule = re.search(r"(?m)^\s*video\s*\{([^}]*)\}", css.group(1))
+    assert rule and "width: 100%" in rule.group(1) and "height: auto" in rule.group(1)
