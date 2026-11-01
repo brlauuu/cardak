@@ -337,3 +337,11 @@ def test_renaming_a_project_keeps_its_art(tmp_path: Path, paths: Paths) -> None:
     tools = Tools(paths, lambda: config(renamed), lambda: {}, lambda: None)
     assert tools.art_file(p.path) == paths.art_dir / "cardak.txt"
     assert found[p.path].cols == 4  # "mine"
+
+
+@pytest.mark.parametrize("generated", ['["/a"]', '{"/a": "../x.txt"}', '{"/a": 3}'])
+def test_a_record_with_bad_entries_is_refused(tmp_path: Path, paths: Paths, generated: str) -> None:
+    paths.record.parent.mkdir(parents=True)
+    paths.record.write_text(f'{{"version": 2, "generated": {generated}}}')
+    assert ensure_art(config(project(tmp_path)), paths, no_logo)
+    assert record_names(paths.record) == {}

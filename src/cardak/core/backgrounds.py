@@ -174,6 +174,16 @@ def _write_atomic(target: Path, data: bytes) -> None:
         raise
 
 
+def _entry(item: tuple[object, object]) -> bool:
+    """A record entry: a project path and a plain `.txt` file name in the art folder."""
+    path, name = item
+    return isinstance(path, str) and isinstance(name, str) and _is_art_name(name)
+
+
+def _is_art_name(name: str) -> bool:
+    return Path(name).name == name and name.endswith(".txt")
+
+
 def _read_record(record: Path) -> dict[str, str]:
     """The projects whose art was made (real path → its file's name). Raises ValueError when
     the file can't be trusted."""
@@ -184,10 +194,7 @@ def _read_record(record: Path) -> dict[str, str]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
         raise ValueError(str(e)) from e
     generated = data.get("generated") if isinstance(data, dict) else None
-    if not isinstance(generated, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) and Path(v).name == v and v.endswith(".txt")
-        for k, v in generated.items()
-    ):
+    if not isinstance(generated, dict) or not all(map(_entry, generated.items())):
         raise ValueError("not a table of projects and their files")
     return dict(generated)
 
