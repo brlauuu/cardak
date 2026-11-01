@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 100" role="img" aria-label="cardak">
+  <!-- cardak wordmark (for dark backgrounds): the mark is the Č, "ardak" is drawn with its stroke (#66) -->
+  <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+    <rect width="100" height="100" fill="#fff"/>
+    <path d="M38 14 L50 33 L62 14" fill="none" stroke="#000" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </mask>
+  <path d="M69.8 38.2 A28 28 0 1 0 69.8 77.8" fill="none" stroke="#f6efe2" stroke-width="12" stroke-linecap="round" mask="url(#cut)"/>
+  <path d="M38 14 L50 33 L62 14" fill="none" stroke="#c8352b" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="none" stroke="#f6efe2" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="128" cy="58" r="28"/>
+    <path d="M156 30 V86"/>
+    <path d="M186 86 V30 M186 58 A28 28 0 0 1 214 30"/>
+    <circle cx="270" cy="58" r="28"/>
+    <path d="M298 6 V86"/>
+    <circle cx="356" cy="58" r="28"/>
+    <path d="M384 30 V86"/>
+    <path d="M414 6 V86 M444 30 L414 62 M424 52 L448 86"/>
+  </g>
+</svg>
