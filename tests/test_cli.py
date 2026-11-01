@@ -141,6 +141,35 @@ def test_themes_apply_with_module(xdg: Path, capsys: pytest.CaptureFixture[str])
     assert "already up to date" in capsys.readouterr().out
 
 
+def _one_project(xdg: Path) -> Path:
+    from cardak.wezterm.install import install
+
+    install(xdg / "config/wezterm")
+    project = xdg / "repos" / "webshop"
+    project.mkdir(parents=True)
+    cfg = xdg / "config/cardak/projects.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text(f'[[project]]\nname = "webshop"\npath = "{project}"\n')
+    return xdg / "config/cardak/logos/webshop.txt"
+
+
+def test_themes_apply_makes_art_and_lists_the_image(xdg: Path) -> None:
+    art = _one_project(xdg)
+    assert main(["themes", "apply"]) == 0
+    assert "\\" in art.read_text()  # figlet letters
+    lua = (xdg / "config/wezterm/cardak_projects.lua").read_text()
+    assert "background = { file = [[" in lua and str(xdg / "cache/cardak/backgrounds") in lua
+
+
+def test_themes_apply_twice_does_not_remake_deleted_art(xdg: Path) -> None:
+    art = _one_project(xdg)
+    assert main(["themes", "apply"]) == 0
+    art.unlink()
+    assert main(["themes", "apply"]) == 0
+    assert not art.exists()
+    assert "background = {" not in (xdg / "config/wezterm/cardak_projects.lua").read_text()
+
+
 def test_themes_apply_broken_config(xdg: Path, capsys: pytest.CaptureFixture[str]) -> None:
     cfg = xdg / "config/cardak/projects.toml"
     cfg.parent.mkdir(parents=True)
@@ -161,13 +190,15 @@ def test_themes_zsh(xdg: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_theme_writer_reports_old_module(tmp_path: Path) -> None:
     from cardak.cli import _theme_writer
+    from cardak.core.backgrounds import Paths
     from cardak.core.config import Config
     from cardak.core.themes import SchemeStore
     from cardak.wezterm.install import MARKER
 
     (tmp_path / "wez").mkdir()
     (tmp_path / "wez" / "cardak.lua").write_text(MARKER + "\n")
-    write = _theme_writer(tmp_path / "wez", tmp_path / "card", SchemeStore())
+    paths = Paths(tmp_path / "logos", tmp_path / "bg.json", tmp_path / "cache")
+    write = _theme_writer(tmp_path / "wez", tmp_path / "card", SchemeStore(), paths)
     assert any("older cardak" in w for w in write(Config()))
 
 
@@ -193,6 +224,11 @@ def test_hook_does_not_import_textual(tmp_path: Path) -> None:
 
 HOOK_FORBIDDEN = (
     "argparse",
+    "PIL",
+    "pyfiglet",
+    "resvg_py",
+    "cardak.core.backgrounds",
+    "cardak.core.ascii_art",
     "cardak.core.alerts",
     "cardak.core.themes",
     "cardak.wezterm.generate",

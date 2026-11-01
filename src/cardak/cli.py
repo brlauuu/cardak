@@ -8,7 +8,7 @@ before argument parsing, and every other command imports what it needs when it r
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,13 +26,15 @@ if TYPE_CHECKING:
     import argparse
     import threading
 
+    from cardak.core.backgrounds import Image as BackgroundImage
+    from cardak.core.backgrounds import Paths
     from cardak.core.config import ProviderSettings
     from cardak.core.daemon import Publish, WebStart
     from cardak.core.pm_service import PmService
     from cardak.core.source import LiveSource
     from cardak.core.store import Store
     from cardak.core.summary import ProviderTools, Summarizer
-    from cardak.core.themes import SchemeStore
+    from cardak.core.themes import Scheme, SchemeStore
 
 
 STATUSLINE_SETUP = ("install", "uninstall", "status", "-h", "--help")
@@ -499,16 +501,29 @@ def _module_message(version: int | None) -> str | None:
     return None
 
 
+def _backgrounds(
+    config: Config, schemes: Mapping[str, Scheme] | None, paths: Paths
+) -> tuple[dict[Path, BackgroundImage], list[str]]:
+    """Each project's background image, its art made first if it never was (#9)."""
+    from cardak.collectors.fonts import monospace_font
+    from cardak.core.backgrounds import images
+
+    return images(config, schemes or {}, paths, monospace_font())
+
+
 def _theme_writer(
-    wezterm_dir: Path, cardak_dir: Path, store: SchemeStore
+    wezterm_dir: Path, cardak_dir: Path, store: SchemeStore, paths: Paths
 ) -> Callable[[Config], list[str]]:
     """What the deck runs after every config change: regenerate, return banner warnings."""
     from cardak.wezterm.generate import MODULE_VERSION, OLD_MODULE_MSG, write_generated
 
     def write(config: Config) -> list[str]:
-        result = write_generated(wezterm_dir, cardak_dir, config, store.get() or None)
+        schemes = store.get() or None
+        found, problems = _backgrounds(config, schemes, paths)
+        result = write_generated(wezterm_dir, cardak_dir, config, schemes, found)
         warnings = [
-            f"projects.toml: {p}" if p.startswith("unknown") else p for p in result.problems
+            f"projects.toml: {p}" if p.startswith("unknown") else p
+            for p in (*result.problems, *problems)
         ]
         if result.module_version is not None and result.module_version < MODULE_VERSION:
             warnings.append(OLD_MODULE_MSG)
@@ -532,12 +547,15 @@ def _themes_apply(config_arg: str | None) -> int:
     except SchemesUnavailable as e:
         print(f"cardak: scheme names not checked: {e}", file=sys.stderr)
         schemes = None
-    result = write_generated(_lua_dir(), config_dir(), config, schemes)
+    from cardak.core.backgrounds import Paths
+
+    found, problems = _backgrounds(config, schemes, Paths.default())
+    result = write_generated(_lua_dir(), config_dir(), config, schemes, found)
     for written in result.written:
         print(f"wrote {written}")
     if not result.written:
         print("theme files already up to date")
-    for problem in result.problems:
+    for problem in (*result.problems, *problems):
         print(f"warning: {problem}", file=sys.stderr)
     if message := _module_message(result.module_version):
         print(message)
@@ -559,9 +577,12 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
     except GenerateError as e:
         print(f"cardak: {e}", file=sys.stderr)
         return 1
+    from cardak.core.backgrounds import Paths
+
     schemes = read_cached_schemes(default_cache_dir())
-    result = write_generated(_lua_dir(), cardak_dir, config, schemes)
-    for problem in result.problems:
+    found, problems = _backgrounds(config, schemes, Paths.default())
+    result = write_generated(_lua_dir(), cardak_dir, config, schemes, found)
+    for problem in (*result.problems, *problems):
         print(f"warning: {problem}", file=sys.stderr)
     print(f"installed {hook}\n\nAdd this line to your ~/.zshrc:\n\nsource {hook}\n")
     return 0
@@ -903,6 +924,7 @@ def _deck(config_arg: str | None) -> int:
 
     from cardak.collectors import wezterm
     from cardak.core import spend
+    from cardak.core.backgrounds import Paths
     from cardak.core.focus import focus_path, read_history
     from cardak.core.hook import log_problem
     from cardak.core.limits import limits_path
@@ -931,7 +953,7 @@ def _deck(config_arg: str | None) -> int:
         config_path(config_arg),
         spend=counted[0] if counted else lambda: None,
         limits_file=limits_path(),
-        on_config=_theme_writer(lua_dir, config_dir(), store),
+        on_config=_theme_writer(lua_dir, config_dir(), store, Paths.default()),
         schemes=store.get,
         store=agents,
         focus_history=lambda: read_history(focus_path()),
