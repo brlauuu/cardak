@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cardak: a deck for WezTerm panes and Claude Code sessions</title>
+<meta name="description" content="cardak groups every WezTerm pane by project, jumps to any of them, gives each project its own colors, and shows which Claude Code session is waiting on you, and why.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="cardak">
+<meta property="og:description" content="A project-centric deck for WezTerm panes and Claude Code sessions.">
+<meta property="og:image" content="https://brlauuu.dev/cardak/assets/cardak-icon-180.png">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/svg+xml" href="assets/cardak-icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/cardak-icon-32.png">
+<link rel="apple-touch-icon" href="assets/cardak-icon-180.png">
+<style>
+  :root {
+    --night: #0f2a44;
+    --paprika: #c8352b;
+    --linen: #f6efe2;
+    --bg: #fbf8f2;
+    --text: var(--night);
+    --muted: #4a5d72;
+    --rule: #e4dccd;
+    --code-bg: var(--linen);
+    --link: var(--paprika);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: var(--night);
+      --text: var(--linen);
+      --muted: #b9c3cd;
+      --rule: #24405c;
+      --code-bg: #0a1f33;
+      --link: var(--linen);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, "Noto Sans", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 20px 24px; }
+  header picture img { display: block; width: min(420px, 100%); height: auto; }
+  .lede { font-size: 1.25rem; line-height: 1.5; margin: 28px 0 0; }
+  h2 { font-size: 1.05rem; letter-spacing: .06em; text-transform: uppercase; margin: 56px 0 16px; }
+  h2::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 10px;
+               background: var(--paprika); border-radius: 2px; vertical-align: 1px; }
+  a { color: var(--link); text-underline-offset: 3px; }
+  .features { list-style: none; padding: 0; margin: 0; display: grid; gap: 18px 28px;
+              grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .features b { display: block; }
+  .features span { color: var(--muted); }
+  .video { aspect-ratio: 16 / 9; border-radius: 14px; background: #0a1f33; color: var(--linen);
+           display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+           border: 1px solid var(--rule); text-align: center; padding: 16px; }
+  .video img { width: 72px; height: 72px; opacity: .9; }
+  video { display: block; width: 100%; height: auto; border-radius: 14px; }
+  .video:has(video) { padding: 0; }
+  pre { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px;
+        overflow-x: auto; font-size: .92rem; line-height: 1.5; }
+  code { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace; }
+  p code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-size: .92em; }
+  .needs { color: var(--muted); }
+  footer { max-width: 760px; margin: 40px auto 0; padding: 20px 20px 40px; border-top: 1px solid var(--rule);
+           display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: .95rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 style="margin:0">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/cardak-wordmark-dark.svg">
+        <img src="assets/cardak-wordmark-light.svg" alt="cardak" width="460" height="100">
+      </picture>
+    </h1>
+  </header>
+
+  <section id="what">
+    <p class="lede">A project-centric deck for WezTerm panes and Claude Code sessions. cardak groups
+      every pane by project, takes you to any of them in one keystroke, gives each project its own
+      colors, and tells you which Claude Code session is waiting on you, and why.</p>
+  </section>
+
+  <section id="features">
+    <h2>What it does</h2>
+    <ul class="features">
+      <li><b>Every pane, grouped by project</b>
+        <span>All your WezTerm panes in one tree, by project. Enter jumps to the pane and raises its window.</span></li>
+      <li><b>A color for each project</b>
+        <span>Each project gets its own color scheme, and its tabs are named after it, so you always know where you are.</span></li>
+      <li><b>Who is waiting on you</b>
+        <span>Every Claude Code session is working, waiting or idle. Waiting ones come first, with the reason, a notification and a sound.</span></li>
+      <li><b>Why, in one line</b>
+        <span>An optional one-line summary of what each waiting session needs, written by a model you choose, local ones included.</span></li>
+      <li><b>Which pane is eating your machine</b>
+        <span>CPU and RAM per pane and project, Docker builds included, with alerts before memory runs out and 30 days of history.</span></li>
+      <li><b>What your sessions cost</b>
+        <span>This month's Claude Code use at API prices, usage per project and day, each session's context, and your plan limits.</span></li>
+      <li><b>Pick up where you left off</b>
+        <span>A checkpoint skill writes a handoff note in the project; the recap gathers notes and recent git activity.</span></li>
+      <li><b>Your projects' issues and PRs</b>
+        <span>A board per project: open issues, the ones a branch or PR is working on, and what got done this week.</span></li>
+      <li><b>On your phone</b>
+        <span>A read-only page on your local network shows who is waiting, while you're away from the desk.</span></li>
+    </ul>
+  </section>
+
+  <section id="demo">
+    <h2>See it in use</h2>
+    <!-- To add the video: put it at assets/cardak-demo.mp4 and replace the .video div's contents with
+         <video src="assets/cardak-demo.mp4" controls muted playsinline preload="metadata"></video> -->
+    <div class="video">
+      <img src="assets/cardak-mark-dark.svg" alt="">
+      <p style="margin:0">The video is on its way.</p>
+    </div>
+  </section>
+
+  <section id="install">
+    <h2>Get it</h2>
+    <p class="needs">Needs Linux, <a href="https://wezterm.org">WezTerm</a> and
+      <a href="https://docs.astral.sh/uv/">uv</a>; the agent features need
+      <a href="https://code.claude.com">Claude Code</a>. Developed on KDE Plasma under X11.</p>
+<pre><code>uv tool install git+https://github.com/brlauuu/cardak
+cardak</code></pre>
+    <p>For jumping and per-project colors, <code>cardak wezterm install</code> writes its own
+      <code>cardak.lua</code> and prints the one line to add to your <code>wezterm.lua</code>:
+      <code>require('cardak').apply(config)</code>. For Claude Code status,
+      <code>cardak hooks install</code> shows what it will add to Claude Code's settings and asks first.
+      The <a href="https://github.com/brlauuu/cardak#install">README</a> covers the rest.</p>
+  </section>
+</main>
+<footer>
+  <span>cardak v__VERSION__ · MIT</span>
+  <a href="https://github.com/brlauuu/cardak">github.com/brlauuu/cardak</a>
+</footer>
+</body>
+</html>
