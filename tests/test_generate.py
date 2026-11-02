@@ -74,10 +74,10 @@ def test_module_version(tmp_path: Path) -> None:
     lua.write_text(MARKER + " by `cardak wezterm install`\nlocal wezterm\n")
     assert module_version(lua) == 1
     install(tmp_path)
-    assert module_version(lua) == MODULE_VERSION == 5
+    assert module_version(lua) == MODULE_VERSION == 6
     lua.write_text("-- mine\n")
     assert module_version(lua) is None
-    assert module_text().splitlines()[1] == "-- cardak-module: 5"
+    assert module_text().splitlines()[1] == "-- cardak-module: 6"
 
 
 def test_write_generated_needs_the_module(tmp_path: Path) -> None:

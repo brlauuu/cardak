@@ -263,7 +263,7 @@ def test_focus_is_harmless_without_a_state_dir(
 
 
 def test_module_version_5() -> None:
-    assert MODULE.splitlines()[1] == "-- cardak-module: 5"
+    assert MODULE.splitlines()[1] == "-- cardak-module: 6"
 
 
 def record_opens(wez: Wez) -> Any:
