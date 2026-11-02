@@ -19,10 +19,17 @@ DOCKER_SOCK = Path("/var/run/docker.sock")
 CGROUP_ROOT = Path("/sys/fs/cgroup/system.slice")
 BUILD_PREFIX = "system.slice:docker:"
 COMPOSE_DIR = "com.docker.compose.project.working_dir"
+# After a timed-out listing the API is left alone this long, doubling up to BACKOFF_MAX (#107)
+BACKOFF_FIRST = 30.0
+BACKOFF_MAX = 300.0
 
 
 class DockerUnavailable(Exception):
     pass
+
+
+class DockerTimeout(DockerUnavailable):
+    """The socket is there but the daemon didn't answer in time: asking again costs as much."""
 
 
 @dataclass(frozen=True)
@@ -110,6 +117,8 @@ def list_containers(sock: Path | None = None, timeout: float = 0.5) -> list[Cont
         conn.request("GET", "/containers/json")
         response = conn.getresponse()
         body = response.read()
+    except TimeoutError as e:
+        raise DockerTimeout(str(e)) from e
     except (OSError, http.client.HTTPException) as e:
         raise DockerUnavailable(str(e)) from e
     finally:
@@ -153,7 +162,12 @@ def read_cgroup(path: Path) -> tuple[int, int] | None:
 
 
 class DockerSampler:
-    """Keeps the previous CPU counter per cgroup: CPU percent needs two samples."""
+    """Keeps the previous CPU counter per cgroup: CPU percent needs two samples.
+
+    A daemon that times out is asked again only after a pause (BACKOFF_FIRST, doubling up to
+    BACKOFF_MAX), so a hung socket costs one timeout per pause instead of one per poll. Meanwhile
+    the containers it last listed are still read from their cgroups, which need no daemon.
+    """
 
     def __init__(
         self,
@@ -165,6 +179,9 @@ class DockerSampler:
         self._root = cgroup_root
         self._clock = clock
         self._last: dict[Path, tuple[int, float]] = {}
+        self._containers: list[Container] = []
+        self._backoff = 0.0
+        self._ask_at = 0.0
 
     def _builds(self) -> list[Path]:
         try:
@@ -172,12 +189,23 @@ class DockerSampler:
         except OSError:
             return []
 
-    def sample(self) -> list[DockerWork]:
+    def _listed(self, now: float) -> list[Container]:
+        if now < self._ask_at:
+            return self._containers
         try:
-            containers = self._list()
-        except DockerUnavailable:
-            containers = []
+            self._containers = self._list()
+            self._backoff = 0.0
+        except DockerTimeout:
+            self._backoff = min(BACKOFF_MAX, self._backoff * 2 or BACKOFF_FIRST)
+            self._ask_at = now + self._backoff
+        except DockerUnavailable:  # gone, not hung: cheap to ask again, and a restart starts over
+            self._containers = []
+            self._backoff = 0.0
+        return self._containers
+
+    def sample(self) -> list[DockerWork]:
         now = self._clock()
+        containers = self._listed(now)
         last, self._last = self._last, {}
         work: list[DockerWork] = []
 

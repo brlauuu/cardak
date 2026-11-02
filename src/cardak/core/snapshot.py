@@ -60,6 +60,7 @@ class DockerLine:
     label: str  # "docker: webshop-db-1", "docker build", "docker builds, 2 panes"
     rss: int
     cpu_pct: float | None
+    kind: Literal["container", "build"] = "container"  # a group has one build line at most
 
 
 @dataclass(frozen=True)

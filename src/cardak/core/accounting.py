@@ -12,16 +12,31 @@ from cardak.core.snapshot import DeckSnapshot, DockerLine, Group, group_for
 PROJECT_KINDS = ("config", "git")
 
 
-def _deepest(path: Path, roots: Sequence[Path]) -> Path | None:
-    inside = [r for r in roots if path.is_relative_to(r)]
-    return max(inside, key=lambda r: len(r.parts), default=None)
+def _same(path: Path) -> Path:
+    return path
 
 
-def match_project(work: DockerWork, roots: Sequence[Path]) -> Path | None:
-    """The Compose folder's project, else the first bind mount that lies inside a project."""
-    if work.compose_dir is not None and (root := _deepest(work.compose_dir, roots)):
+def _deepest(
+    path: Path, aliases: Sequence[tuple[Path, Path]], real: Callable[[Path], Path]
+) -> Path | None:
+    """The root whose alias holding path, as given or resolved, is the deepest."""
+    paths = dict.fromkeys((path, real(path)))
+    inside = [(len(a.parts), r) for a, r in aliases if any(p.is_relative_to(a) for p in paths)]
+    return max(inside, key=lambda d: d[0], default=(0, None))[1]
+
+
+def match_project(
+    work: DockerWork, roots: Sequence[Path], real: Callable[[Path], Path] = _same
+) -> Path | None:
+    """The Compose folder's project, else the first bind mount that lies inside a project.
+
+    Docker reports a folder as it was given, so either side may name it through a symlink:
+    both are compared as written and with `real` applied (#107).
+    """
+    aliases = [(alias, r) for r in roots for alias in dict.fromkeys((r, real(r)))]
+    if work.compose_dir is not None and (root := _deepest(work.compose_dir, aliases, real)):
         return root
-    return next((root for m in work.mounts if (root := _deepest(m, roots))), None)
+    return next((root for m in work.mounts if (root := _deepest(m, aliases, real))), None)
 
 
 def _add(g: Group, lines: Sequence[DockerLine], count: bool = True) -> Group:
@@ -40,7 +55,7 @@ def _add(g: Group, lines: Sequence[DockerLine], count: bool = True) -> Group:
 def _summed(label: str, work: Sequence[DockerWork]) -> DockerLine:
     cpus = [w.cpu_pct for w in work]
     cpu = None if all(c is None for c in cpus) else sum(c or 0.0 for c in cpus)
-    return DockerLine(label, sum(w.rss for w in work), cpu)
+    return DockerLine(label, sum(w.rss for w in work), cpu, kind="build")
 
 
 def _with_other(groups: list[Group]) -> list[Group]:
@@ -50,13 +65,13 @@ def _with_other(groups: list[Group]) -> list[Group]:
 
 
 def _by_root(
-    work: Sequence[DockerWork], roots: Sequence[Path]
+    work: Sequence[DockerWork], roots: Sequence[Path], real: Callable[[Path], Path]
 ) -> tuple[dict[Path, list[DockerLine]], list[DockerLine]]:
     by_root: dict[Path, list[DockerLine]] = {}
     unmatched: list[DockerLine] = []
     for w in (w for w in work if w.kind == "container"):
         line = DockerLine(f"docker: {w.name}", w.rss, w.cpu_pct)
-        root = match_project(w, roots)
+        root = match_project(w, roots, real)
         (by_root.setdefault(root, []) if root else unmatched).append(line)
     return by_root, unmatched
 
@@ -66,9 +81,10 @@ def _attach_containers(
     work: Sequence[DockerWork],
     roots: Sequence[Path],
     make_group: Callable[[Path], Group],
+    real: Callable[[Path], Path],
 ) -> tuple[list[Group], list[DockerLine]]:
     """Groups with their containers added, and the lines no project claimed."""
-    by_root, unmatched = _by_root(work, roots)
+    by_root, unmatched = _by_root(work, roots, real)
     present = {g.key for g in groups if g.kind in PROJECT_KINDS}
     new = [make_group(root) for root in by_root if root not in present]
     split = next((i for i, g in enumerate(groups) if g.kind == "other"), len(groups))
@@ -82,16 +98,25 @@ def _attach_containers(
 def _attach_builds(
     groups: list[Group], work: Sequence[DockerWork]
 ) -> tuple[list[Group], list[DockerLine]]:
-    """Builds go to the one project building, else back as a line for Other."""
+    """Builds go to the project building when no other group is, else back as a line for Other.
+
+    A pane outside any project counts as an owner too: it may be the one building (#107).
+    """
     builds = [w for w in work if w.kind == "build"]
     if not builds:
         return groups, []
-    projects = [g for g in groups if g.kind in PROJECT_KINDS]
-    building = [g for g in projects if any(r.docker_build for r in g.panes)]
-    if len(building) == 1:
+    owner = _sole_builder(groups)
+    if owner is not None and owner.kind in PROJECT_KINDS:
         line = _summed("docker build", builds)
-        return [_add(g, [line]) if g is building[0] else g for g in groups], []
+        return [_add(g, [line]) if g is owner else g for g in groups], []
     return groups, [_summed(_builds_label(groups), builds)]
+
+
+def _sole_builder(groups: Sequence[Group]) -> Group | None:
+    """The one project or Other with a pane running a build client; None for none or several."""
+    owners = [g for g in groups if g.kind in (*PROJECT_KINDS, "other")]
+    building = [g for g in owners if any(r.docker_build for r in g.panes)]
+    return building[0] if len(building) == 1 else None
 
 
 def _builds_label(groups: Sequence[Group]) -> str:
@@ -125,8 +150,10 @@ def account(
     machine: MachineSample | None,
     roots: Sequence[Path],
     make_group: Callable[[Path], Group],
+    real: Callable[[Path], Path] = _same,
 ) -> DeckSnapshot:
-    groups, unmatched = _attach_containers(list(snap.groups), work, roots, make_group)
+    """`real` resolves a path's symlinks; the default compares paths as written."""
+    groups, unmatched = _attach_containers(list(snap.groups), work, roots, make_group, real)
     groups, build_lines = _attach_builds(groups, work)
     if machine is not None or unmatched or build_lines:
         groups = _with_other(groups)

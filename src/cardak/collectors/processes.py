@@ -221,50 +221,74 @@ def is_mcp_server(p: ProcInfo) -> bool:
 
 
 _BUILD_GROUPS = frozenset({"buildx", "image", "builder"})
-# compose subcommands, to find which one a `docker compose -f x.yml …` line runs
-_COMPOSE_COMMANDS = frozenset(
-    {
-        "build",
-        "up",
-        "down",
-        "run",
-        "exec",
-        "start",
-        "stop",
-        "restart",
-        "create",
-        "rm",
-        "kill",
-        "logs",
-        "ps",
-        "pull",
-        "push",
-        "config",
-        "watch",
-    }
+# Options that take a value, before the command (`docker --help`, `docker compose --help`,
+# `docker buildx --help`). Skipping them finds the command itself, so a new command needs no
+# change here, and an option's value (`-p build`) is never taken for one (#107).
+_DOCKER_VALUE_OPTS = frozenset(
+    {"-c", "--context", "-H", "--host", "--config", "-l", "--log-level"}
+    | {"--tlscacert", "--tlscert", "--tlskey"}
 )
+_COMPOSE_VALUE_OPTS = frozenset(
+    {"-f", "--file", "-p", "--project-name", "--project-directory", "--env-file", "--profile"}
+    | {"--ansi", "--progress", "--parallel"}
+)
+_BUILDX_VALUE_OPTS = frozenset({"--builder"})
+_BUILDS_WITH_FLAG = frozenset({"up", "run", "create"})  # `compose up --build`
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "[::1]"})
+
+
+def _command(words: list[str], takes_value: frozenset[str]) -> tuple[list[str], dict[str, str]]:
+    """(the words from the command on, the options before it): `-f x.yml up` → [up], {-f: x.yml}."""
+    opts: dict[str, str] = {}
+    i = 0
+    while i < len(words) and words[i].startswith("-"):
+        name, eq, value = words[i].partition("=")
+        if not eq and name in takes_value and i + 1 < len(words):
+            i += 1
+            value = words[i]
+        opts[name] = value
+        i += 1
+    return words[i:], opts
+
+
+def _local_daemon(opts: dict[str, str]) -> bool:
+    """False when `-H` names a daemon on another machine: its build runs there, not here."""
+    host = opts.get("-H", opts.get("--host"))
+    if host is None:
+        return True
+    scheme, _, address = host.rpartition("://")
+    if scheme == "unix":
+        return True
+    name = address if address.endswith("]") else address.rsplit(":", 1)[0]
+    return scheme in ("", "tcp") and name in _LOOPBACK
 
 
 def _compose_builds(words: list[str]) -> bool:
-    return next((w for w in words if w in _COMPOSE_COMMANDS), None) == "build"
+    rest, _ = _command(words, _COMPOSE_VALUE_OPTS)
+    if not rest:
+        return False
+    return rest[0] == "build" or (rest[0] in _BUILDS_WITH_FLAG and "--build" in rest[1:])
 
 
 def is_docker_build(p: ProcInfo) -> bool:
-    """A docker client that hands a build to the daemon: the build itself runs outside the pane."""
+    """A docker client that hands a build to this machine's daemon: it runs outside the pane.
+
+    A `--context` counts whatever it names (where it points is in Docker's own config, which
+    cardak doesn't read); a `-H` naming another machine doesn't.
+    """
     words = _words(p)
-    if not words:
+    if words[:1] == ["docker-compose"]:
+        # `docker compose` runs its plugin as `docker-compose compose …`: the parent is judged
+        return words[1:2] != ["compose"] and _compose_builds(words[1:])
+    if words[:1] != ["docker"]:
         return False
-    if words[0] == "docker-compose":
-        return _compose_builds(words[1:])
-    if words[0] != "docker":
+    rest, opts = _command(words[1:], _DOCKER_VALUE_OPTS)
+    if not rest or not _local_daemon(opts):
         return False
-    rest = [w for w in words[1:] if not w.startswith("-")]
-    if not rest:
-        return False
-    if rest[0] == "build":
+    if rest[0] in ("build", "bake"):
         return True
     if rest[0] in _BUILD_GROUPS:
-        return rest[1:2] == ["build"]
+        return _command(rest[1:], _BUILDX_VALUE_OPTS)[0][:1] in (["build"], ["bake"])
     return rest[0] == "compose" and _compose_builds(rest[1:])
 
 

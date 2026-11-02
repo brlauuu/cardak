@@ -123,7 +123,9 @@ def node_id(data: NodeData | None) -> str | None:
         return None
     group = f"{data.group.kind}:{data.group.key}"
     if data.role == "docker" and data.line is not None:
-        return f"d:{group}:{data.line.label}"
+        # the builds line's label counts panes, so it is named by its kind (#107)
+        line = "build" if data.line.kind == "build" else data.line.label
+        return f"d:{group}:{line}"
     if data.role == "outside":
         return f"o:{group}"
     if data.row is None:

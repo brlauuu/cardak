@@ -5,6 +5,7 @@ import pytest
 from cardak.collectors.docker import DockerWork
 from cardak.collectors.machine import MachineSample
 from cardak.core.accounting import account, match_project
+from cardak.core.config import real_path
 from cardak.core.resolver import OTHER, Resolved
 from cardak.core.snapshot import DeckSnapshot, DockerLine, Group, PaneRow, group_for
 
@@ -105,7 +106,9 @@ def test_project_with_only_docker_gets_a_group() -> None:
 def test_one_building_project_owns_the_builds() -> None:
     groups = [group("config", WEBSHOP, row(1, building=True), row(3, building=True))]
     snap = run(groups, [build(GIB, 10.0), build(GIB // 2, None)])
-    assert by_key(snap)[WEBSHOP].docker == (DockerLine("docker build", GIB + GIB // 2, 10.0),)
+    assert by_key(snap)[WEBSHOP].docker == (
+        DockerLine("docker build", GIB + GIB // 2, 10.0, kind="build"),
+    )
     assert by_key(snap)[WEBSHOP].rss == 2 * GIB + GIB + GIB // 2
 
 
@@ -115,13 +118,51 @@ def test_builds_in_two_projects_go_to_other() -> None:
         group("config", API, row(2, building=True)),
     ]
     snap = run(groups, [build(GIB)])
-    assert by_key(snap)[None].docker == (DockerLine("docker builds, 2 panes", GIB, 10.0),)
+    assert by_key(snap)[None].docker == (
+        DockerLine("docker builds, 2 panes", GIB, 10.0, kind="build"),
+    )
     assert by_key(snap)[WEBSHOP].rss == GIB and by_key(snap)[WEBSHOP].docker == ()
+
+
+def test_a_pane_building_in_other_is_an_owner_too() -> None:
+    """A project and a pane outside any project both build: the builds aren't the project's."""
+    groups = [
+        group("config", WEBSHOP, row(1, building=True)),
+        group("other", None, row(2, building=True)),
+    ]
+    snap = run(groups, [build(GIB)])
+    assert by_key(snap)[WEBSHOP].docker == () and by_key(snap)[WEBSHOP].rss == GIB
+    assert by_key(snap)[None].docker == (
+        DockerLine("docker builds, 2 panes", GIB, 10.0, kind="build"),
+    )
 
 
 def test_builds_with_no_building_pane_go_to_other() -> None:
     snap = run([group("config", WEBSHOP, row(1))], [build(GIB)])
-    assert by_key(snap)[None].docker == (DockerLine("docker build", GIB, 10.0),)
+    assert by_key(snap)[None].docker == (DockerLine("docker build", GIB, 10.0, kind="build"),)
+
+
+def test_a_project_reached_through_a_symlink_keeps_its_containers(tmp_path: Path) -> None:
+    """Docker reports a path as given or resolved; the project may be configured either way."""
+    real = tmp_path / "real" / "webshop"
+    (real / "deploy").mkdir(parents=True)
+    link = tmp_path / "webshop"
+    link.symlink_to(real)
+    by_compose = DockerWork("container", "i", "db", GIB, None, real / "deploy")
+    by_mount = DockerWork("container", "j", "cache", GIB, None, None, (link / "deploy",))
+    for root, work in ((link, by_compose), (real, by_mount)):
+        assert match_project(work, [root]) is None  # as written, nothing matches
+        assert match_project(work, [root], real=real_path) == root
+        snap = account(
+            DeckSnapshot(groups=(group("config", root, row(1)),)),
+            [work],
+            None,
+            [root],
+            make_group,
+            real=real_path,
+        )
+        assert [g.key for g in snap.groups] == [root]  # no second group for the real path
+        assert snap.groups[0].rss == 2 * GIB
 
 
 def test_unmatched_container_is_listed_under_other_without_adding() -> None:

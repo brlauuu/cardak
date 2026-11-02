@@ -477,7 +477,8 @@ class LiveSource:
         if snap.error is None:
             roots = [p.path for p in self._config.projects]
             roots += [g.key for g in snap.groups if g.kind == "git" and g.key]
-            snap = account(snap, self._sample_docker(), machine, roots, self._make_group)
+            docker = self._sample_docker()
+            snap = account(snap, docker, machine, roots, self._make_group, self._resolver.real)
         else:
             snap = replace(snap, machine=machine)
         self._recent.record(snap)

@@ -16,6 +16,12 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - One project's background art that can't be drawn no longer stops every project's theme and background being updated: that project goes without one and a warning names it (#125).
 - `backgrounds.json` stays a symlink when yours is one, and the deck and `cardak themes apply` making art at the same moment no longer lose each other's record, which could bring back art you deleted (#130).
 - The theme picker's art preview no longer disappears when the theme files are written meanwhile, and `cardak themes zsh` draws the art in the scheme's own text color from the start instead of gray (#127).
+- A Docker daemon that stops answering no longer slows every refresh of the deck and the alert service: cardak leaves it alone for 30 seconds, then longer, and keeps showing the containers it last saw meanwhile (#107).
+- Docker builds started with `docker compose up --build`, `docker buildx bake`, or with options such as `--context` before the command now count as the pane's build instead of falling into Other; a build sent to another machine with `-H` no longer claims this machine's builds (#107).
+- A Docker build no longer goes to a project when a pane outside any project is building too: it stays under Other, since either could be the one (#107).
+- The cursor no longer jumps when a "docker builds" line changes its pane count (#107).
+- Containers of a project you configured through a symlink, or started from one, now show under that project instead of Other (#107).
+- `docker compose -p build ps` and other commands whose arguments happen to say "build" are no longer taken for a build (#107).
 
 ## 0.17.0 — 2026-11-01
 
