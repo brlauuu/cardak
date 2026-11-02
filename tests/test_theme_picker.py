@@ -261,3 +261,41 @@ async def test_escape_discards_the_switch() -> None:
         await pilot.pause()
         assert host.result is None
         assert rec.calls[-1] == (PATH, "")
+
+
+async def test_with_backgrounds_off_the_picker_says_so_and_previews_none() -> None:
+    asked: list[str] = []
+
+    def image(scheme: str) -> Image:
+        asked.append(scheme)
+        return ART
+
+    host, rec = picker(preview_image=image, art_file=Path("/art/web.txt"), backgrounds_on=False)
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        box = host.picker.query_one(Checkbox)
+        assert box.disabled
+        assert "enabled = false" in str(host.picker.query_one("#art-path", Static).render())
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        assert box.value is True and rec.calls == []  # ctrl+b does nothing
+        await pilot.press("down")
+        await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
+        assert rec.calls == [(PATH, "Tokyo Night")] and asked == []  # the scheme, no art
+        await pilot.press("enter")
+        await pilot.pause()
+        assert host.result == ThemeChoice("Tokyo Night", True)  # the project's switch is kept
+
+
+async def test_art_not_made_yet_is_made_when_the_background_is_turned_on() -> None:
+    host, _ = picker(background=False)
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+
+        def line() -> str:
+            return str(host.picker.query_one("#art-path", Static).render())
+
+        assert "made when the background is turned on" in line()
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        assert "made when you save" in line()

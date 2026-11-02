@@ -35,6 +35,8 @@ class ThemePreviewer(Protocol):
 class Backgrounds(Protocol):
     """What the picker needs to show a project's art (#9)."""
 
+    def enabled(self) -> bool: ...
+
     def art_file(self, project_path: Path) -> Path | None: ...
 
     def preview_image(self, project_path: Path, scheme: str) -> Image | None: ...
@@ -88,6 +90,7 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         background: bool = True,
         art_file: Path | None = None,
         preview_image: Callable[[str], Image | None] | None = None,
+        backgrounds_on: bool = True,
     ) -> None:
         super().__init__()
         self._name = project_name
@@ -102,6 +105,7 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         self._background = background
         self._art_file = art_file
         self._preview_image = preview_image
+        self._backgrounds_on = backgrounds_on  # [background] enabled: off, nothing shows (#126)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker"):
@@ -113,14 +117,19 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
             )
             yield OptionList(id="schemes")
             yield Checkbox(
-                "Background: the project's ASCII art (ctrl+b)", self._background, id="background"
+                "Background: the project's ASCII art (ctrl+b)",
+                self._background,
+                id="background",
+                disabled=not self._backgrounds_on,
             )
-            art = (
-                f"art: {_tilde(self._art_file)}; replace its text to change it"
-                if self._art_file
-                else "art: made when you save"
-            )
-            yield Static(escape(art), id="art-path")
+            yield Static(escape(self._art_line(self._background)), id="art-path")
+
+    def _art_line(self, on: bool) -> str:
+        if not self._backgrounds_on:
+            return "background off for every project: [background] enabled = false"
+        if self._art_file:
+            return f"art: {_tilde(self._art_file)}; replace its text to change it"
+        return "art: made when you save" if on else "art: made when the background is turned on"
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
@@ -183,17 +192,23 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         self._timer = self.set_timer(self.DEBOUNCE, lambda: self._preview(name))
 
     def _background_arg(self, name: str) -> Image | bool | None:
-        """Off → False; on → the art in that scheme's color, None (the saved one) without it."""
+        """Off → False; on → the art in that scheme's color, None (the saved one) without it.
+        With backgrounds off for every project, None: the scheme alone, as before #9."""
+        if not self._backgrounds_on:
+            return None
         if not self.query_one("#background", Checkbox).value:
             return False
         return self._preview_image(name) if self._preview_image else None
 
     def action_toggle_background(self) -> None:
         box = self.query_one("#background", Checkbox)
+        if box.disabled:
+            return
         box.value = not box.value
 
     @on(Checkbox.Changed, "#background")
-    def _background_changed(self) -> None:
+    def _background_changed(self, event: Checkbox.Changed) -> None:
+        self.query_one("#art-path", Static).update(escape(self._art_line(event.value)))
         options = self.query_one(OptionList)
         highlighted = options.highlighted
         name = None

@@ -608,3 +608,45 @@ def test_a_translucent_window_stays_translucent() -> None:
     wez.status(w)
     layers = wez.background(w)
     assert layers is not None and layers[0]["opacity"] == pytest.approx(0.85)
+
+
+def test_a_users_own_scheme_colors_the_backdrop_on_the_first_sync() -> None:
+    mine = Project(name="mine", path=Path("/r/mine"), theme="Mine")
+    apply = "M.apply({ color_schemes = { Mine = { background = '#123456' } } })"
+    wez = Wez(data(WEB, mine, images={WEB.path: ART, mine.path: ART}), apply=apply)
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    w.cwd = "/r/mine"  # the effective config still has the old palette in this sync (#128)
+    wez.status(w)
+    layers = wez.background(w)
+    assert wez.scheme(w) == "Mine"
+    assert layers is not None and layers[0]["source"] == {"Color": "#123456"}
+
+
+def test_a_users_scheme_wins_over_a_builtin_of_the_same_name() -> None:
+    apply = "M.apply({ color_schemes = { Nord = { background = '#654321' } } })"
+    wez = Wez(data(WEB, images={WEB.path: ART}), apply=apply)
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    layers = wez.background(w)
+    assert layers is not None and layers[0]["source"] == {"Color": "#654321"}
+
+
+def test_a_scheme_defined_after_apply_counts() -> None:
+    mine = Project(name="mine", path=Path("/r/mine"), theme="Mine")
+    apply = "cfg = {}; M.apply(cfg); cfg.color_schemes = { Mine = { background = '#abcdef' } }"
+    wez = Wez(data(mine, images={mine.path: ART}), apply=apply)
+    w = wez.window(1, "/r/mine")
+    wez.status(w)
+    layers = wez.background(w)
+    assert layers is not None and layers[0]["source"] == {"Color": "#abcdef"}
+
+
+def test_a_users_scheme_without_a_background_falls_back_to_the_window() -> None:
+    mine = Project(name="mine", path=Path("/r/mine"), theme="Mine")
+    apply = "M.apply({ color_schemes = { Mine = { foreground = '#ffffff' } } })"
+    wez = Wez(data(mine, images={mine.path: ART}), apply=apply)
+    w = wez.window(1, "/r/mine")
+    wez.status(w)
+    layers = wez.background(w)
+    assert layers is not None and layers[0]["source"] == {"Color": "#111111"}
