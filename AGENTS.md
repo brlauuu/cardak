@@ -144,8 +144,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   | `~/.config/wezterm/cardak_projects.lua` | deck on every config change; `cardak themes apply` | project path → name, scheme and background image, every project, and `background_opacity` (only when cardak.lua is installed there) |
   | `~/.config/cardak/tints` | same | `path<TAB>#rrggbb` for the zsh hook |
   | `~/.config/cardak/logos/<slug>.txt` | the deck's theme writer and `cardak themes apply`, **once** per configured project with its background on, opened with `x` (never over an existing file, never again: the user's from then on) | the project's ASCII art (#9): its logo's, else its name in figlet letters |
-  | `~/.local/state/cardak/backgrounds.json` | same, atomically, when a project's art was made | `{"version": 2, "generated": {<real project path>: "<file>.txt"}}`: so a deleted art file stays deleted, and a project keeps its file when it is renamed or a same-named one is added; unreadable → a warning and no art made |
-  | `~/.cache/cardak/backgrounds/<hash>.png` | same, and the picker's previews; unused ones removed on each write | the art drawn in the scheme's foreground, listed in `cardak_projects.lua` with its size in cells |
+  | `~/.local/state/cardak/backgrounds.json` (+ `backgrounds.lock`) | same, atomically and through a symlink, when a project's art was made, under `flock` on the lock file around the read-modify-write (#130) | `{"version": 2, "generated": {<real project path>: "<file>.txt"}}`: so a deleted art file stays deleted, and a project keeps its file when it is renamed or a same-named one is added; unreadable → a warning and no art made |
+  | `~/.cache/cardak/backgrounds/<hash>.png` | same, and the picker's previews; each write removes the ones no project uses that nothing drew or showed for an hour (`PRUNE_AFTER_S`; a reused one is touched), so a shown preview stays (#127) | the art drawn in the scheme's foreground, listed in `cardak_projects.lua` with its size in cells |
   | `~/.config/cardak/tint.zsh` | `cardak themes zsh` | the opt-in per-pane tint hook |
   | `~/.config/cardak/web_key` | `cardak web setup` (mode 0600; `--new-key` replaces it) | the web view's key; `cardak daemon` reads it at start and refuses it with group/other bits |
   | `~/.config/cardak/anthropic_key` | the user, or the deck's Summaries screen (`s`, #47–#49: atomic, mode 0600); read by `cardak summarize` and the screen's test, refused with group/other bits | the Anthropic API key for waiting summaries |
@@ -720,6 +720,11 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - **#104 (PM thread teardown)** added `pm_service.Worker`. Accepted: one more dead-code candidate
   (`Worker.stop`: `cli._deck` calls it on the worker `_pm_service` returns in a tuple, which enola
   doesn't follow).
+- **#125, #130, #127 (background writer)** moved `ensure_art`'s body into `_ensure_locked`, which
+  runs under the record's lock, and split `render` (`_touch`, `_draw`) and `images` (`_prune`).
+  Accepted: the call-in-loop report on `_ensure_locked` (the one accepted for `ensure_art` under
+  #9, moved), and `config.real_path` at fan-in 12 (the background writer now writes through a
+  symlink too).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.
