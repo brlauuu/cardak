@@ -891,3 +891,65 @@ def test_web_status_serving(web_setup, capsys) -> None:
         server.server_close()
     assert "on" in out and "serving" in out and "not serving" not in out
     assert f":{port}/#k={web_key()}" in out
+
+
+def _block_pm_step(
+    monkeypatch: pytest.MonkeyPatch, release_after: float | None
+) -> tuple[list[bool], list[object], Callable[[], None]]:
+    """Make the PM thread block in `step()` as if mid-query, and record each close of the PM
+    view's store with whether its thread was still running then (#104)."""
+    import threading
+
+    from cardak.core import pm_service
+    from cardak.core.store import Store
+
+    in_step, release = threading.Event(), threading.Event()
+    threads: list[object] = []
+    pm_stores: list[Store] = []
+
+    def step(self: pm_service.PmService) -> None:
+        pm_stores.append(self._store)  # noqa: SLF001
+        threads.append(threading.current_thread())
+        in_step.set()
+        release.wait(10)
+
+    def run(self: DeckApp) -> None:
+        assert in_step.wait(5)
+        if release_after is not None:
+            threading.Timer(release_after, release.set).start()
+
+    closes: list[bool] = []
+    real_close = Store.close
+
+    def close(self: Store) -> None:
+        if self in pm_stores:
+            closes.append(any(t.is_alive() for t in threads))  # type: ignore[attr-defined]
+        real_close(self)
+
+    monkeypatch.setattr(pm_service.PmService, "step", step)
+    monkeypatch.setattr(DeckApp, "run", run)
+    monkeypatch.setattr(Store, "close", close)
+    return closes, threads, release.set
+
+
+def test_deck_closes_the_pm_store_after_its_thread(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    closes, threads, _ = _block_pm_step(monkeypatch, release_after=0.3)
+    assert main(["--config", str(tmp_path / "p.toml"), "tui"]) == 0
+    assert closes == [False]  # closed once, and only after the thread finished its step
+    assert not any(t.is_alive() for t in threads)  # type: ignore[attr-defined]
+
+
+def test_deck_leaves_the_pm_store_open_when_its_thread_hangs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from cardak.core import pm_service
+
+    monkeypatch.setattr(pm_service, "STOP_WAIT", 0.1)
+    closes, _, release = _block_pm_step(monkeypatch, release_after=None)
+    try:
+        assert main(["--config", str(tmp_path / "p.toml"), "tui"]) == 0
+    finally:
+        release()  # the thread finds its stop event set and ends
+    assert closes == []  # still mid-step: closing it under the thread would crash (#104)

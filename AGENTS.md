@@ -712,6 +712,9 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   and nested-loop reports on `ensure_art`, `images`, `_characters` and
   `logo_candidates` (one art and one image per project, a few logo candidates, rows × columns of
   at most 40 × 16, three name ranks over a project's files: each the unit of work).
+- **#104 (PM thread teardown)** added `pm_service.Worker`. Accepted: one more dead-code candidate
+  (`Worker.stop`: `cli._deck` calls it on the worker `_pm_service` returns in a tuple, which enola
+  doesn't follow).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

@@ -24,13 +24,12 @@ from cardak.core.config import (
 
 if TYPE_CHECKING:
     import argparse
-    import threading
 
     from cardak.core.backgrounds import Image as BackgroundImage
     from cardak.core.backgrounds import Paths
     from cardak.core.config import ProviderSettings
     from cardak.core.daemon import Publish, WebStart
-    from cardak.core.pm_service import PmService
+    from cardak.core.pm_service import PmService, Worker
     from cardak.core.source import LiveSource
     from cardak.core.store import Store
     from cardak.core.summary import ProviderTools, Summarizer
@@ -890,7 +889,7 @@ def _summarize(session_id: str, wait_since: str) -> int:
 
 def _pm_service(
     source: LiveSource,
-) -> tuple[PmService | None, threading.Event | None, Store | None]:
+) -> tuple[PmService | None, Worker | None, Store | None]:
     """The PM view's thread (#68), with its own store connection; Nones when the database
     can't be opened."""
     import os
@@ -963,7 +962,7 @@ def _deck(config_arg: str | None) -> int:
         keys_dir=config_dir(),
         art_stamp=lambda: art_stamp(backgrounds.art_dir),
     )
-    pm, stop_pm, pm_store = _pm_service(source)
+    pm, pm_worker, pm_store = _pm_service(source)
     DeckApp(
         source,
         navigator=Navigator.live(lua_dir / "cardak.lua"),
@@ -984,8 +983,8 @@ def _deck(config_arg: str | None) -> int:
     ).run()
     if counted is not None:
         counted[1].set()
-    if stop_pm is not None:
-        stop_pm.set()
+    if pm_worker is not None and not pm_worker.stop():
+        pm_store = None  # still mid-step (a fetch, a summary): left for the exit to close (#104)
     for db in (agents, log, pm_store):
         if db is not None:
             db.close()
