@@ -54,6 +54,7 @@ MIN_GAP = 60.0  # between two fetches of one repository, whatever asked
 LOCAL_EVERY = 10.0
 EVENTS_EVERY = 5.0
 TICK = 1.0
+STOP_WAIT = 3.0  # at exit, for a step under way to finish (#104)
 DONE_DAYS = 7
 _GH = re.compile(r"\bgh\s+(issue|pr|release)\b|\bgit\s+push\b")
 
@@ -379,8 +380,23 @@ class BoardFile:
         return self._seen[1]
 
 
-def background(service: PmService, log: Callable[[str], None]) -> threading.Event:
-    """Step the service every `TICK` on a daemon thread until the returned event is set."""
+@dataclass(frozen=True)
+class Worker:
+    """The service's thread and the event that stops it."""
+
+    thread: threading.Thread
+    stop_event: threading.Event
+
+    def stop(self) -> bool:
+        """Stop the thread and wait up to `STOP_WAIT` for the step under way: True once it has
+        ended. Until then it may be inside the store, which must stay open (#104)."""
+        self.stop_event.set()
+        self.thread.join(STOP_WAIT)
+        return not self.thread.is_alive()
+
+
+def background(service: PmService, log: Callable[[str], None]) -> Worker:
+    """Step the service every `TICK` on a daemon thread until the worker is stopped."""
     stop = threading.Event()
 
     def loop() -> None:
@@ -391,5 +407,6 @@ def background(service: PmService, log: Callable[[str], None]) -> threading.Even
                 log(f"pm view: {e!r}")
             stop.wait(TICK)
 
-    threading.Thread(target=loop, name="cardak-pm", daemon=True).start()
-    return stop
+    thread = threading.Thread(target=loop, name="cardak-pm", daemon=True)
+    thread.start()
+    return Worker(thread, stop)

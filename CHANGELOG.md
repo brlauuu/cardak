@@ -9,6 +9,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Fixed
+- Quitting the deck no longer crashes now and then: it waits a moment for the PM view to finish what it was reading before closing its database (#104).
+
 ## 0.17.0 — 2026-11-01
 
 ### Added
