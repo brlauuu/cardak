@@ -13,6 +13,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - Quitting the deck no longer crashes now and then: it waits a moment for the PM view to finish what it was reading before closing its database (#104).
 - Recap (`r`) no longer loses every checkpoint after a code block that was never closed in `.cardak/handoff.md`, and reads a heading written with `-` before the branch (`## 2026-10-25 14:00 - main`) as a checkpoint too (#112).
 - Recap says "more than 20 commits" when there were more than it lists, instead of "20 commits", and picking another note quickly no longer leaves the recap of the one picked before on screen (#112).
+- One project's background art that can't be drawn no longer stops every project's theme and background being updated: that project goes without one and a warning names it (#125).
+- `backgrounds.json` stays a symlink when yours is one, and the deck and `cardak themes apply` making art at the same moment no longer lose each other's record, which could bring back art you deleted (#130).
+- The theme picker's art preview no longer disappears when the theme files are written meanwhile, and `cardak themes zsh` draws the art in the scheme's own text color from the start instead of gray (#127).
 
 ## 0.17.0 — 2026-11-01
 

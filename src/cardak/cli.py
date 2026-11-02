@@ -531,9 +531,21 @@ def _theme_writer(
     return write
 
 
+def _cli_schemes() -> dict[str, Scheme] | None:
+    """The scheme list for a CLI command: the cache, else the probe, so names are checked and
+    the art is drawn in the scheme's foreground from the start (#127). None, with a warning,
+    when WezTerm can't be asked."""
+    from cardak.wezterm.schemes import SchemesUnavailable, default_cache_dir, load_schemes
+
+    try:
+        return load_schemes(default_cache_dir())
+    except SchemesUnavailable as e:
+        print(f"cardak: scheme names not checked: {e}", file=sys.stderr)
+        return None
+
+
 def _themes_apply(config_arg: str | None) -> int:
     from cardak.wezterm.generate import write_generated
-    from cardak.wezterm.schemes import SchemesUnavailable, default_cache_dir, load_schemes
 
     path = config_path(config_arg)
     try:
@@ -541,11 +553,7 @@ def _themes_apply(config_arg: str | None) -> int:
     except ConfigError as e:
         print(f"cardak: {e}", file=sys.stderr)
         return 1
-    try:
-        schemes = load_schemes(default_cache_dir())
-    except SchemesUnavailable as e:
-        print(f"cardak: scheme names not checked: {e}", file=sys.stderr)
-        schemes = None
+    schemes = _cli_schemes()
     from cardak.core.backgrounds import Paths
 
     found, problems = _backgrounds(config, schemes, Paths.default())
@@ -563,7 +571,6 @@ def _themes_apply(config_arg: str | None) -> int:
 
 def _themes_zsh(config_arg: str | None, force: bool) -> int:
     from cardak.wezterm.generate import GenerateError, install_tint_hook, write_generated
-    from cardak.wezterm.schemes import default_cache_dir, read_cached_schemes
 
     try:
         config = load(config_path(config_arg))
@@ -578,7 +585,7 @@ def _themes_zsh(config_arg: str | None, force: bool) -> int:
         return 1
     from cardak.core.backgrounds import Paths
 
-    schemes = read_cached_schemes(default_cache_dir())
+    schemes = _cli_schemes()
     found, problems = _backgrounds(config, schemes, Paths.default())
     result = write_generated(_lua_dir(), cardak_dir, config, schemes, found)
     for problem in (*result.problems, *problems):

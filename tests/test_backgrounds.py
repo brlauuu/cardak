@@ -1,5 +1,8 @@
+import fcntl
 import json
+import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -8,6 +11,7 @@ from PIL import Image as PilImage
 from cardak.core.ascii_art import name_art
 from cardak.core.backgrounds import (
     FALLBACK_COLOR,
+    PRUNE_AFTER_S,
     Image,
     Paths,
     Tools,
@@ -193,6 +197,55 @@ def test_unreadable_record_is_a_problem_and_makes_nothing(tmp_path: Path, paths:
     assert not paths.art_dir.exists()
 
 
+def test_record_is_written_through_a_symlink(tmp_path: Path, paths: Paths) -> None:
+    dotfiles = tmp_path / "dotfiles" / "backgrounds.json"
+    dotfiles.parent.mkdir()
+    dotfiles.write_text('{"version": 2, "generated": {}}\n')
+    dotfiles.chmod(0o600)
+    paths.record.parent.mkdir(parents=True)
+    paths.record.symlink_to(dotfiles)
+    p = project(tmp_path)
+    assert ensure_art(config(p), paths, no_logo) == []
+    assert paths.record.is_symlink()  # was replaced by a plain file (#130)
+    assert str(p.path.resolve()) in json.loads(dotfiles.read_text())["generated"]
+    assert dotfiles.stat().st_mode & 0o777 == 0o600
+
+
+def test_making_art_holds_the_record_lock(tmp_path: Path, paths: Paths) -> None:
+    lock = paths.record.with_name("backgrounds.lock")
+    held: list[bool] = []
+
+    def find(_: Path) -> list[Path]:
+        with lock.open("a") as other:  # another process's attempt, while art is being made
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                held.append(True)
+        return []
+
+    assert ensure_art(config(project(tmp_path)), paths, find) == []
+    assert held == [True]  # the read-modify-write is locked (#130)
+
+
+def test_an_unopenable_lock_is_a_problem(tmp_path: Path, paths: Paths) -> None:
+    paths.record.with_name("backgrounds.lock").mkdir(parents=True)  # a folder, not a file
+    problems = ensure_art(config(project(tmp_path)), paths, no_logo)
+    assert problems and "backgrounds.lock" in problems[0]
+    assert not paths.art_dir.exists()
+
+
+def test_a_failed_lock_is_a_problem(
+    tmp_path: Path, paths: Paths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_locks(fd: object, op: int) -> None:
+        raise OSError(37, "No locks available")
+
+    monkeypatch.setattr(fcntl, "flock", no_locks)
+    problems = ensure_art(config(project(tmp_path)), paths, no_logo)
+    assert problems and "couldn't lock" in problems[0]
+    assert not paths.art_dir.exists()
+
+
 # reading and rendering
 
 
@@ -220,9 +273,9 @@ def test_empty_art_means_no_background(tmp_path: Path, paths: Paths) -> None:
 def test_render_is_cached_and_sized(tmp_path: Path) -> None:
     first = render("ab\nabcd", "#ff0000", tmp_path, None)
     assert (first.cols, first.rows) == (4, 2)
-    stamp = first.file.stat().st_mtime_ns
+    inode = first.file.stat().st_ino
     again = render("ab\nabcd", "#ff0000", tmp_path, None)
-    assert again == first and again.file.stat().st_mtime_ns == stamp
+    assert again == first and again.file.stat().st_ino == inode  # not drawn again
     assert render("ab\nabcd", "#00ff00", tmp_path, None).file != first.file
 
 
@@ -242,13 +295,62 @@ def test_images_fall_back_to_the_default_scheme(tmp_path: Path, paths: Paths) ->
     assert opaque_colors(found[p.path].file) == {(0xE0, 0xE0, 0xE0)}
 
 
+def _age(file: Path, seconds: float) -> None:
+    then = time.time() - seconds
+    os.utime(file, (then, then))
+
+
 def test_images_prune_unused_pngs(tmp_path: Path, paths: Paths) -> None:
     paths.cache.mkdir()
     (paths.cache / "old.png").write_bytes(b"x")
+    _age(paths.cache / "old.png", PRUNE_AFTER_S + 60)
     (paths.cache / "keep.txt").write_text("not ours")
     images(config(project(tmp_path)), {}, paths, None)
     assert not (paths.cache / "old.png").exists()
     assert (paths.cache / "keep.txt").exists()
+
+
+def test_pruning_keeps_a_preview_still_shown(tmp_path: Path, paths: Paths) -> None:
+    p = project(tmp_path)
+    ensure_art(config(p), paths, no_logo)
+    shown = preview_image(p, paths.art_dir / "cardak.txt", DARK, paths, None)
+    assert shown is not None
+    images(config(p), {}, paths, None)  # the deck writes the theme files mid-preview (#127)
+    assert shown.file.exists()
+
+
+def test_showing_an_old_preview_again_keeps_it(tmp_path: Path, paths: Paths) -> None:
+    p = project(tmp_path)
+    ensure_art(config(p), paths, no_logo)
+    shown = preview_image(p, paths.art_dir / "cardak.txt", DARK, paths, None)
+    assert shown is not None
+    _age(shown.file, PRUNE_AFTER_S + 60)
+    preview_image(p, paths.art_dir / "cardak.txt", DARK, paths, None)  # cached, shown again
+    images(config(p), {}, paths, None)
+    assert shown.file.exists()
+
+
+def test_one_drawing_error_leaves_the_other_projects(
+    tmp_path: Path, paths: Paths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    good, bad = project(tmp_path, "good"), project(tmp_path, "bad")
+    ensure_art(config(good, bad), paths, no_logo)
+    (paths.art_dir / "bad.txt").write_text("broken\n")
+
+    from cardak.core import backgrounds
+
+    real_draw = backgrounds._draw  # noqa: SLF001
+
+    def draw(lines: list[str], color: str, font: Path | None) -> bytes:
+        if lines == ["broken"]:
+            raise ValueError("bad glyph")  # as Pillow does on an odd art file
+        return real_draw(lines, color, font)
+
+    monkeypatch.setattr(backgrounds, "_draw", draw)
+    found, problems = images(config(good, bad), {}, paths, None)  # was: ValueError (#125)
+    assert set(found) == {good.path}
+    assert problems == ["bad: couldn't draw its background: bad glyph"]
+    assert preview_image(bad, paths.art_dir / "bad.txt", DARK, paths, None) is None
 
 
 def test_images_globally_off(tmp_path: Path, paths: Paths) -> None:

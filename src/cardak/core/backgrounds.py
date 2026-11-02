@@ -6,11 +6,13 @@ says which projects have had theirs made, so a deleted file stays deleted. The t
 a PNG in the scheme's foreground, which `cardak.lua` shows in the window's corner.
 """
 
+import fcntl
 import hashlib
 import json
 import os
 import re
 import tempfile
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -33,6 +35,7 @@ SKIP_NAMES = {"next.svg", "vercel.svg", "file.svg", "globe.svg", "window.svg", "
 SKIP_PARTS = {"screens", "screenshots", "design", "node_modules", "test", "tests", "fixtures"}
 RECORD_VERSION = 2
 MAX_TRIES = 8  # logo candidates tried before the name is used
+PRUNE_AFTER_S = 3600  # an unused PNG is removed once nothing has drawn or shown it for this long
 
 
 @dataclass(frozen=True)
@@ -161,13 +164,17 @@ def read_art(file: Path) -> str | None:
     return art or None
 
 
-def _write_atomic(target: Path, data: bytes) -> None:
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Replace the file via a temp file beside it, through a symlink (dotfiles kept elsewhere)
+    and keeping its mode (new files: 0644). Raises OSError."""
+    target = real_path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
     fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        os.chmod(tmp, 0o644)
+        os.chmod(tmp, mode)
         os.replace(tmp, target)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -229,10 +236,31 @@ def _wanted(config: Config) -> list[Project]:
 def ensure_art(
     config: Config, paths: Paths, find: Callable[[Path], Sequence[Path]] = find_logos
 ) -> list[str]:
-    """Make the art of every project that never had it; returns problems for the deck."""
+    """Make the art of every project that never had it; returns problems for the deck. The
+    deck and `cardak themes apply` both do this, so the record's read-modify-write is locked."""
     wanted = _wanted(config)
     if not wanted:
         return []
+    lock_file = paths.record.with_suffix(".lock")
+    try:
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        lock = lock_file.open("a")
+    except OSError as e:
+        return [f"couldn't open {lock_file}: {e}; no project background is made"]
+    with lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        except OSError as e:
+            return [f"couldn't lock {lock_file}: {e}; no project background is made"]
+        return _ensure_locked(config, wanted, paths, find)
+
+
+def _ensure_locked(
+    config: Config,
+    wanted: Sequence[Project],
+    paths: Paths,
+    find: Callable[[Path], Sequence[Path]],
+) -> list[str]:
     try:
         done = _read_record(paths.record)
     except ValueError as e:
@@ -271,28 +299,44 @@ def _font(font: Path | None) -> "FreeTypeFont | ImageFont":
     return load_default(FONT_PX)
 
 
+def _touch(file: Path) -> bool:
+    """Mark a cached PNG as in use, so pruning keeps what was drawn or shown lately; False when
+    it isn't there."""
+    try:
+        os.utime(file)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        pass  # there, only not ours to stamp
+    return True
+
+
+def _draw(lines: Sequence[str], color: str, font: Path | None) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image as PilImage
+    from PIL import ImageDraw
+
+    face = _font(font)
+    cell_w = max(1, round(face.getlength("M")))
+    cell_h = max(round(face.getbbox("M|gjy")[3]), FONT_PX) + 2
+    img = PilImage.new("RGBA", (cell_w * max(1, *map(len, lines)), cell_h * len(lines)))
+    draw = ImageDraw.Draw(img)
+    for i, line in enumerate(lines):
+        draw.text((0, i * cell_h), line, font=face, fill=color)
+    out = BytesIO()
+    img.save(out, "PNG")
+    return out.getvalue()
+
+
 def render(text: str, color: str, cache: Path, font: Path | None) -> Image:
     """The text drawn in color on a transparent PNG, cached by what it was drawn from."""
     lines = text.splitlines() or [""]
     cols, rows = max(1, max(map(len, lines))), len(lines)
     key = hashlib.sha1("\0".join((text, color, str(font), str(FONT_PX))).encode()).hexdigest()
     target = cache / f"{key[:16]}.png"
-    if not target.exists():
-        from io import BytesIO
-
-        from PIL import Image as PilImage
-        from PIL import ImageDraw
-
-        face = _font(font)
-        cell_w = max(1, round(face.getlength("M")))
-        cell_h = max(round(face.getbbox("M|gjy")[3]), FONT_PX) + 2
-        img = PilImage.new("RGBA", (cell_w * cols, cell_h * rows))
-        draw = ImageDraw.Draw(img)
-        for i, line in enumerate(lines):
-            draw.text((0, i * cell_h), line, font=face, fill=color)
-        out = BytesIO()
-        img.save(out, "PNG")
-        _write_atomic(target, out.getvalue())
+    if not _touch(target):
+        _write_atomic(target, _draw(lines, color, font))
     return Image(target, cols, rows)
 
 
@@ -319,13 +363,22 @@ def images(
             continue
         try:
             found[p.path] = render(art, _color(p, config, schemes), paths.cache, font)
-        except OSError as e:
+        except Exception as e:  # Pillow raises many kinds; one project's must not stop the rest
             problems.append(f"{p.name}: couldn't draw its background: {e}")
-    keep = {image.file.name for image in found.values()}
-    for old in paths.cache.glob("*.png"):
-        if old.name not in keep:
-            old.unlink(missing_ok=True)
+    _prune(paths.cache, {image.file.name for image in found.values()})
     return found, problems
+
+
+def _prune(cache: Path, keep: set[str]) -> None:
+    """Remove PNGs no project uses that nothing drew or showed lately: a preview the picker
+    shows right now is kept."""
+    cutoff = time.time() - PRUNE_AFTER_S
+    for old in cache.glob("*.png"):
+        try:
+            if old.name not in keep and old.stat().st_mtime < cutoff:
+                old.unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 def preview_image(
@@ -340,7 +393,7 @@ def preview_image(
         return None
     try:
         return render(art, scheme.foreground if scheme else FALLBACK_COLOR, paths.cache, font)
-    except OSError:
+    except Exception:  # as in images(): no preview rather than a crashed picker
         return None
 
 

@@ -188,6 +188,41 @@ def test_themes_zsh(xdg: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["themes", "zsh", "--force"]) == 0
 
 
+def test_themes_zsh_draws_art_in_the_probed_scheme(
+    xdg: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PIL import Image as PilImage
+
+    from cardak.core.themes import Scheme
+
+    nord = Scheme("Nord", "#2e3440", "#d8dee9", None, ())
+    monkeypatch.setattr("cardak.wezterm.schemes.read_cached_schemes", lambda cache_dir: None)
+    monkeypatch.setattr("cardak.wezterm.schemes.load_schemes", lambda cache_dir: {"Nord": nord})
+    project = xdg / "repos" / "webshop"
+    project.mkdir(parents=True)
+    cfg = xdg / "config/cardak/projects.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text(f'[[project]]\nname = "webshop"\npath = "{project}"\ntheme = "Nord"\n')
+    assert main(["themes", "zsh"]) == 0
+    (png,) = (xdg / "cache/cardak/backgrounds").glob("*.png")
+    img = PilImage.open(png).convert("RGBA")
+    colors = {(r, g, b) for r, g, b, a in img.get_flattened_data() if a == 255}  # type: ignore[misc]
+    assert colors == {(0xD8, 0xDE, 0xE9)}  # the scheme's foreground, not gray (#127)
+
+
+def test_themes_zsh_warns_when_schemes_are_unknown(
+    xdg: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from cardak.wezterm.schemes import SchemesUnavailable
+
+    def fail(cache_dir: Path) -> dict[str, object]:
+        raise SchemesUnavailable("wezterm not found")
+
+    monkeypatch.setattr("cardak.wezterm.schemes.load_schemes", fail)
+    assert main(["themes", "zsh"]) == 0
+    assert "scheme names not checked: wezterm not found" in capsys.readouterr().err
+
+
 def test_theme_writer_reports_old_module(tmp_path: Path) -> None:
     from cardak.cli import _theme_writer
     from cardak.core.backgrounds import Paths
