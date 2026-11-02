@@ -166,8 +166,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   | `~/.claude/skills/{checkpoint,where-were-we}/SKILL.md` | `cardak skills install` / `uninstall`, after asking (or `--yes`) | the bundled skills; `<!-- cardak: generated -->` after the frontmatter (only those files are replaced or removed; `--force` replaces others) |
   | `<project or worktree>/.cardak/handoff.md` (+ `.cardak/.gitignore` = `*`) | the `/checkpoint` skill (Claude), never cardak; read by the deck's recap and `/where-were-we` | dated entries, newest last |
 - `cardak.lua`'s second line is `-- cardak-module: N`. Bump `MODULE_VERSION`
-  (`wezterm/generate.py`) whenever the Lua module gains a feature the Python side relies on;
-  the deck and `cardak themes apply` tell users with an older module to re-run
+  (`wezterm/generate.py`) whenever the Lua module gains a feature the Python side relies on,
+  or a fix users get only by reinstalling it (#128); the deck and `cardak themes apply` tell users with an older module to re-run
   `cardak wezterm install`.
 - The scheme list comes from a headless probe: `wezterm --config-file <probe> ls-fonts`
   evaluates a config that dumps `wezterm.color.get_builtin_schemes()`, without opening a window.
@@ -178,8 +178,13 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   background color as its first layer, and the image layer needs **both** `width` and `height` in
   cells (`'32cell'`; one alone stretches it); per-layer `opacity` works; an OSC 11 pane tint is
   no longer visible once layers are set. `sync` sets it next to the scheme and leaves a window
-  alone whose `background` override it didn't set. Logos: README images first, then tracked
-  files named logo / mark / icon (`git ls-files`), skipping wordmarks (art under 8 rows) and
+  alone whose `background` override it didn't set. The first layer's color is the scheme's from the
+  user's `color_schemes` (read at each sync, so ones set after `apply` count), else the built-in
+  list, else the window's effective config, which still has the previous scheme during the sync
+  that switches it (#128, module 6). With `[background] enabled = false` the picker's switch is disabled and
+  its previews carry no art; the art line names a file only once its art was made (#126).
+  Logos: README images first, then tracked files named logo / mark / icon (`git ls-files`),
+  skipping wordmarks (art under 8 rows) and
   broken files; an opaque tile (an app icon) is read by the mark inside it. Measured on the
   dev machine: `cardak themes apply` making four projects' art took 0.6 s.
 - Live checks with a user WezTerm already running: start the test GUI with
