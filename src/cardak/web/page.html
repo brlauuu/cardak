@@ -169,6 +169,7 @@ let key = null, last = null, timer = null, sheetId = null, stopped = false, infl
 const opened = new Set();
 let trends = null, trendsOpen = false, trendsTimer = null, figure = "cost";
 let pm = null, pmOpen = false, pmTimer = null;
+const sentWith = new WeakMap();  // response -> the key its request carried
 const ctxDay = new Map();  // project name -> the day picked on its context plot, across refreshes
 
 function el(tag, cls, text) {
@@ -402,10 +403,20 @@ async function get(path) {
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS);
   try {
-    return await fetch(path, { headers: { Authorization: "Bearer " + key }, cache: "no-store", signal: abort.signal });
+    const used = key;
+    const r = await fetch(path, { headers: { Authorization: "Bearer " + used }, cache: "no-store", signal: abort.signal });
+    sentWith.set(r, used);
+    return r;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// a 401 stops the page, unless it answers a key a new link has replaced since (#113)
+function badKey(r) {
+  if (r.status !== 401) return false;
+  if (sentWith.get(r) === key) { closeSheet(); stop(BAD_KEY); }
+  return true;
 }
 
 async function poll() {
@@ -427,7 +438,7 @@ async function pollOnce() {
     down();
     return;
   }
-  if (r.status === 401) { stop(BAD_KEY); return; }
+  if (badKey(r)) return;
   if (r.status === 503) { $("fresh").textContent = "starting…"; return; }
   if (!r.ok) { down(); return; }
   try {
@@ -455,7 +466,7 @@ async function loadSheet() {
     return; // the list says the computer can't be reached
   }
   if (id !== sheetId) return;
-  if (r.status === 401) { closeSheet(); stop(BAD_KEY); return; }
+  if (badKey(r)) return;
   let s = null;
   if (r.ok) {
     try { s = await r.json(); } catch (e) { return; } // keep what the sheet shows
@@ -655,7 +666,7 @@ async function loadTrends() {
     return; // the list says the computer can't be reached
   }
   if (!trendsOpen) return;
-  if (r.status === 401) { closeSheet(); stop(BAD_KEY); return; }
+  if (badKey(r)) return;
   let t = null;
   if (r.ok) {
     try { t = await r.json(); } catch (e) { return; }
@@ -751,7 +762,7 @@ async function loadPm() {
     return; // the list says the computer can't be reached
   }
   if (!pmOpen) return;
-  if (r.status === 401) { closeSheet(); stop(BAD_KEY); return; }
+  if (badKey(r)) return;
   let b = null;
   if (r.ok) {
     try { b = await r.json(); } catch (e) { return; }
@@ -804,13 +815,19 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") { poll(); loadTrends(); loadPm(); }
 });
 
-key = readKey();
-if (!key) {
-  stop(NO_KEY);
-} else {
+function begin() {
+  key = readKey();
+  if (!key) { stop(NO_KEY); return; }
+  stopped = false;
+  notice("");
+  if (timer) clearInterval(timer);
   poll();
   timer = setInterval(poll, POLL_MS);
 }
+// opening a new link in this tab changes only the fragment: no reload, so take its key here
+function onHash() { if (/^#k=/.test(location.hash)) begin(); }
+window.addEventListener("hashchange", onHash);
+begin();
 </script>
 </body>
 </html>

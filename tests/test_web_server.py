@@ -206,3 +206,56 @@ def test_pm_without_a_board(serve) -> None:
     base, _ = serve()
     status, _, body = get(base + "/api/pm")
     assert status == 200 and json.loads(body) == {"board": None}
+
+
+def _has_ipv6_loopback() -> bool:
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
+            s.bind(("::1", 0))
+    except OSError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(not _has_ipv6_loopback(), reason="no IPv6 loopback")
+def test_serves_on_an_ipv6_host() -> None:
+    # #113: `host = "::1"` (or "::") failed to bind on an IPv4-only server
+    server = make_server("::1", 0, KEY, Latest(), session_ok)
+    start(server, poll_interval=0.02)
+    try:
+        status, _, body = get(f"http://[::1]:{server.server_address[1]}/", key=None)
+        assert status == 200 and body.startswith(b"<!doctype html>")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.skipif(not _has_ipv6_loopback(), reason="no IPv6 loopback")
+def test_any_ipv6_host_also_serves_ipv4() -> None:
+    import socket
+
+    server = make_server("::", 0, KEY, Latest(), session_ok)
+    start(server, poll_interval=0.02)
+    try:
+        assert server.socket.getsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY) == 0
+        assert get(f"http://127.0.0.1:{server.server_address[1]}/", key=None)[0] == 200
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_name_with_an_ipv4_address_binds_ipv4_as_before() -> None:
+    import socket
+
+    server = make_server("localhost", 0, KEY, Latest(), session_ok)
+    try:
+        assert server.socket.family == socket.AF_INET
+    finally:
+        server.server_close()
+
+
+def test_unknown_host_is_an_os_error() -> None:
+    with pytest.raises(OSError):
+        make_server("no-such-host.invalid", 0, KEY, Latest(), session_ok)

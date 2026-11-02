@@ -452,12 +452,65 @@ def test_cli_daemon_web_off_when_key_is_open(
     assert "web view off" in capsys.readouterr().err
 
 
-def test_cli_daemon_web_off_on_bad_config(
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_cli_daemon_web_waits_out_a_bad_config(
     web_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    # #113: any error in projects.toml kept the web view off until the daemon restarted
+    import urllib.request
+
+    from test_web_view import snap
+
     web_env.write_text("[web]\nport = 0\n")
-    assert daemon_web(monkeypatch) == [None]
-    assert "web view off" in capsys.readouterr().err
+    (start,) = daemon_web(monkeypatch)
+    assert start is not None  # agent status stays on: the web view may come up later
+    publish = start(NoSession())  # type: ignore[operator]
+    assert callable(publish)
+    assert "web view waits for a readable" in capsys.readouterr().err
+    publish(snap(), 100.0)  # the file hasn't changed: nothing tried, nothing logged
+    assert capsys.readouterr().err == ""
+    web_env.write_text("[web]\nport = 70000\n")  # still wrong
+    publish(snap(), 102.0)
+    assert "web view waits for a readable" in capsys.readouterr().err
+    port = _free_port()
+    web_env.write_text(f'[web]\nenabled = true\nport = {port}\nhost = "127.0.0.1"\n')
+    publish(snap(), 104.0)
+    assert f"web view on 127.0.0.1:{port}" in capsys.readouterr().err
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/api/snapshot")
+    req.add_header("Authorization", f"Bearer {_key()}")
+    with urllib.request.urlopen(req, timeout=5) as r:  # the snapshot that started it is served
+        assert r.status == 200
+    publish(snap(), 106.0)  # from now on it only publishes
+    assert capsys.readouterr().err == ""
+
+
+def test_cli_daemon_web_stops_waiting_when_the_fixed_config_has_it_off(
+    web_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from test_web_view import snap
+
+    web_env.write_text("[web]\nport = 0\n")
+    (start,) = daemon_web(monkeypatch)
+    publish = start(NoSession())  # type: ignore[operator]
+    web_env.write_text("[web]\nenabled = false\n")
+    publish(snap(), 100.0)
+    web_env.write_text("[web]\nenabled = true\nport = 1\n")  # needs a restart, as before
+    publish(snap(), 102.0)
+    err = capsys.readouterr().err
+    assert "web view on" not in err and "can't listen" not in err
+
+
+def _key() -> str:
+    from cardak.core.config import web_key_path
+
+    return web_key_path().read_text().strip()
 
 
 class NoSession:
@@ -902,6 +955,13 @@ def test_web_status_not_serving(web_setup, capsys) -> None:
     assert main(["web", "status"]) == 0
     out = capsys.readouterr().out
     assert "off" in out and "not serving" in out and "No key yet" in out
+
+
+def test_web_setup_brackets_an_ipv6_host(web_setup, capsys) -> None:
+    cfg, _ = web_setup
+    cfg.write_text('[web]\nhost = "::1"\n')
+    assert main(["web", "setup", "--yes"]) == 0
+    assert f"http://[::1]:8765/#k={web_key()}" in capsys.readouterr().out
 
 
 def test_web_status_serving(web_setup, capsys) -> None:

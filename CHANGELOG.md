@@ -22,6 +22,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - The cursor no longer jumps when a "docker builds" line changes its pane count (#107).
 - Containers of a project you configured through a symlink, or started from one, now show under that project instead of Other (#107).
 - `docker compose -p build ps` and other commands whose arguments happen to say "build" are no longer taken for a build (#107).
+- The web view can listen on an IPv6 address: `[web] host = "::1"`, or `"::"` for every address, IPv4 included (#113).
+- On a phone whose page said the link's key is no longer valid, opening the new link from `cardak web setup` now works at once, without reloading the page (#113).
+- A mistake in `projects.toml` no longer keeps the web view off until the background service restarts: it comes on by itself once the file is fixed (#113).
 
 ## 0.17.0 — 2026-11-01
 
