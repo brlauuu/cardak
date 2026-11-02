@@ -108,11 +108,11 @@ def test_cwd_display_relative_to_group() -> None:
     assert other.panes[1].cwd == HOME
 
 
-def test_totals_treat_unknown_cpu_as_zero() -> None:
+def test_totals_treat_unknown_cpu_as_zero_beside_known() -> None:
     webshop, _, _, other = snap().groups
     assert webshop.cpu_pct == 291.0
     assert webshop.rss == 5_100
-    assert other.cpu_pct == 0.0
+    assert other.cpu_pct is None  # none of its panes has a reading yet (#108)
     assert other.panes[1].cpu_pct is None and other.panes[1].rss == 0
 
 
@@ -279,3 +279,16 @@ def test_row_carries_pids() -> None:
         HOME,
     )
     assert s.groups[0].panes[0].pids == frozenset({1, 2})
+
+
+def test_project_cpu_is_unknown_before_any_pane_has_a_reading() -> None:
+    # each process's first sample has no CPU yet: the project's is unknown, not 0%, like Other's
+    # (#108); one pane with a reading makes it a number
+    first = {"/dev/pts/1": procs(cpu=None), "/dev/pts/2": procs(cpu=None)}
+    two = [pane(1, R / "webshop", "/dev/pts/1"), pane(2, R / "webshop" / "src", "/dev/pts/2")]
+    resolver = ProjectResolver(CONFIG, git=fake_git)
+    (webshop,) = build_snapshot(two, first, resolver, sessions, None, HOME).groups
+    assert webshop.cpu_pct is None
+    later = {**first, "/dev/pts/2": procs(cpu=3.0)}
+    (webshop,) = build_snapshot(two, later, resolver, sessions, None, HOME).groups
+    assert webshop.cpu_pct == 3.0

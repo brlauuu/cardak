@@ -550,8 +550,9 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   matched as written and with symlinks resolved on both sides (`ProjectResolver.real`, #107).
 - Machine used = `MemTotal − MemAvailable` (`collectors/machine.py`). Pane RAM is RSS, which
   double-counts shared pages, so Other (machine used − Σ projects) is clamped at 0. The machine's
-  first sample has no CPU yet, so Other's CPU is `None` ("–") then, and the history leaves it out
-  of that minute's mean (#108).
+  first sample has no CPU yet, so Other's CPU is `None` ("–") then, and so is a project's while
+  none of its panes has a reading (each process's first sample); the history leaves those out of
+  that minute's mean (#108).
 - A pane row's number, graph and ▲ are its work only (MCP has its own line); the project's
   total includes MCP. Other's graph is scaled to the machine's RAM, every other to the pane
   threshold.

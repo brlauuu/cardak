@@ -70,7 +70,7 @@ class Group:
     name: str
     accent: str | None
     path: str | None
-    cpu_pct: float | None  # None: Other before the machine's first CPU reading
+    cpu_pct: float | None  # None: no CPU reading yet (first sample)
     rss: int
     panes: tuple[PaneRow, ...]
     theme: str | None = None
@@ -225,11 +225,18 @@ def _group(resolved: Resolved, members: list[Pane], ctx: _Context) -> Group:
             else resolved.accent
         ),
         path=tilde(resolved.key, ctx.home) if resolved.key else None,
-        cpu_pct=sum((r.cpu_pct or 0.0) + r.mcp_cpu_pct for r in rows),
+        cpu_pct=_group_cpu(rows),
         rss=sum(r.rss + r.mcp_rss for r in rows),
         panes=rows,
         theme=resolved.theme,
     )
+
+
+def _group_cpu(rows: tuple[PaneRow, ...]) -> float | None:
+    """None while no pane has a CPU reading (each process's first sample), as for Other (#108)."""
+    if all(r.cpu_pct is None for r in rows):
+        return None
+    return sum((r.cpu_pct or 0.0) + r.mcp_cpu_pct for r in rows)
 
 
 def group_for(resolved: Resolved, home: Path, accent_for: AccentFor | None = None) -> Group:
