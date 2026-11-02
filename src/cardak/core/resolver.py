@@ -62,15 +62,18 @@ class ProjectResolver:
                 )
         return None
 
+    def real(self, path: Path) -> Path:
+        """path with symlinks resolved, remembered for as long as this resolver (a config)."""
+        if path not in self._real_cache:
+            self._real_cache[path] = real_path(path)
+        return self._real_cache[path]
+
     def resolve(self, cwd: Path | None) -> Resolved:
         if cwd is None:
             return OTHER
         found = self._configured(cwd)
-        if found is None:
-            if cwd not in self._real_cache:
-                self._real_cache[cwd] = real_path(cwd)
-            if (real := self._real_cache[cwd]) != cwd:
-                found = self._configured(real)
+        if found is None and (real := self.real(cwd)) != cwd:
+            found = self._configured(real)
         if found is not None:
             return found
         if cwd not in self._git_cache:

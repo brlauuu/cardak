@@ -524,8 +524,22 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   runs, readable without the API. Both have `memory.current`, `memory.stat` and `cpu.stat`
   (`usage_usec`); RAM is `memory.current − inactive_file`, as `docker stats` counts it.
   No Docker or no access: Docker usage silently falls into Other.
+- The API call has a 0.5 s timeout. A missing socket or a refused connection fails at once and
+  is retried every poll; a **timeout** (a hung daemon) leaves the API alone for 30 s, doubling to
+  5 min, and resets on the next answer (`DockerSampler._listed`, #107). Meanwhile the containers
+  it last listed are still read from their cgroups; a stopped one's cgroup is gone.
 - A `docker build` runs under Docker, not in the pane; the pane only holds the client. Builds go
-  to the one project with a pane running a build client, else to Other.
+  to the one project with a pane running a build client, else to Other; a building pane outside
+  any project counts as an owner too, so it and a project building together go to Other (#107).
+  `is_docker_build` skips the options before each command that take a value (docker's, compose's,
+  buildx's `--builder`) instead of listing commands, and counts `build`, `buildx build|bake`,
+  `bake`, `compose build` and `compose up|run|create --build`. A `-H` naming another machine
+  doesn't count (its build runs there); a `--context` counts whatever it names, since where a
+  context points is in Docker's own config, which cardak doesn't read. A client's `DOCKER_HOST`
+  isn't read either (`/proc/<pid>/environ` is not). The builds line is one tree node whatever its
+  pane count (`DockerLine.kind`).
+- Compose's `working_dir` and bind mount sources are paths as the user gave them: a project is
+  matched as written and with symlinks resolved on both sides (`ProjectResolver.real`, #107).
 - Machine used = `MemTotal − MemAvailable` (`collectors/machine.py`). Pane RAM is RSS, which
   double-counts shared pages, so Other (machine used − Σ projects) is clamped at 0.
 - A pane row's number, graph and ▲ are its work only (MCP has its own line); the project's
@@ -725,6 +739,10 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   Accepted: the call-in-loop report on `_ensure_locked` (the one accepted for `ensure_art` under
   #9, moved), and `config.real_path` at fan-in 12 (the background writer now writes through a
   symlink too).
+- **#107 (Docker attribution)** split `accounting._attach_builds` (10: `_sole_builder`).
+  Accepted: the nested-loop report on `accounting._deepest` and the compounded one on
+  `match_project` (a container's mounts → the projects' paths → the path as given and resolved:
+  a few mounts against a few dozen roots, the inner loop at most two long).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

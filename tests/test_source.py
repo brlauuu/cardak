@@ -565,6 +565,19 @@ def test_poll_attaches_docker_and_machine(tmp_path: Path) -> None:
     )
 
 
+def test_poll_matches_docker_through_a_symlinked_project(tmp_path: Path) -> None:
+    real = tmp_path / "real" / "shop"
+    real.mkdir(parents=True)
+    link = tmp_path / "shop"
+    link.symlink_to(real)
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "shop"\npath = "{link}"\n')
+    db = DockerWork("container", "i", "shop-db-1", GIB, 5.0, real)  # Docker gave the real path
+    snap = resourced(cfg, docker=lambda: [db]).poll()
+    shop = [g for g in snap.groups if g.key in (link, real)]
+    assert [(g.key, [d.label for d in g.docker]) for g in shop] == [(link, ["docker: shop-db-1"])]
+
+
 def test_unreachable_wezterm_still_shows_machine(tmp_path: Path) -> None:
     snap = resourced(tmp_path / "p.toml", list_panes=unavailable).poll()
     assert snap.error == "no WezTerm GUI socket found"

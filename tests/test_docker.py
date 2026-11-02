@@ -1,14 +1,19 @@
+import itertools
 import json
 import shutil
 import socket
 import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from cardak.collectors.docker import (
+    BACKOFF_FIRST,
+    BACKOFF_MAX,
     Container,
     DockerSampler,
+    DockerTimeout,
     DockerUnavailable,
     list_containers,
     parse_containers,
@@ -165,3 +170,77 @@ def test_unreachable_docker_closes_its_socket(
     with pytest.raises(DockerUnavailable):
         list_containers(tmp_path / "docker.sock")
     assert closed  # not left for the garbage collector
+
+
+def test_a_hung_socket_times_out(tmp_path: Path) -> None:
+    """A daemon that accepts and never answers (#107): DockerTimeout, within the timeout."""
+    path = tmp_path / "d.sock"
+    server = socket.socket(socket.AF_UNIX)
+    server.bind(str(path))
+    server.listen(1)
+    try:
+        start = time.monotonic()
+        with pytest.raises(DockerTimeout):
+            list_containers(path, timeout=0.1)
+        assert time.monotonic() - start < 1
+    finally:
+        server.close()
+
+
+class _Daemon:
+    """A fake listing on a fake clock: each call takes the next answer, then [] for good."""
+
+    def __init__(self, *answers: list[Container] | Exception) -> None:
+        self.now = 0.0
+        self.calls: list[float] = []
+        self.answers = list(answers)
+
+    def clock(self) -> float:
+        return self.now
+
+    def listing(self) -> list[Container]:
+        self.calls.append(self.now)
+        answer = self.answers.pop(0) if self.answers else []
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def sampler(self) -> DockerSampler:
+        return DockerSampler(list_fn=self.listing, cgroup_root=FIX / "cgroup", clock=self.clock)
+
+
+def test_a_timeout_backs_off_and_keeps_the_last_containers() -> None:
+    """A hung daemon is asked again only after a growing pause, not on every poll (#107)."""
+    hung = DockerTimeout("timed out")
+    daemon = _Daemon(fixture_containers(), hung, hung)
+    sampler = daemon.sampler()
+    seen: dict[float, set[str]] = {}
+    for t in range(0, 96, 2):  # a poll every 2 s
+        daemon.now = float(t)
+        seen[t] = {w.name for w in sampler.sample()}
+    # answered at 0, hung at 2, left alone until 32, hung again, left alone until 92
+    assert daemon.calls == [0.0, 2.0, 2.0 + BACKOFF_FIRST, 2.0 + 3 * BACKOFF_FIRST, 94.0]
+    assert all("webshop-db-1" in seen[t] for t in range(0, 92, 2))  # cgroups still read
+    assert "webshop-db-1" not in seen[92]  # the daemon answered: nothing running
+
+
+def test_backoff_is_capped_and_resets_after_an_answer() -> None:
+    daemon = _Daemon(*[DockerTimeout("timed out")] * 10)
+    sampler = daemon.sampler()
+    for t in range(0, 4000, 2):
+        daemon.now = float(t)
+        sampler.sample()
+    gaps = [b - a for a, b in itertools.pairwise(daemon.calls)]
+    assert gaps[:10] == [30.0, 60.0, 120.0, 240.0, *[BACKOFF_MAX] * 6]
+    assert set(gaps[10:]) == {2.0}  # it answered: asked every poll again
+
+
+def test_an_unreachable_daemon_is_asked_every_poll() -> None:
+    """No socket fails at once and costs nothing, so a Docker that starts shows up at once."""
+    down = DockerUnavailable("no socket")
+    daemon = _Daemon(down, down, down)
+    sampler = daemon.sampler()
+    for t in (0, 2, 4):
+        daemon.now = float(t)
+        sampler.sample()
+    assert daemon.calls == [0.0, 2.0, 4.0]

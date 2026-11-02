@@ -217,6 +217,38 @@ def test_proc_table_sees_terminals_opened_after_the_first_snapshot() -> None:
         (("docker", "run", "img", "build"), False),
         (("make", "build"), False),
         ((), False),
+        # #107: global options with a value before the command
+        (("docker", "--context", "default", "build", "."), True),
+        (("docker", "--context=desktop", "buildx", "build", "."), True),
+        (("docker", "-c", "work", "compose", "build"), True),
+        (("docker", "--log-level", "debug", "build", "."), True),
+        (("docker", "-H", "unix:///run/user/1000/docker.sock", "build", "."), True),
+        (("docker", "--host=tcp://127.0.0.1:2375", "build", "."), True),
+        (("docker", "-H", "tcp://localhost:2375", "build", "."), True),
+        # a daemon elsewhere builds elsewhere: nothing on this machine to attribute
+        (("docker", "-H", "ssh://user@buildbox", "build", "."), False),
+        (("docker", "--host", "tcp://10.0.0.5:2376", "build", "."), False),
+        (("docker", "-H", "buildbox:2375", "build", "."), False),
+        # compose commands that build on the way
+        (("docker", "compose", "up", "--build"), True),
+        (("docker", "compose", "-f", "c.yml", "up", "-d", "--build", "web"), True),
+        (("docker", "compose", "run", "--build", "web"), True),
+        (("docker-compose", "up", "--build"), True),
+        (("docker", "compose", "up", "-d"), False),
+        # bake builds too
+        (("docker", "buildx", "bake"), True),
+        (("docker", "buildx", "--builder", "b1", "bake", "-f", "x.hcl"), True),
+        (("docker", "buildx", "--builder=b1", "build", "."), True),
+        (("docker", "bake"), True),
+        (("docker", "buildx", "ls"), False),
+        # an option's value is not the command
+        (("docker", "compose", "-p", "build", "ps"), False),
+        (("docker", "compose", "--project-directory", "build", "logs"), False),
+        (("docker", "compose", "cp", "web:/x", "build"), False),
+        (("docker", "compose", "--env-file", ".env", "build"), True),
+        (("docker", "compose", "attach", "web"), False),
+        # the compose plugin as `docker compose` runs it: its docker parent is the one judged
+        (("docker-compose", "compose", "build"), False),
     ],
 )
 def test_is_docker_build(argv: tuple[str, ...], expected: bool) -> None:

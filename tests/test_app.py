@@ -681,6 +681,18 @@ def test_node_id_none() -> None:
     assert node_id(Node(SNAP.groups[0])) == "g:config:/repos/webshop"
 
 
+def test_the_builds_line_keeps_its_node_id_as_its_count_changes() -> None:
+    """ "docker build" → "docker builds, 2 panes" must not move the cursor (#107)."""
+    g = SNAP.groups[0]
+    labels = ("docker build", "docker builds, 2 panes", "docker builds, 3 panes")
+    lines = [DockerLine(label, 1, None, kind="build") for label in labels]
+    assert len({node_id(Node(g, role="docker", line=line)) for line in lines}) == 1
+    container = DockerLine("docker: build", 1, None)  # a container named "build" is another line
+    assert node_id(Node(g, role="docker", line=container)) != node_id(
+        Node(g, role="docker", line=lines[0])
+    )
+
+
 async def test_i_opens_detail_on_claude_rows_only() -> None:
     snap = waiting_snap(agent_row(7, "waiting", "finished"), others=(row(2),))
     source = StubSource(snap)
