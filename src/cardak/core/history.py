@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Literal
 
+from cardak.collectors.machine import MachineSample
 from cardak.core.resources import GIB, Thresholds
 from cardak.core.snapshot import DeckSnapshot
 from cardak.core.store import DayPeak, MinuteRow
@@ -15,9 +16,12 @@ SORTS = ("peak", "now", "median", "alerts", "name")
 CELLS = "░▒▓▓█"
 
 
-def _live(snap: DeckSnapshot) -> list[tuple[str, str, int, float]]:
+Live = tuple[str, str, int, float | None]  # (subject, name, RAM, CPU); CPU None: unknown
+
+
+def _live(snap: DeckSnapshot) -> list[Live]:
     """(subject, name, RAM, CPU) for every project and Other in one snapshot."""
-    out: list[tuple[str, str, int, float]] = []
+    out: list[Live] = []
     other = None
     for g in snap.groups:
         if g.kind in PROJECT_KINDS:
@@ -26,10 +30,17 @@ def _live(snap: DeckSnapshot) -> list[tuple[str, str, int, float]]:
             other = (OTHER, "Other", g.rss, g.cpu_pct)
     m = snap.machine
     if other is None and m is not None:  # WezTerm unreachable: no Other group, all of it is Other
-        rss = max(0, m.mem_used - sum(x[2] for x in out))
-        cpu = max(0.0, (m.cpu_pct or 0.0) * m.n_cpus - sum(x[3] for x in out))
-        other = (OTHER, "Other", rss, cpu)
+        other = _machine_other(m, out)
     return [*out, *([other] if other else [])]
+
+
+def _machine_other(m: MachineSample, projects: list[Live]) -> Live:
+    """Other with no Other group: the machine's use minus the projects'."""
+    rss = max(0, m.mem_used - sum(p[2] for p in projects))
+    if m.cpu_pct is None:  # the machine's first sample has no CPU yet
+        return (OTHER, "Other", rss, None)
+    cpu = m.cpu_pct * m.n_cpus - sum(p[3] or 0.0 for p in projects)
+    return (OTHER, "Other", rss, max(0.0, cpu))
 
 
 class Rollup:
@@ -48,7 +59,8 @@ class Rollup:
         for subject, name, rss, cpu in _live(snap):
             _, rams, cpus = self._acc.setdefault(subject, (name, [], []))
             rams.append(rss)
-            cpus.append(cpu)
+            if cpu is not None:
+                cpus.append(cpu)
         return done
 
     def flush(self) -> list[MinuteRow]:
@@ -64,8 +76,8 @@ class Rollup:
                 name,
                 sum(rams) // len(rams),
                 max(rams),
-                sum(cpus) / len(cpus),
-                max(cpus),
+                sum(cpus) / len(cpus) if cpus else 0.0,
+                max(cpus, default=0.0),
             )  # fmt: skip
             for subject, (name, rams, cpus) in acc.items()
         ]
@@ -106,10 +118,10 @@ def history_rows(
     metric: Metric,
 ) -> list[HistoryRow]:
     names, cells = _day_cells(days, today - timedelta(days=DAYS - 1), metric)
-    now: dict[str, float] = {}
+    now: dict[str, float | None] = {}
     for subject, name, rss, cpu in _live(live) if live is not None else []:
         names[subject] = name
-        now[subject] = float(rss if metric == "ram" else cpu)
+        now[subject] = float(rss) if metric == "ram" else cpu
     pick = 0 if metric == "ram" else 1
     out: list[HistoryRow] = []
     for subject in sorted(names, key=lambda s: (s == OTHER, names[s].lower())):

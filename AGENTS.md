@@ -549,7 +549,9 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - Compose's `working_dir` and bind mount sources are paths as the user gave them: a project is
   matched as written and with symlinks resolved on both sides (`ProjectResolver.real`, #107).
 - Machine used = `MemTotal − MemAvailable` (`collectors/machine.py`). Pane RAM is RSS, which
-  double-counts shared pages, so Other (machine used − Σ projects) is clamped at 0.
+  double-counts shared pages, so Other (machine used − Σ projects) is clamped at 0. The machine's
+  first sample has no CPU yet, so Other's CPU is `None` ("–") then, and the history leaves it out
+  of that minute's mean (#108).
 - A pane row's number, graph and ▲ are its work only (MCP has its own line); the project's
   total includes MCP. Other's graph is scaled to the machine's RAM, every other to the pane
   threshold.
@@ -561,8 +563,20 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   rate over `sustain_s`, over `pane_cpu_pct` or the machine over `machine_cpu_pct` for
   `sustain_s`. One notification per (culprit, kind) per `repeat_min`, warning → critical at once,
   nothing on recovery; a condition that persists is logged (not notified) once a minute.
+  Times are the wall clock (they go into the event log), so a gap over `MAX_GAP_S` (30 s) between
+  polls, or the clock going back, restarts every sustain timer and growth window: after a
+  suspend the time asleep never counts as sustained. A culprit that is gone is forgotten once
+  `repeat_min` has passed since its last notification (until then a reused pane id stays quiet),
+  so the watcher's state doesn't grow with every pane that ever crossed a threshold (#108).
 - The daemon polls through `LiveSource` (no store, no theme writer, no summaries) every 2 s:
   0.8% of one core and ~28 MB measured on the dev machine. `daemon.lock` (flock) keeps it single.
+  A broken `projects.toml` makes `LiveSource` fall back to the default thresholds; the daemon logs
+  that once (and once more when the file reads again). A failed GUI listing is logged and the
+  poll goes on with the last list, so alerts aren't lost and no GUI looks closed (#108).
+- `cardak resources install` says which config file gets the `[resources]` thresholds before it
+  asks, and writes each one as a float (`8.0`, not `8`). The unit's `ExecStart` path has `%` and `$`
+  escaped and is quoted when it has a space, quote, backslash or `;` (`systemd-analyze verify`
+  rejected the unquoted path, accepted the quoted one, 2026-11-02).
 - **History** (`core/history.Rollup`): the daemon writes one row per minute per project and for Other
   (RAM mean/max, CPU mean/max) to `resource_minutes`, and keeps each local day's peak in
   `resource_days` as it writes, so the history view reads ~30 rows per project (500k minutes:
@@ -756,6 +770,10 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   inline). Accepted: `daemon.log` at fan-in 11 and `config.load` at 17 (the waiting publisher reads
   the config and logs through them), and one more dead-code candidate (`_DualStack.server_bind`,
   which `socketserver` calls).
+- **#108 (alert and daemon edge cases)** split `history._live` (11: `_machine_other`) and
+  `cli._resources_install` (11: `_defaults_note`), and computes the config path once there.
+  Accepted: `daemon.log` at fan-in 10 (`_list_guis` and `_config_problem` are two more lines in
+  the daemon's one log).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

@@ -61,6 +61,11 @@ def run(w: Watcher, s: DeckSnapshot, *times: float) -> list[ResourceAlert]:
     return out
 
 
+def every(start: int, end: int) -> list[float]:
+    """The daemon's polls from start to end, both included: one every 2 s."""
+    return [float(now) for now in range(start, end + 1, 2)]
+
+
 def test_gb() -> None:
     assert gb(int(13.9 * GIB)) == "13.9 GB"
 
@@ -161,14 +166,14 @@ def test_busy_needs_sustain() -> None:
 def test_machine_busy() -> None:
     w = Watcher()
     hot = snap(webshop(rss=1.0, cpu=600.0), m=machine(cpu=95.0))
-    assert [a for a in run(w, hot, 0.0, 60.0) if a.kind == "machine_busy"] == []
+    assert [a for a in run(w, hot, *every(0, 118)) if a.kind == "machine_busy"] == []
     [a] = [a for a in w.step(hot, T, 120.0) if a.kind == "machine_busy"]
     assert a.subject == "machine" and a.title == "cardak · machine busy"
     assert a.text == "CPU 95% for 2 min · busiest: webshop · pytest in pane 12 · 600% CPU"
     w2 = Watcher()
-    run(w2, hot, 0.0, 60.0)
+    run(w2, hot, *every(0, 60))
     w2.step(snap(webshop(rss=1.0), m=machine(cpu=None)), T, 62.0)
-    assert [a for a in w2.step(hot, T, 120.0) if a.kind == "machine_busy"] == []
+    assert [a for a in run(w2, hot, *every(64, 120)) if a.kind == "machine_busy"] == []
 
 
 def test_other_is_never_a_culprit_of_big() -> None:
@@ -192,9 +197,9 @@ def test_closed_pane_forgets_its_timers() -> None:
     w = Watcher()
     busy = snap(group("other", None, "Other", row(7, "cargo", 0.5, 900.0)))
     gone = snap(group("other", None, "Other"))
-    run(w, busy, 0.0, 30.0, 58.0)
+    run(w, busy, *every(0, 58))
     w.step(gone, T, 60.0)
-    assert [a for a in run(w, busy, 62.0, 122.0) if a.kind == "busy"] == []
+    assert [a for a in run(w, busy, *every(62, 180)) if a.kind == "busy"] == []
     assert [a.kind for a in w.step(busy, T, 182.0)] == ["busy"]
 
 
@@ -217,3 +222,53 @@ def test_docker_line_can_be_the_biggest_piece() -> None:
 
 def test_no_machine_no_alerts() -> None:
     assert Watcher().step(DeckSnapshot(groups=(webshop(),)), T, 0.0) == []
+
+
+def test_a_sleep_restarts_the_sustain_timers() -> None:
+    # after a suspend the wall clock jumps: the time asleep must not count as sustained (#108)
+    w = Watcher()
+    busy = snap(group("other", None, "Other", row(7, "cargo", 0.5, 900.0)))
+    assert run(w, busy, 0.0, 2.0) == []
+    assert run(w, busy, *every(3600, 3718)) == []  # held since 0 by the wall clock
+    assert [a.kind for a in run(w, busy, 3720.0)] == ["busy"]
+
+
+def test_a_clock_going_back_restarts_the_sustain_timers() -> None:
+    w = Watcher()
+    busy = snap(group("other", None, "Other", row(7, "cargo", 0.5, 900.0)))
+    run(w, busy, 1000.0, 1002.0)
+    assert run(w, busy, *every(500, 618)) == []
+    assert [a.kind for a in run(w, busy, 620.0)] == ["busy"]
+
+
+def test_a_sleep_restarts_the_growth_window() -> None:
+    w = Watcher()
+    t = replace(T, growth_per_min=GIB // 10)  # 0.1 GB/min
+    low = snap(group("other", None, "Other", row(7, "cargo", 1.0, 0.0)))
+    high = snap(group("other", None, "Other", row(7, "cargo", 3.0, 0.0)))
+    for now in range(0, 122, 2):
+        w.step(low, t, float(now))
+    assert [a for a in w.step(high, t, 1000.0) if a.kind == "growth"] == []
+
+
+def test_gone_subjects_are_forgotten_once_quiet() -> None:
+    # one entry per (culprit, kind) that ever crossed a threshold must not pile up (#108)
+    w = Watcher()
+    for pane in range(100):
+        busy = snap(group("other", None, "Other", row(pane, "cargo", 9.0, 900.0)))
+        w.step(busy, T, float(pane * 2))
+    empty = snap(group("other", None, "Other"))
+    w.step(empty, T, 202.0)
+    assert len(w._conds) > 2  # a reused pane id stays quiet within repeat_min
+    for now in range(204, int(T.repeat_s) + 400, 2):
+        w.step(empty, T, float(now))
+    assert {k for k, _ in w._conds} == {"machine"}
+
+
+def test_a_reused_pane_id_stays_quiet_within_repeat() -> None:
+    w = Watcher()
+    big = snap(group("other", None, "Other", row(7, "cargo", 9.0)))
+    empty = snap(group("other", None, "Other"))
+    assert [a.notify for a in w.step(big, T, 0.0)] == [True]
+    w.step(empty, T, 2.0)
+    assert [a.notify for a in w.step(big, T, 4.0)] == []

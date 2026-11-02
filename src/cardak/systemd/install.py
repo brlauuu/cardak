@@ -30,6 +30,14 @@ def unit_dir(env: Mapping[str, str] | None = None) -> Path:
     return Path(base) / "systemd" / "user"
 
 
+def _exec_path(path: Path) -> str:
+    """The path as one ExecStart word: `%` and `$` escaped, quoted when it has to be."""
+    text = str(path).replace("%", "%%").replace("$", "$$")
+    if not re.search(r"[\s\"'\\;]", text):
+        return text
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def unit_text(cardak_bin: Path) -> str:
     return (
         f"{MARKER} — `cardak resources uninstall` removes it\n"
@@ -37,7 +45,7 @@ def unit_text(cardak_bin: Path) -> str:
         "Description=cardak: resource alerts for WezTerm panes\n"
         "\n"
         "[Service]\n"
-        f"ExecStart={cardak_bin} daemon\n"
+        f"ExecStart={_exec_path(cardak_bin)} daemon\n"
         "Restart=on-failure\n"
         "RestartSec=5\n"
         "RestartPreventExitStatus=3\n"  # another daemon holds the lock

@@ -70,7 +70,7 @@ class Group:
     name: str
     accent: str | None
     path: str | None
-    cpu_pct: float
+    cpu_pct: float | None  # None: Other before the machine's first CPU reading
     rss: int
     panes: tuple[PaneRow, ...]
     theme: str | None = None

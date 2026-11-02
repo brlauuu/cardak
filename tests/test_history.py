@@ -25,7 +25,7 @@ MACHINE = MachineSample(32 * GIB, 16 * GIB, GIB, GIB, 20.0, 16)
 TODAY = date(2026, 10, 22)
 
 
-def grp(kind: str, key: Path | None, name: str, rss: int, cpu: float) -> Group:
+def grp(kind: str, key: Path | None, name: str, rss: int, cpu: float | None) -> Group:
     return Group(
         kind=kind,  # type: ignore[arg-type]
         key=key, name=name, accent=None, path=None, cpu_pct=cpu, rss=rss, panes=(),
@@ -91,6 +91,12 @@ def test_history_rows_fill_days() -> None:
     assert (web_cpu.now, web_cpu.median, web_cpu.peak, web_cpu.alerts) == (None, 5.0, 50.0, 0)
 
 
+def test_history_rows_unknown_other_cpu_is_no_number() -> None:
+    live = DeckSnapshot(groups=(grp("other", None, "Other", 3, None),), machine=MACHINE)
+    [other] = history_rows([], {}, {}, live, TODAY, "cpu")
+    assert other.now is None
+
+
 def test_history_rows_live_only() -> None:
     [web, other] = history_rows([], {}, {}, snap(GIB, 9), TODAY, "ram")
     assert web.days == (None,) * 30 and web.now == GIB
@@ -117,3 +123,24 @@ def test_edges_and_legend() -> None:
     assert legend(c, "cpu") == "peak CPU per day:  ░ <200%  ▒ 200–400  ▓ 400–600  ▓ 600–800  █ 800+"
     assert [band(v, e) for v in (None, 0.0, 2.0 * GIB, 7.9 * GIB, 8.0 * GIB)] == [-1, 0, 1, 3, 4]
     assert len(CELLS) == 5
+
+
+def test_rollup_leaves_out_an_unknown_other_cpu() -> None:
+    # the first sample after start has no machine CPU: Other's is unknown, not 0% (#108)
+    r = Rollup()
+    first = DeckSnapshot(groups=(grp("other", None, "Other", 3, None),), machine=MACHINE)
+    r.add(first, 0.0)
+    r.add(DeckSnapshot(groups=(grp("other", None, "Other", 3, 40.0),), machine=MACHINE), 2.0)
+    [other] = r.flush()
+    assert (other.cpu_mean, other.cpu_max) == (40.0, 40.0)
+    r.add(first, 0.0)
+    [only] = r.flush()
+    assert (only.cpu_mean, only.cpu_max) == (0.0, 0.0)
+
+
+def test_rollup_without_wezterm_before_the_first_cpu_reading() -> None:
+    r = Rollup()
+    r.add(DeckSnapshot(machine=replace(MACHINE, cpu_pct=None)), 0.0)
+    r.add(DeckSnapshot(machine=replace(MACHINE, cpu_pct=10.0)), 2.0)
+    [other] = r.flush()
+    assert other.cpu_mean == 160.0  # 10% of 16 cores; the unknown first sample left out
