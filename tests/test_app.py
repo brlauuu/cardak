@@ -1257,18 +1257,25 @@ async def test_deck_saves_background_off() -> None:
         assert any("background off" in str(n.message) for n in app._notifications)  # noqa: SLF001
 
 
+class FakeArt:
+    def __init__(self, enabled: bool = True) -> None:
+        self._enabled = enabled
+
+    def enabled(self) -> bool:
+        return self._enabled
+
+    def art_file(self, project_path: Path) -> Path | None:
+        return Path("/art/cardak.txt")
+
+    def preview_image(self, project_path: Path, scheme: str) -> None:
+        return None
+
+
 async def test_picker_opens_with_the_saved_switch_and_art_path() -> None:
     source = StubSource(SNAP)
     source.backgrounds_off.add(Path("/repos/cardak"))
 
-    class Tools:
-        def art_file(self, project_path: Path) -> Path | None:
-            return Path("/art/cardak.txt")
-
-        def preview_image(self, project_path: Path, scheme: str) -> None:
-            return None
-
-    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES), backgrounds=Tools())
+    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES), backgrounds=FakeArt())
     async with app.run_test() as pilot:
         await settle(app, pilot)
         app.deck_tree.move_cursor(app.deck_tree.root.children[1])
@@ -1277,7 +1284,22 @@ async def test_picker_opens_with_the_saved_switch_and_art_path() -> None:
         screen = app.screen
         assert isinstance(screen, ThemePickerScreen)
         assert screen.query_one(Checkbox).value is False
+        assert not screen.query_one(Checkbox).disabled
         assert "/art/cardak.txt" in str(screen.query_one("#art-path", Static).render())
+
+
+async def test_picker_knows_backgrounds_are_off() -> None:
+    app = DeckApp(
+        StubSource(SNAP), interval=3600, schemes=SchemeStore(THEMES), backgrounds=FakeArt(False)
+    )
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        screen = app.screen
+        assert isinstance(screen, ThemePickerScreen)
+        assert screen.query_one(Checkbox).disabled
 
 
 async def test_picker_load_regenerates() -> None:

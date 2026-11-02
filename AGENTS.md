@@ -178,8 +178,13 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   background color as its first layer, and the image layer needs **both** `width` and `height` in
   cells (`'32cell'`; one alone stretches it); per-layer `opacity` works; an OSC 11 pane tint is
   no longer visible once layers are set. `sync` sets it next to the scheme and leaves a window
-  alone whose `background` override it didn't set. Logos: README images first, then tracked
-  files named logo / mark / icon (`git ls-files`), skipping wordmarks (art under 8 rows) and
+  alone whose `background` override it didn't set. The first layer's color is the scheme's from the
+  user's `color_schemes` (read at each sync, so ones set after `apply` count), else the built-in
+  list, else the window's effective config, which still has the previous scheme during the sync
+  that switches it (#128). With `[background] enabled = false` the picker's switch is disabled and
+  its previews carry no art; the art line names a file only once its art was made (#126).
+  Logos: README images first, then tracked files named logo / mark / icon (`git ls-files`),
+  skipping wordmarks (art under 8 rows) and
   broken files; an opaque tile (an app icon) is read by the mark inside it. Measured on the
   dev machine: `cardak themes apply` making four projects' art took 0.6 s.
 - Live checks with a user WezTerm already running: start the test GUI with

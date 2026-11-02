@@ -100,9 +100,20 @@ local function background_for(path, preview)
   return nil
 end
 
+-- The scheme's own color, so the sync that switches it has it: the window's effective config
+-- still holds the previous scheme then (#128). The user's color_schemes win, as in WezTerm; they
+-- are read when needed, so ones set after apply() count too.
+local user_config = nil
+local function color_schemes(config)
+  local ok, value = pcall(function() return config.color_schemes end)
+  return ok and type(value) == 'table' and value or {}
+end
+
 local builtin_schemes = nil
 local function base_color(window, scheme)
   if scheme then
+    local own = color_schemes(user_config)[scheme]
+    if type(own) == 'table' and type(own.background) == 'string' then return own.background end
     builtin_schemes = builtin_schemes or wezterm.color.get_builtin_schemes()
     local s = builtin_schemes[scheme]
     if s and s.background then return s.background end
@@ -352,6 +363,7 @@ function M.apply(config, opts)
   backgrounds_on = not (type(opts) == 'table' and opts.background == false)
     and not (type(config) == 'table' and users_background(config))
   base_opacity = type(config) == 'table' and window_opacity(config) or 1
+  user_config = type(config) == 'table' and config or nil
   wezterm.on('user-var-changed', on_user_var)
   if not (type(opts) == 'table' and opts.tab_titles == false) then
     -- WezTerm runs only the first format-tab-title handler registered

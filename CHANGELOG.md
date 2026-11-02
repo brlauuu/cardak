@@ -16,6 +16,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - One project's background art that can't be drawn no longer stops every project's theme and background being updated: that project goes without one and a warning names it (#125).
 - `backgrounds.json` stays a symlink when yours is one, and the deck and `cardak themes apply` making art at the same moment no longer lose each other's record, which could bring back art you deleted (#130).
 - The theme picker's art preview no longer disappears when the theme files are written meanwhile, and `cardak themes zsh` draws the art in the scheme's own text color from the start instead of gray (#127).
+- With backgrounds turned off for every project (`[background] enabled = false`), the theme picker says so and previews no art, and `ctrl+b` no longer pretends to switch it; for a project whose art hasn't been made yet, the picker says it will be made when the background is turned on instead of naming a file that doesn't exist (#126).
+- A project's background no longer shows the previous scheme's color for a moment when its scheme is one you defined yourself in `wezterm.lua`. Run `cardak wezterm install` again to get the fix (#128).
 
 ## 0.17.0 — 2026-11-01
 
