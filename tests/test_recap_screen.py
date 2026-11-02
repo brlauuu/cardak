@@ -1,5 +1,6 @@
 import os
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from textual.app import App
 from textual.widgets import Markdown, OptionList, Static
 
 from cardak.collectors.handoff import NOTE
+from cardak.core import recap
 from cardak.ui.recap import RecapScreen
 
 NOW = datetime(2026, 10, 25, 14, 10).timestamp()
@@ -109,3 +111,60 @@ async def test_recap_others_switch(tmp_path: Path) -> None:
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, RecapScreen)
+
+
+async def test_recap_says_more_when_the_commit_list_is_cut(tmp_path: Path) -> None:
+    repo = tmp_path / "webshop"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    write_note(repo, "## 2026-10-24 14:10 · main\n\nnote\n")
+    after = datetime(2026, 10, 24, 15, 0).timestamp()
+    for i in range(recap.COMMITS + 1):
+        git(repo, "commit", "-q", "--allow-empty", "-m", f"c{i}", ts=after + i)
+    screen = RecapScreen("webshop", [repo], NOW)
+
+    def check(text: str) -> None:
+        assert f"Since then: more than {recap.COMMITS} commits, the latest {recap.COMMITS}:" in text
+        assert text.endswith(" c1\n0 changed, 0 untracked")  # c0, the oldest, is cut
+
+    await texts(screen, check)
+
+
+async def test_recap_late_result_of_an_earlier_pick_is_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a, b, c = tmp_path / "a", tmp_path / "b", tmp_path / "c"
+    for d, day in ((a, 20), (b, 22), (c, 24)):
+        d.mkdir()
+        write_note(d, f"## 2026-10-{day} 09:05\n\nnote {d.name}\n")
+    release = threading.Event()
+    real = recap.since
+
+    def since(note):  # noqa: ANN001, ANN202
+        if note.top == a:
+            release.wait(5)  # a slow git: its answer arrives after b's
+        return real(note)
+
+    monkeypatch.setattr(recap, "since", since)
+    screen = RecapScreen("webshop", [a, b, c], NOW)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await screen.workers.wait_for_complete()
+        await pilot.pause()
+        assert "note c" in screen.query_one("#note", Markdown).source
+        others = screen.query_one("#others", OptionList)
+        others.focus()
+        others.highlighted = 1  # the others are b, then a: newest first
+        await pilot.press("enter")  # a: blocks
+        await pilot.press("up", "enter")  # b: answers first
+        for _ in range(50):
+            await pilot.pause(0.02)
+            if "note b" in screen.query_one("#note", Markdown).source:
+                break
+        assert "note b" in screen.query_one("#note", Markdown).source
+        release.set()
+        await screen.workers.wait_for_complete()
+        await pilot.pause()
+        assert "note b" in screen.query_one("#note", Markdown).source
+        assert "/b" in str(screen.query_one("#head", Static).render())

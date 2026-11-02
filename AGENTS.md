@@ -280,7 +280,12 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - The note lives at the **git top level of the session's directory**, so each worktree keeps its
   own (it goes with the worktree). Recap on a project row gathers the project's and every pane's
   note, newest first. Only `## YYYY-MM-DD HH:MM[ · branch]` headings outside code fences start an
-  entry.
+  entry; `-`, `–` or `—` may stand for the `·`, but a heading without the date and time never
+  starts one (#112). A fence still open at the end of the note closes nothing (its opening line is
+  text), so a forgotten closing fence can't hide every later entry. The skill writes `·`.
+- Recap lists at most `recap.COMMITS` (20) commits; git is asked for one more, so the screen says
+  "more than 20" when the list was cut. A recap load carries a request number and the screen drops
+  an answer older than the latest pick (git for a slow note could otherwise land after a faster one).
 - **Sending** (`c`): `wezterm cli send-text --no-paste`, twice: `/checkpoint`, then 150 ms later
   `\r` on its own, so a TUI that treats a multi-character chunk as a paste still sees Enter as a
   keystroke. Measured 2026-10-25 in a headless `wezterm-mux-server` (scratch `XDG_RUNTIME_DIR`;

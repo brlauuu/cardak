@@ -27,6 +27,7 @@ class GitState:
     changed: int
     untracked: int
     commits: tuple[Commit, ...]  # newest first
+    more: bool = False  # more commits than the limit; `commits` holds the newest
 
 
 def _git(path: Path, args: list[str], runner: Runner) -> str | None:
@@ -92,7 +93,8 @@ def _commits(top: Path, since: float, limit: int, runner: Runner) -> tuple[Commi
 def state(
     top: Path, since: float | None, limit: int = 20, runner: Runner = subprocess.run
 ) -> GitState | None:
-    """Branch, changed / untracked counts, and commits since `since` (none when it is None)."""
+    """Branch, changed / untracked counts, and up to `limit` commits since `since` (none when it
+    is None). One more is asked for, so `more` tells a list cut at the limit from a full one."""
     status = _git(top, ["status", "--porcelain"], runner)
     branch = _git(top, ["branch", "--show-current"], runner)
     if status is None or branch is None:
@@ -101,5 +103,8 @@ def state(
     untracked = sum(line.startswith("??") for line in lines)
     commits: tuple[Commit, ...] = ()
     if since is not None:
-        commits = _commits(top, since, limit, runner) or ()
-    return GitState(branch.strip() or None, len(lines) - untracked, untracked, commits)
+        commits = _commits(top, since, limit + 1, runner) or ()
+    more = len(commits) > limit
+    return GitState(
+        branch.strip() or None, len(lines) - untracked, untracked, commits[:limit], more
+    )
