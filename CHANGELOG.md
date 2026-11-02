@@ -11,6 +11,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ### Fixed
 - Quitting the deck no longer crashes now and then: it waits a moment for the PM view to finish what it was reading before closing its database (#104).
+- Recap (`r`) no longer loses every checkpoint after a code block that was never closed in `.cardak/handoff.md`, and reads a heading written with `-` before the branch (`## 2026-10-25 14:00 - main`) as a checkpoint too (#112).
+- Recap says "more than 20 commits" when there were more than it lists, instead of "20 commits", and picking another note quickly no longer leaves the recap of the one picked before on screen (#112).
 
 ## 0.17.0 — 2026-11-01
 

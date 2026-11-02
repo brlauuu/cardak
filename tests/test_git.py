@@ -83,6 +83,14 @@ def test_log_since_newest_first_and_limit(repo: Path) -> None:
     assert s.commits[0].ts == T0 + 200 and len(s.commits[0].sha) >= 7
     limited = state(repo, T0 - 10, limit=1)
     assert limited is not None and [c.subject for c in limited.commits] == ["add three"]
+    assert limited.more
+
+
+def test_state_more_only_past_the_limit(repo: Path) -> None:
+    exact = state(repo, T0 - 10, limit=3)
+    assert exact is not None and len(exact.commits) == 3 and not exact.more
+    none = state(repo, None)
+    assert none is not None and not none.more
 
 
 def test_subject_with_tabs_and_brackets(repo: Path) -> None:

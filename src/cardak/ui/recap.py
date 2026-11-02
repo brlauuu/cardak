@@ -38,6 +38,7 @@ class RecapScreen(Screen[None]):
         self._now = now
         self._notes: list[Note] = []
         self._others: list[int] = []  # option index → index into _notes
+        self._request = 0  # the latest load; an older one that answers later is dropped
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -50,15 +51,24 @@ class RecapScreen(Screen[None]):
     def on_mount(self) -> None:
         self.title = f"recap · {self._title}"
         self.query_one("#others", OptionList).display = False
-        self.run_worker(self._load, thread=True, group="recap", exit_on_error=False)
+        self._start(0)
 
-    def _load(self, index: int = 0) -> None:
+    def _start(self, index: int) -> None:
+        self._request += 1
+        request = self._request
+        self.run_worker(
+            lambda: self._load(index, request), thread=True, group="recap", exit_on_error=False
+        )
+
+    def _load(self, index: int, request: int) -> None:
         """In a thread: git can be slow on a big or remote-mounted repo."""
         notes = self._notes or recap.notes(self._dirs)
         git = recap.since(notes[index]) if notes else None
-        self.app.call_from_thread(self._show, notes, index, git)
+        self.app.call_from_thread(self._show, request, notes, index, git)
 
-    def _show(self, notes: list[Note], index: int, git: GitState | None) -> None:
+    def _show(self, request: int, notes: list[Note], index: int, git: GitState | None) -> None:
+        if request != self._request:
+            return  # the user picked another note since; this answer is stale
         self._notes = notes
         if not notes:
             self.query_one("#head", Static).update(Text(NO_NOTE))
@@ -86,7 +96,10 @@ class RecapScreen(Screen[None]):
         lines = []
         if note.entry is not None:
             n = len(git.commits)
-            lines.append(f"Since then: {n} commit{'' if n == 1 else 's'}")
+            if git.more:
+                lines.append(f"Since then: more than {n} commits, the latest {n}:")
+            else:
+                lines.append(f"Since then: {n} commit{'' if n == 1 else 's'}")
             lines += [f"  {c.sha} {c.subject}" for c in git.commits]
         lines.append(f"{git.changed} changed, {git.untracked} untracked")
         return Text("\n".join(lines))
@@ -99,5 +112,4 @@ class RecapScreen(Screen[None]):
 
     @on(OptionList.OptionSelected, "#others")
     def _open_other(self, event: OptionList.OptionSelected) -> None:
-        index = self._others[event.option_index]
-        self.run_worker(lambda: self._load(index), thread=True, group="recap", exit_on_error=False)
+        self._start(self._others[event.option_index])

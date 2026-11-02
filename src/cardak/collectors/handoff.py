@@ -1,7 +1,9 @@
 """The handoff note `/checkpoint` appends to: `<dir>/.cardak/handoff.md`. Read-only here.
 
-Only a `## YYYY-MM-DD HH:MM[ · branch]` heading outside a code fence starts an entry; any other
-line, `## Notes` included, belongs to the entry above it. The preamble is not an entry.
+Only a `## YYYY-MM-DD HH:MM[ · branch]` heading outside a code fence starts an entry (`-`, `–`
+or `—` in place of `·` too); any other line, `## Notes` included, belongs to the entry above it.
+The preamble is not an entry. A fence still open at the end of the file closes nothing: its
+opening line is plain text, so a forgotten closing fence can't hide every later entry.
 """
 
 import re
@@ -10,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 NOTE = Path(".cardak") / "handoff.md"
-_HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2})(?: · (.+?))?\s*$")
+_HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2})(?: [·\-–—] (.+?))?\s*$")
 
 
 @dataclass(frozen=True)
@@ -31,14 +33,22 @@ def _heading(line: str) -> tuple[datetime, str | None] | None:
     return when, m.group(2)
 
 
+def _fences(lines: list[str]) -> set[int]:
+    """The fence lines that open or close a pair; an unpaired last one is plain text."""
+    fences = [i for i, line in enumerate(lines) if line.lstrip().startswith("```")]
+    return set(fences[: len(fences) // 2 * 2])
+
+
 def parse_entries(text: str) -> list[Entry]:
     """Entries in file order (oldest first, as the file is appended to)."""
     out: list[Entry] = []
     head: tuple[datetime, str | None] | None = None
     body: list[str] = []
     fenced = False
-    for line in text.removeprefix("﻿").splitlines():
-        if line.lstrip().startswith("```"):
+    lines = text.removeprefix("﻿").splitlines()
+    fences = _fences(lines)
+    for i, line in enumerate(lines):
+        if i in fences:
             fenced = not fenced
         found = None if fenced else _heading(line)
         if found is None:

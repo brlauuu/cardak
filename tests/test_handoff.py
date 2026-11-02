@@ -1,6 +1,8 @@
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from cardak.collectors.handoff import NOTE, parse_entries, read_note
 
 FIX = Path(__file__).parent / "fixtures" / "handoff" / "handoff.md"
@@ -58,3 +60,37 @@ def test_read_note_entries(tmp_path: Path) -> None:
     (tmp_path / NOTE).parent.mkdir()
     (tmp_path / NOTE).write_text(FIX.read_text())
     assert read_note(tmp_path) == entries()
+
+
+def test_unclosed_fence_does_not_hide_later_entries() -> None:
+    text = (
+        "## 2026-10-20 09:05 · main\n\n```python\nprint('never closed')\n\n"
+        "## 2026-10-22 17:40 · main\n\nlater\n"
+    )
+    first, second = parse_entries(text)
+    assert "```python" in first.body and "never closed" in first.body
+    assert second.when == datetime(2026, 10, 22, 17, 40) and second.body == "later"
+
+
+def test_paired_fences_before_an_unclosed_one_still_hide_headings() -> None:
+    text = (
+        "## 2026-10-20 09:05\n\n```\n## 2026-01-01 00:00 · fenced\n```\n\n"
+        "```\n\n## 2026-10-22 17:40\n\nlater\n"
+    )
+    first, second = parse_entries(text)
+    assert "## 2026-01-01 00:00 · fenced" in first.body
+    assert second.body == "later"
+
+
+@pytest.mark.parametrize("dash", ["-", "–", "—"])
+def test_dash_before_branch(dash: str) -> None:
+    [e] = parse_entries(f"## 2026-10-25 14:00 {dash} main\n\nbody\n")
+    assert e.when == datetime(2026, 10, 25, 14, 0) and e.branch == "main"
+
+
+@pytest.mark.parametrize(
+    "line", ["## Notes - main", "## 2026-10-25 - main", "## 2026-10-25 14:00-main", "## a · b"]
+)
+def test_undated_or_malformed_headings_stay_body(line: str) -> None:
+    [e] = parse_entries(f"## 2026-10-20 09:05\n\n{line}\n")
+    assert line in e.body
