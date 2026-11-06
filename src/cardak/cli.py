@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from cardak.core.config import ProviderSettings
     from cardak.core.daemon import Publish, WebStart
     from cardak.core.pm_service import PmService, Worker
+    from cardak.core.snapshot import DeckSnapshot
     from cardak.core.source import LiveSource
     from cardak.core.store import Store
     from cardak.core.summary import ProviderTools, Summarizer
@@ -633,16 +634,67 @@ def _daemon() -> int:
 
 
 def _web_start() -> WebStart | None:
-    """What starts the web view inside the daemon, or None when it stays off (logged)."""
+    """What starts the web view inside the daemon, or None when it stays off (logged).
+
+    A config that can't be read is waited out (#113): the web view starts once it reads.
+    """
+    from cardak.core.daemon import log
+
+    path = config_path(None)
+    try:
+        web = load(path).web
+    except ConfigError as e:
+        log(f"web view waits for a readable config: {e}")
+        return lambda source: _WebLater(path, source)
+    return _web_from(web)
+
+
+def _file_stamp(path: Path) -> tuple[int, int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size, st.st_ino
+
+
+class _WebLater:
+    """The daemon's publisher while projects.toml can't be read (#113).
+
+    On each snapshot it reads the file again if it changed; once it reads, the web view starts
+    as it would have at daemon start, or stays off for good (off, no key, port taken).
+    """
+
+    def __init__(self, path: Path, source: LiveSource) -> None:
+        self._path, self._source = path, source
+        self._stamp = _file_stamp(path)
+        self._publish: Publish | None = None
+        self._waiting = True
+
+    def __call__(self, snap: DeckSnapshot, ts: float) -> None:
+        if self._waiting and (stamp := _file_stamp(self._path)) != self._stamp:
+            self._stamp = stamp
+            self._retry()
+        if self._publish is not None:
+            self._publish(snap, ts)
+
+    def _retry(self) -> None:
+        from cardak.core.daemon import log
+
+        try:
+            web = load(self._path).web
+        except ConfigError as e:
+            log(f"web view waits for a readable config: {e}")
+            return
+        self._waiting = False
+        begin = _web_from(web)
+        self._publish = begin(self._source) if begin is not None else None
+
+
+def _web_from(web: WebSettings) -> WebStart | None:
     from cardak.core.config import web_key_path
     from cardak.core.daemon import log
     from cardak.web.key import WebKeyError, read_key
 
-    try:
-        web = load(config_path(None)).web
-    except ConfigError as e:
-        log(f"web view off: {e}")
-        return None
     if not web.enabled:
         return None
     try:
@@ -650,23 +702,24 @@ def _web_start() -> WebStart | None:
     except WebKeyError as e:
         log(f"web view off: {e}")
         return None
+    return lambda source: _serve_web(web, key, source)
 
-    def start_web(source: LiveSource) -> Publish | None:
-        from cardak.core.pm_service import BoardFile, board_path
-        from cardak.web.server import Latest, make_server, start
 
-        latest = Latest()
-        board = BoardFile(board_path())  # the deck writes it; the daemon only reads (#68)
-        try:
-            server = make_server(web.host, web.port, key, latest, source.session, board=board.get)
-        except OSError as e:
-            log(f"web view off: can't listen on {web.host}:{web.port}: {e.strerror or e}")
-            return None
-        start(server)
-        log(f"web view on {web.host}:{web.port}")
-        return latest.publish
+def _serve_web(web: WebSettings, key: str, source: LiveSource) -> Publish | None:
+    from cardak.core.daemon import log
+    from cardak.core.pm_service import BoardFile, board_path
+    from cardak.web.server import Latest, make_server, start
 
-    return start_web
+    latest = Latest()
+    board = BoardFile(board_path())  # the deck writes it; the daemon only reads (#68)
+    try:
+        server = make_server(web.host, web.port, key, latest, source.session, board=board.get)
+    except OSError as e:
+        log(f"web view off: can't listen on {web.host}:{web.port}: {e.strerror or e}")
+        return None
+    start(server)
+    log(f"web view on {web.host}:{web.port}")
+    return latest.publish
 
 
 def _web(command: str, config_arg: str | None, new_key: bool, yes: bool) -> int:
@@ -689,7 +742,11 @@ def _web_url(web: WebSettings, key: str) -> str:
     host = web.host
     if host in ("0.0.0.0", "::", ""):
         host = lan.lan_address() or "localhost"
-    return f"http://{host}:{web.port}/#k={key}"
+    return f"http://{_url_host(host)}:{web.port}/#k={key}"
+
+
+def _url_host(host: str) -> str:
+    return f"[{host}]" if ":" in host else host  # an IPv6 address goes in brackets (#113)
 
 
 def _web_setup(path: Path, web: WebSettings, new_key: bool, yes: bool) -> int:
@@ -730,7 +787,7 @@ def _web_link(web: WebSettings, key: str) -> None:
     segno.make(url, error="l").terminal(compact=True)
     if web.host in ("0.0.0.0", "::", "") and lan.lan_address() is None:
         print("No network address found; connect to your Wi-Fi and run `cardak web setup` again.")
-    elif web.host.startswith("127."):
+    elif web.host.startswith("127.") or web.host == "::1":
         print(f"[web] host is {web.host}: only this computer can open it.")
     print(
         "\nOpen it or scan the code on each device, then bookmark it or add it to the home screen "
@@ -787,7 +844,7 @@ def _web_status(web: WebSettings) -> int:
     print(f"Web view: {'on' if web.enabled else 'off'} ({web.host}:{web.port})")
     host = "127.0.0.1" if web.host in ("0.0.0.0", "::", "", "127.0.0.1") else web.host
     try:
-        with urllib.request.urlopen(f"http://{host}:{web.port}/", timeout=1) as r:
+        with urllib.request.urlopen(f"http://{_url_host(host)}:{web.port}/", timeout=1) as r:
             serving = r.status == 200
     except OSError:
         serving = False

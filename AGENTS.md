@@ -490,13 +490,21 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   (default `0.0.0.0:8765`): `GET /` is a static page with no data, `GET /api/snapshot`,
   `GET /api/session/<id>` and `GET /api/trends` (#88) need `Authorization: Bearer <web_key>` (`hmac.compare_digest`). Only
   GET/HEAD; nothing in a request polls or writes. The config and key are read at daemon start;
-  a bad `[web]`, an open key file or a taken port logs one line and the daemon runs without it.
+  `[web] enabled = false`, an open key file or a taken port logs one line and the daemon runs
+  without it. A config that doesn't read (any error, `[web]` or not) is waited out instead (#113):
+  the daemon keeps agent status on, re-reads the file on each poll after it changes (mtime, size,
+  inode), and starts or leaves off the web view once it reads, as it would have at start; a later
+  change of `[web]` still needs a restart. A host with no IPv4 address (`getaddrinfo`: `"::"`,
+  `"::1"`) binds IPv6, dual-stack (`IPV6_V6ONLY` 0, so `"::"` takes IPv4 clients too); anything
+  with one (`""`, `localhost`, a name) binds IPv4 as before. Links put an IPv6 host in brackets.
 - With the web on, the daemon's `LiveSource` gets the store, the focus history and the Anthropic
   key path with `write_seen=False`: a wait the focus history saw shows as seen (the same
   `agents.mark_seen` transition, in memory) and nothing is written. Only the deck writes `seen_at`.
 - `web/view.py` whitelists what goes out; pids and `is_self` never do. The page keeps the key in
   the URL fragment (`#k=`, never sent to the server), so a bookmark or home-screen icon keeps it,
-  and copies it to `localStorage`. Text goes in through `textContent` only; the page's CSP allows
+  and copies it to `localStorage`. Opening a new link in a tab changes only the fragment (no
+  reload), so the page takes a `#k=` key on `hashchange` and starts polling again; a 401 answering
+  a key it has since replaced (`sentWith`) is ignored (#113). Text goes in through `textContent` only; the page's CSP allows
   just its own inline script and style by hash, so no `style=` attributes or inline handlers.
 - `cardak web setup` and `off` call `systemctl --user` on the real service: XDG scratch dirs don't
   isolate it. Live checks write `[web]` and the key by hand instead.
@@ -743,6 +751,11 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   Accepted: the nested-loop report on `accounting._deepest` and the compounded one on
   `match_project` (a container's mounts → the projects' paths → the path as given and resolved:
   a few mounts against a few dozen roots, the inner loop at most two long).
+- **#113 (web binding and key)** split `cli._web_start` into `_web_from` and `_serve_web` (the
+  waiting publisher calls the same start, and `_web_from` was a 3 × 13 hotspot with the server
+  inline). Accepted: `daemon.log` at fan-in 11 and `config.load` at 17 (the waiting publisher reads
+  the config and logs through them), and one more dead-code candidate (`_DualStack.server_bind`,
+  which `socketserver` calls).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

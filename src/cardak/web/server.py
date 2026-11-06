@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import json
 import re
+import socket
 import sys
 import threading
 import time
@@ -153,9 +154,30 @@ def make_server(
 
         do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _refuse
 
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = _server_class(host)((host, port), Handler)
     server.daemon_threads = True
     return server
+
+
+class _DualStack(ThreadingHTTPServer):
+    def server_bind(self) -> None:
+        if self.address_family == socket.AF_INET6:  # "::" takes IPv4 clients too (#113)
+            with contextlib.suppress(OSError):
+                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
+def _server_class(host: str) -> type[ThreadingHTTPServer]:
+    """IPv6 only for a host with no IPv4 address ("::", "::1"), #113.
+
+    Anything with an IPv4 address ("", "localhost", a name) binds it as before.
+    """
+    if not host:
+        return ThreadingHTTPServer
+    found = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)  # gaierror is an OSError
+    if any(family == socket.AF_INET for family, *_ in found):
+        return ThreadingHTTPServer
+    return type("Server", (_DualStack,), {"address_family": socket.AF_INET6})
 
 
 def start(server: ThreadingHTTPServer, poll_interval: float = 0.5) -> threading.Thread:

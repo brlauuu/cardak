@@ -205,3 +205,44 @@ def test_page_has_projects_sheet() -> None:
     assert 'id="pm"' in PAGE and '"/api/pm"' in PAGE and "PM_EVERY_MS = 30000" in PAGE
     assert ".lc0" in PAGE and ".lc7" in PAGE
     assert 'const GITHUB = "https://github.com/"' in PAGE and "url.startsWith(GITHUB)" in PAGE
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_a_new_link_replaces_a_bad_key_without_a_reload() -> None:
+    # #113: opening the right link in a tab that had a bad key changes only the fragment, so
+    # the page never reloads; it takes the new key on `hashchange`
+    assert 'window.addEventListener("hashchange", onHash);' in PAGE
+    assert PAGE.count("stop(BAD_KEY)") == 1  # every 401 goes through badKey()
+    stubs = """
+let key = null, timer = null, stopped = false;
+const BAD_KEY = "bad", NO_KEY = "none", POLL_MS = 3000;
+const location = { hash: "#k=old" }, stored = {}, log = [];
+const localStorage = { setItem: (k, v) => { stored[k] = v; }, getItem: (k) => stored[k] ?? null };
+function notice(text) { log.push("notice:" + (text || "")); }
+function stop(text) { stopped = true; log.push("stop:" + text); }
+function closeSheet() { log.push("close"); }
+function poll() { log.push("poll:" + key); }
+function setInterval() { return 1; }
+function clearInterval() {}
+const sentWith = new WeakMap();
+"""
+    script = stubs + "".join(_js_function(f) for f in ("readKey", "begin", "onHash", "badKey"))
+    script += """
+begin();
+const old = { status: 401 };
+sentWith.set(old, "old");
+const out = [badKey(old), stopped];
+location.hash = "#k=new";
+onHash();
+out.push(key, stopped, stored["cardak-key"]);
+out.push(badKey(old), stopped);  // a late answer to the old key's request
+location.hash = "#top";
+onHash();  // a fragment without a key changes nothing
+out.push(key, badKey({ status: 200 }));
+console.log(JSON.stringify([out, log]));
+"""
+    done = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    out, log = json.loads(done.stdout)
+    assert out == [True, True, "new", False, "new", True, False, "new", False]
+    assert log == ["notice:", "poll:old", "close", "stop:bad", "notice:", "poll:new"]
