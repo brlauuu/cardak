@@ -773,8 +773,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   which `socketserver` calls).
 - **#108 (alert and daemon edge cases)** split `history._live` (11: `_machine_other`) and
   `cli._resources_install` (11: `_defaults_note`), and computes the config path once there.
-  Accepted: `daemon.log` at fan-in 10 (`_list_guis` and `_config_problem` are two more lines in
-  the daemon's one log).
+  Accepted: `daemon.log` at fan-in 14 with #113's callers (`_list_guis` and `_config_problem` are
+  two more lines in the daemon's one log).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.
