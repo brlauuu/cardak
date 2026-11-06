@@ -373,7 +373,9 @@ def _resources_install(config_arg: str | None, yes: bool, refresh: bool, force: 
     text = unit.unit_text(exe)
     print(f"{path}:")
     print("\n".join(f"  {line}" for line in text.splitlines()))
-    if not yes and not _ask(f"Write {path} and start it? [y/N] "):
+    config = config_path(config_arg)
+    print(_defaults_note(config, refresh))
+    if not yes and not _ask(f"Write {path}, add the thresholds and start it? [y/N] "):
         print("Nothing written.")
         return 0
     previous = path.read_text(encoding="utf-8") if unit.is_ours(path) else None
@@ -387,7 +389,7 @@ def _resources_install(config_arg: str | None, yes: bool, refresh: bool, force: 
         _roll_back(path, previous)
         return 1
     print("The alert service is running; it keeps watching with the deck closed.")
-    _resource_defaults(config_arg, refresh)
+    _resource_defaults(config, refresh)
     if "stop" in unit.oom_policies(unit.run_systemctl).values() and not unit.dropin_present(
         unit.unit_dir()
     ):
@@ -411,7 +413,16 @@ def _roll_back(path: Path, previous: str | None) -> None:
         print(f"cardak: cannot restore {path}: {e}", file=sys.stderr)
 
 
-def _resource_defaults(config_arg: str | None, refresh: bool) -> None:
+def _defaults_note(path: Path, refresh: bool) -> str:
+    """What the install does to projects.toml, said before it asks."""
+    keys = "all of them, replacing yours" if refresh else "the ones that aren't set"
+    return (
+        f"It alerts on the [resources] thresholds in {path}; the ones derived from this machine"
+        f" are added there ({keys})."
+    )
+
+
+def _resource_defaults(path: Path, refresh: bool) -> None:
     from cardak.collectors.machine import MachineSampler
     from cardak.core.config import write_resource_defaults
     from cardak.core.resources import default_entries
@@ -422,7 +433,6 @@ def _resource_defaults(config_arg: str | None, refresh: bool) -> None:
             "cardak: can't read this machine's memory; [resources] left as it is", file=sys.stderr
         )
         return
-    path = config_path(config_arg)
     try:
         written = write_resource_defaults(
             path, default_entries(sample.mem_total, sample.n_cpus), refresh

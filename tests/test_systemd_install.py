@@ -42,6 +42,17 @@ def test_unit_text_runs_the_daemon() -> None:
     assert "Restart=on-failure" in text and "WantedBy=default.target" in text
 
 
+def test_unit_text_quotes_a_path_with_spaces() -> None:
+    # unquoted, systemd would run "/home/user/my" with "apps/cardak" as its argument (#108)
+    text = unit_text(Path("/home/user/my apps/cardak"))
+    assert 'ExecStart="/home/user/my apps/cardak" daemon\n' in text
+
+
+def test_unit_text_escapes_specifiers_variables_and_quotes() -> None:
+    text = unit_text(Path('/opt/100%/$HOME/a"b\\c/cardak'))
+    assert 'ExecStart="/opt/100%%/$$HOME/a\\"b\\\\c/cardak" daemon\n' in text
+
+
 def test_write_unit_refuses_a_foreign_file(tmp_path: Path) -> None:
     path = tmp_path / UNIT
     path.write_text("[Unit]\nDescription=someone else's\n")

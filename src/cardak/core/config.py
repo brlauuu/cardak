@@ -513,7 +513,7 @@ def write_resource_defaults(
     for key, value, comment in entries:
         if key in table and not refresh:
             continue
-        item = tomlkit.item(int(value) if float(value).is_integer() else value)
+        item = tomlkit.item(float(value))  # every [resources] setting is a float: 8.0, not 8
         if comment:
             item.comment(comment)
         _set_key(table, key, item)

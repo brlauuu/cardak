@@ -663,6 +663,19 @@ def test_install_asks_and_no_writes_nothing(resources_env, monkeypatch, capsys) 
     assert not (tmp_path / "cfg/systemd/user/cardak.service").exists() and fake.calls == []
 
 
+def test_install_says_it_writes_the_thresholds(resources_env, monkeypatch, capsys) -> None:
+    # the prompt named only the unit; the [resources] thresholds were written too (#108)
+    tmp_path, _ = resources_env
+    cfg = tmp_path / "p.toml"
+    prompts: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "n")
+    assert main(["--config", str(cfg), "resources", "install"]) == 0
+    out = capsys.readouterr().out
+    assert "[resources]" in out and str(cfg) in out
+    assert "thresholds" in prompts[0]
+    assert not cfg.exists()
+
+
 def _no_stdin(prompt: str) -> str:
     raise EOFError
 

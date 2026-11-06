@@ -99,6 +99,9 @@ class Daemon:
     guis: Guis = dict
     journal: Journal = _no_journal
     publish: Publish | None = None
+    _guis: Mapping[int, str | None] = field(default_factory=dict, init=False)
+    _guis_error: str | None = field(default=None, init=False)
+    _config_error: str | None = field(default=None, init=False)
 
     def _store(self, what: str, write: Callable[[EventStore], None]) -> None:
         if self.store is None:
@@ -116,9 +119,10 @@ class Daemon:
             self._store("history", lambda s: s.record_minutes(rows))
 
     def step(self, now: float) -> list[ResourceAlert]:
-        guis = self.guis()
+        guis = self._list_guis()
         snap = self.source.poll()
         self._publish(snap, now)
+        self._config_problem(snap.config_error)
         config = self.source.config
         self.crashes.observe(guis, snap, now)
         self._minutes(self.rollup.add(snap, now))
@@ -133,6 +137,26 @@ class Daemon:
         for gone in self.crashes.due(now):
             self._crash(gone, t, now, config.notify)
         return alerts
+
+    def _list_guis(self) -> Mapping[int, str | None]:
+        """The live GUIs; on a failure the last list, so no GUI looks closed and alerts go on."""
+        try:
+            self._guis, self._guis_error = self.guis(), None
+        except Exception as e:
+            if repr(e) != self._guis_error:  # once per failure, not every 2 s
+                log(f"listing WezTerm GUIs: {e!r}")
+            self._guis_error = repr(e)
+        return self._guis
+
+    def _config_problem(self, error: str | None) -> None:
+        """Log a broken projects.toml once, and its repair: the source falls back to defaults."""
+        if error == self._config_error:
+            return
+        if error is not None:
+            log(f"{error}; alerting with the default thresholds until it is fixed")
+        else:
+            log("config read again")
+        self._config_error = error
 
     def _publish(self, snap: DeckSnapshot, now: float) -> None:
         if self.publish is None:

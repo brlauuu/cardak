@@ -25,6 +25,11 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - The web view can listen on an IPv6 address: `[web] host = "::1"`, or `"::"` for every address, IPv4 included (#113).
 - On a phone whose page said the link's key is no longer valid, opening the new link from `cardak web setup` now works at once, without reloading the page (#113).
 - A mistake in `projects.toml` no longer keeps the web view off until the background service restarts: it comes on by itself once the file is fixed (#113).
+- Other's and each project's CPU show "–" for the first moment after the deck or the alert service starts, instead of a misleading 0% (#108).
+- Waking the machine from sleep no longer sets off "busy" or "growing fast" alerts at once: the time asleep doesn't count towards how long something has been going on (#108).
+- The alert service keeps alerting when it briefly can't list WezTerm's windows, and no longer remembers every pane that ever crossed a threshold for as long as it runs (#108).
+- A broken `projects.toml` is now logged by the alert service, which says it alerts with the default thresholds until the file is fixed (#108).
+- `cardak resources install` says before asking that it adds the `[resources]` thresholds to your config, writes them as decimals (`8.0`), and works when cardak is installed in a folder whose path has a space (#108).
 
 ## 0.17.0 — 2026-11-01
 

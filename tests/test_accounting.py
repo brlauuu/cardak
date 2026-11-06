@@ -185,9 +185,17 @@ def test_other_is_the_remainder() -> None:
 
 def test_other_clamped_at_zero() -> None:
     groups = [group("config", WEBSHOP, row(1, rss=6 * GIB)), group("other", None, row(2))]
-    other = by_key(run(groups, [], machine(4, cpu_pct=None)))[None]
+    other = by_key(run(groups, [], machine(4, cpu_pct=0.5)))[None]
     assert other.rss == 0 and other.outside_rss == 0
     assert other.cpu_pct == 0.0 and other.outside_cpu_pct == 0.0
+
+
+def test_other_cpu_is_unknown_before_the_machine_has_a_reading() -> None:
+    # the machine's first sample has no CPU yet: Other's share is unknown, not 0% (#108)
+    groups = [group("config", WEBSHOP, row(1)), group("other", None, row(2))]
+    other = by_key(run(groups, [], machine(10, cpu_pct=None)))[None]
+    assert other.cpu_pct is None and other.outside_cpu_pct is None
+    assert other.rss == 9 * GIB
 
 
 def test_other_counts_mcp_of_its_panes() -> None:
