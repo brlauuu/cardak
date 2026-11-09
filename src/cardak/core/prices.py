@@ -38,7 +38,9 @@ _DATE = re.compile(r"-\d{8}$")  # claude-haiku-4-5-20251001
 
 
 def lookup(table: Mapping[str, ModelPrice], model: str) -> ModelPrice | None:
-    for name in (model, base := _SUFFIX.sub("", model), _DATE.sub("", base)):
+    if model in table:  # most replies: no regex for them, once per reply in a rebuild (#115)
+        return table[model]
+    for name in (base := _SUFFIX.sub("", model), _DATE.sub("", base)):
         if name in table:
             return table[name]
     return None

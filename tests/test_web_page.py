@@ -134,7 +134,23 @@ def test_page_has_trends_view() -> None:
 def test_count_matches_the_deck() -> None:
     from cardak.ui.widgets import fmt_count
 
-    values = [0, 999, 1234, 340000, 1234567, 3400000000, 12.6]
+    values = [
+        0,
+        999,
+        1234,
+        340000,
+        1234567,
+        3400000000,
+        12.6,
+        999.5,
+        9995,
+        999500,
+        999400,
+        500.5,
+        2.5e12,
+        1250,
+        0.4,
+    ]
     script = _js_function("count") + f"console.log(JSON.stringify({values}.map(count)));"
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert json.loads(out.stdout) == [fmt_count(v) for v in values]
@@ -143,7 +159,10 @@ def test_count_matches_the_deck() -> None:
 def test_page_has_context_view() -> None:
     assert 'figure === "context"' in PAGE and "createElementNS" in PAGE
     assert '" ended without one"' in PAGE
-    assert '"/api/trends" + (figure === "context" ? "?context=1" : "")' in PAGE
+    assert (
+        '"/api/trends" + (asked ? "?context=1" : "")' in PAGE
+        and 'const asked = figure === "context"' in PAGE
+    )
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node")

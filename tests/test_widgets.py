@@ -264,6 +264,12 @@ def test_fmt_usd(usd: float, shown: str) -> None:
         (340_000, "340k"),
         (1_234_567, "1.2M"),
         (3_400_000_000, "3.4B"),
+        (999.5, "1.0k"),  # #115: the edges round up into the next unit, not "1000"
+        (9_995, "10k"),
+        (999_500, "1.0M"),
+        (999_400, "999k"),
+        (500.5, "501"),  # half up, as the page's Math.round
+        (2_500_000_000_000, "2500B"),
     ],  # fmt: skip
 )
 def test_fmt_count(n: float, shown: str) -> None:

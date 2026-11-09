@@ -360,7 +360,12 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   daemon share the db, so a row the other process stored still counts as a change. Measured on
   2026-10-28: a pass with nothing new takes ~7 ms (#29's took ~70 ms), one with new rows ~160 ms,
   the first over a month of transcripts 5.3 s; the daemon peaked at 54 MB and averaged 1.0% of
-  one core over 90 s with sessions running.
+  one core over 90 s with sessions running. Re-measured on 2026-11-09 (#115) over 13.5k replies:
+  a rebuild took ~0.33 s, of which reading the rows into `Reply` objects 0.18 s (the SQL 0.09 s),
+  trends 0.10 s, context 0.015 s. `prices.lookup` checking the exact name before its two regexes
+  and slots on `Reply` and `Prompt` brought it to ~0.27 s (and the replies from 9.1 to 8.4 MB).
+  The rest is a rebuild from all the window's rows on every change; making it incremental
+  (keeping the replies between rebuilds) is the next step if it matters.
 - Spend, trends and context name every folder of the month, most with no pane open; resolving
   them took ~0.4 s of git for 99 folders on the dev machine at deck start and after every config
   change. `resolver.Warmer` asks the resolver about them on a thread of its own (one pass at a

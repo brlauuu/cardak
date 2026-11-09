@@ -408,3 +408,31 @@ def test_plot_hours_follow_local_days_across_dst(monkeypatch) -> None:  # noqa: 
     finally:
         monkeypatch.undo()
         time.tzset()
+
+
+async def test_usage_axis_follows_the_grid_across_midnight() -> None:
+    # #115: the last poll before midnight built the grid for yesterday; the screen opened after
+    yesterday = date.today() - timedelta(days=1)
+    grid = usage_live()
+    assert grid.usage_trends is not None
+    stale = replace(grid, usage_trends=replace(grid.usage_trends, today=yesterday))
+    app = DeckApp(StubSource(stale), interval=3600, log=log())
+    async with app.run_test(size=(120, 30)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("h")
+        await pilot.pause()
+        axis = app.screen.query_one("#axis", Static)
+        assert str(axis.render()).rstrip().endswith(f"{date.today():%b %-d}")  # RAM: today
+        await pilot.press("c", "c")
+        await pilot.pause()
+        assert str(axis.render()).rstrip().endswith(f"{yesterday:%b %-d}")  # the grid's day
+
+
+async def test_legend_says_all_projects_has_its_own_scale() -> None:
+    app = DeckApp(StubSource(usage_live()), interval=3600, log=log())
+    async with app.run_test(size=(160, 30)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("h", "c", "c")
+        await pilot.pause()
+        legend = str(app.screen.query_one("#legend", Static).render())
+        assert "All projects: relative to its own busiest day" in legend

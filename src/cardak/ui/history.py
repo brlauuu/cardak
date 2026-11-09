@@ -96,12 +96,16 @@ def ufmt(v: float | None, figure: Figure, incomplete: bool = False) -> str:
     return fmt_count(v)
 
 
-def _usage_legend(e: Sequence[float], figure: Figure, unpriced: Sequence[str] = ()) -> str:
+def _usage_legend(
+    e: Sequence[float], figure: Figure, unpriced: Sequence[str] = (), alone: bool = False
+) -> str:
     parts = [f"{LABELS[figure]} per day, relative to the busiest day:"]
     if e[0] != float("inf"):
         parts.append(f"{CELLS[0]} <{ufmt(e[0], figure)}")
         parts += [f"{CELLS[i]} {ufmt(e[i - 1], figure)}–{ufmt(e[i], figure)}" for i in range(1, 4)]
         parts.append(f"{CELLS[-1]} {ufmt(e[-1], figure)}")
+    if alone:  # its days are every project's together: on the projects' scale it'd be all █
+        parts.append("All projects: relative to its own busiest day")
     if unpriced:
         parts.append(f"no price: {', '.join(unpriced)}")
     return "  ".join(parts)
@@ -231,7 +235,6 @@ class HistoryScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#axis", Static).update(self._axis())
         self._fill()
         self.query_one(DataTable).focus()
 
@@ -260,6 +263,7 @@ class HistoryScreen(Screen[None]):
         self.query_one("#title", Static).update(Text(title))  # Text: "[c]" is not markup
 
     def _fill(self) -> None:
+        self.query_one("#axis", Static).update(self._axis(self._grid_day()))
         if self._mode in ("ram", "cpu"):
             self._fill_resources(cast(Metric, self._mode))
         elif self._mode == "context":
@@ -268,8 +272,17 @@ class HistoryScreen(Screen[None]):
             self._fill_usage(cast(Figure, self._mode))
         self._title()
 
-    def _axis(self) -> str:
-        first = _first_day(self._today)
+    def _grid_day(self) -> date:
+        """The last day of the grid shown: the usage figures' own, built by the last poll, which
+        can be yesterday's for a screen opened just after midnight (#115)."""
+        if self._mode == "context" and (context := self._grouped_context) is not None:
+            return context.today
+        if self._mode not in ("ram", "cpu", "context") and (trends := self._trends) is not None:
+            return trends.today
+        return self._today
+
+    def _axis(self, today: date) -> str:
+        first = _first_day(today)
         offset = sum(width for _, width in FIXED)
         line = [" "] * (offset + DAYS + 8)
         for index in (0, 14, DAYS - 1):
@@ -314,9 +327,15 @@ class HistoryScreen(Screen[None]):
         table = self.query_one(DataTable)
         for r in self._usage:
             table.add_row(*_usage_line(r, figure, e_all if r.subject == ALL else e), key=r.subject)
+        self.query_one("#legend", Static).update(Text(self._usage_note(grouped, figure, e)))
+
+    def _usage_note(self, grouped: GroupedTrends | None, figure: Figure, e: Sequence[float]) -> str:
+        """The legend under the usage rows: bands, All projects' own scale, unpriced models."""
+        if not self._usage:
+            return ""
         unpriced = grouped.unpriced if grouped is not None and figure == "cost" else ()
-        text = _usage_legend(e, figure, unpriced) if self._usage else ""
-        self.query_one("#legend", Static).update(Text(text))
+        alone = any(r.subject == ALL for r in self._usage)
+        return _usage_legend(e, figure, unpriced, alone)
 
     def _fill_context(self) -> None:
         self._columns(CONTEXT_FIXED)

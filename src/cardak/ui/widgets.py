@@ -38,12 +38,21 @@ def fmt_usd(usd: float) -> str:
     return f"${usd:.2f}" if usd < 10 else f"${usd:,.0f}"
 
 
+COUNT_UNITS = (("", 1.0), ("k", 1e3), ("M", 1e6), ("B", 1e9))
+
+
 def fmt_count(n: float) -> str:
-    """ "999", "1.2k", "340k", "1.2M", "3.4B": one decimal under 10 of a unit."""
-    for unit, size in (("B", 1e9), ("M", 1e6), ("k", 1e3)):
-        if n >= size:
-            return f"{n / size:.1f}{unit}" if n < 10 * size else f"{n / size:.0f}{unit}"
-    return f"{n:.0f}"
+    """ "999", "1.2k", "340k", "1.2M", "3.4B": one decimal under 10 of a unit. Rounded half up
+    first, so 999.5k is "1.0M", not "1000k" (#115); the page's `count` does the same sums."""
+    for unit, size in COUNT_UNITS:
+        v = n / size
+        tenths = math.floor(v * 10 + 0.5) / 10
+        if unit and tenths < 10:
+            return f"{tenths:.1f}{unit}"
+        whole = math.floor(v + 0.5)
+        if whole < 1000 or unit == "B":
+            return f"{whole}{unit}"
+    raise AssertionError("unreachable")
 
 
 def share(rss: int, total: int | None) -> str:
