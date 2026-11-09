@@ -48,7 +48,7 @@ def _add(g: Group, lines: Sequence[DockerLine], count: bool = True) -> Group:
         g,
         docker=(*g.docker, *lines),
         rss=g.rss + sum(line.rss for line in lines),
-        cpu_pct=g.cpu_pct + sum(line.cpu_pct or 0.0 for line in lines),
+        cpu_pct=(g.cpu_pct or 0.0) + sum(line.cpu_pct or 0.0 for line in lines),
     )
 
 
@@ -126,9 +126,11 @@ def _builds_label(groups: Sequence[Group]) -> str:
 
 def _remainder(groups: list[Group], machine: MachineSample) -> list[Group]:
     projects = [g for g in groups if g.kind in PROJECT_KINDS]
-    used_cpu = (machine.cpu_pct or 0.0) * machine.n_cpus
     rss = max(0, machine.mem_used - sum(g.rss for g in projects))
-    cpu = max(0.0, used_cpu - sum(g.cpu_pct for g in projects))
+    cpu = None  # the machine's first sample has no CPU yet: unknown, not 0%
+    if machine.cpu_pct is not None:
+        used_cpu = machine.cpu_pct * machine.n_cpus
+        cpu = max(0.0, used_cpu - sum(g.cpu_pct or 0.0 for g in projects))
 
     def other(g: Group) -> Group:
         pane_rss = sum(r.rss + r.mcp_rss for r in g.panes)
@@ -138,7 +140,7 @@ def _remainder(groups: list[Group], machine: MachineSample) -> list[Group]:
             rss=rss,
             cpu_pct=cpu,
             outside_rss=max(0, rss - pane_rss),
-            outside_cpu_pct=max(0.0, cpu - pane_cpu),
+            outside_cpu_pct=None if cpu is None else max(0.0, cpu - pane_cpu),
         )
 
     return [other(g) if g.kind == "other" else g for g in groups]

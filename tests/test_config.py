@@ -526,11 +526,18 @@ def test_write_resource_defaults_adds_missing_keys_only(tmp_path: Path) -> None:
     assert text.startswith(MINE.rstrip("\n"))  # the user's text is untouched
     assert "pane_ram_gb = 4 # mine" in text
     assert "ram_warn_available_gb = 4.8 # 15% of 32 GB" in text
-    assert "pane_cpu_pct = 800 # half of 16 cores" in text
-    assert "growth_gb_per_min = 1\n" in text or "growth_gb_per_min = 1.0\n" in text
+    assert "pane_cpu_pct = 800.0 # half of 16 cores" in text  # every setting is a float (#108)
+    assert "growth_gb_per_min = 1.0\n" in text
     cfg = load(f)
     assert cfg.resources.pane_ram_gb == 4.0 and cfg.resources.ram_warn_available_gb == 4.8
     assert [p.name for p in cfg.projects] == ["webshop"]
+
+
+def test_write_resource_defaults_writes_whole_numbers_as_floats(tmp_path: Path) -> None:
+    f = tmp_path / "p.toml"
+    write_resource_defaults(f, [("pane_ram_gb", 8.0, "25% of 32 GB"), ("sustain_s", 120.0, "")])
+    text = f.read_text()
+    assert "pane_ram_gb = 8.0 # 25% of 32 GB" in text and "sustain_s = 120.0\n" in text
 
 
 def test_write_resource_defaults_refresh_overwrites(tmp_path: Path) -> None:

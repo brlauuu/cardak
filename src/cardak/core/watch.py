@@ -13,6 +13,9 @@ AlertKind = Literal["memory", "big", "growth", "busy", "machine_busy"]
 Level = Literal["warning", "critical"]
 MEMORY_SUSTAIN_S = 10.0
 LOG_EVERY_S = 60.0  # a condition that persists is logged (not notified) at most once a minute
+# Polls come every ~2 s. A longer gap, or the clock going back, means the machine slept (or the
+# clock was set): nothing was watched in between, so no sustain timer may count that time.
+MAX_GAP_S = 30.0
 PROJECT_KINDS = ("config", "git")
 
 
@@ -55,7 +58,7 @@ def _subjects(snap: DeckSnapshot) -> list[_Subject]:
     out: list[_Subject] = []
     for g in snap.groups:
         if g.kind in PROJECT_KINDS:
-            out.append(_Subject(f"project:{g.key}", g.name, g.rss, g.cpu_pct, group=g))
+            out.append(_Subject(f"project:{g.key}", g.name, g.rss, g.cpu_pct or 0.0, group=g))
         elif g.kind == "other":
             out += [
                 _Subject(
@@ -125,6 +128,7 @@ class _Condition:
 class Watcher:
     _conds: dict[tuple[str, AlertKind], _Condition] = field(default_factory=dict)
     _series: dict[str, deque[tuple[float, int]]] = field(default_factory=dict)
+    _last: float | None = None  # the previous step's time
 
     def _hold(self, key: tuple[str, AlertKind], active: bool, now: float) -> float:
         """How long the condition has held (0 when it doesn't)."""
@@ -169,12 +173,23 @@ class Watcher:
             return None
         return (s.rss - rss) / GIB / ((now - then) / 60)
 
-    def _forget(self, present: set[str]) -> None:
-        for key, cond in self._conds.items():
-            if key[0] not in present:
-                cond.since = None  # the notify clock stays: a reused pane id stays quiet
+    def _forget(self, present: set[str], t: Thresholds, now: float) -> None:
+        for key, cond in list(self._conds.items()):
+            if key[0] in present:
+                continue
+            cond.since = None  # the notify clock stays: a reused pane id stays quiet…
+            if cond.notified_at is None or now - cond.notified_at >= t.repeat_s:
+                del self._conds[key]  # …until repeat_min has passed; then it is forgotten
         for key in set(self._series) - present:
             del self._series[key]
+
+    def _restart_if_slept(self, now: float) -> None:
+        """After a gap (a suspend) or a clock set back, every sustain timer starts again."""
+        if self._last is not None and not 0 <= now - self._last <= MAX_GAP_S:
+            for cond in self._conds.values():
+                cond.since = None
+            self._series.clear()
+        self._last = now
 
     def _subject_alerts(
         self, s: _Subject, m: MachineSample, t: Thresholds, now: float
@@ -238,7 +253,8 @@ class Watcher:
         if m is None:
             return []
         subjects = _subjects(snap)
-        self._forget({"machine", *(s.key for s in subjects)})
+        self._restart_if_slept(now)
+        self._forget({"machine", *(s.key for s in subjects)}, t, now)
         alerts = list(self._machine_alerts(snap, m, subjects, t, now))
         for s in subjects:
             alerts += self._subject_alerts(s, m, t, now)

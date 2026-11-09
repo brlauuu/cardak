@@ -1,6 +1,7 @@
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import get_args
 
@@ -186,6 +187,57 @@ def test_journal_error_keeps_running(capsys: pytest.CaptureFixture[str]) -> None
     store, _ = crash_run(broken)
     assert [e.kind for e in store.events] == ["crash"]
     assert "journal gone" in capsys.readouterr().err
+
+
+def test_guis_error_keeps_alerting_and_reports_no_crash(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # a failed GUI listing used to skip the whole poll, alerts included (#108)
+    store, sent = FakeStore(), []
+    calls = iter([{7: SCOPE}, OSError("no runtime dir"), {7: SCOPE}, {7: SCOPE}])
+
+    def guis() -> Mapping[int, str | None]:
+        got = next(calls)
+        if isinstance(got, Exception):
+            raise got
+        return got
+
+    d = daemon(FakeSource(big_snap()), store, sent, guis=guis)
+    d.step(0.0)
+    d.step(2.0)
+    d.step(4.0)
+    d.step(10.0)
+    assert [e.kind for e in store.events] == ["big"]  # alerted on the first poll; no crash
+    assert "no runtime dir" in capsys.readouterr().err
+
+
+def test_guis_error_on_the_poll_that_alerts_still_alerts(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def guis() -> Mapping[int, str | None]:
+        raise OSError("no runtime dir")
+
+    store, sent = FakeStore(), []
+    d = daemon(FakeSource(big_snap()), store, sent, guis=guis)
+    d.step(0.0)
+    d.step(2.0)
+    assert [e.kind for e in store.events] == ["big"] and len(sent) == 1
+    assert capsys.readouterr().err.count("no runtime dir") == 1  # logged once, not every poll
+
+
+def test_broken_config_is_logged_once(capsys: pytest.CaptureFixture[str]) -> None:
+    # LiveSource falls back to the default thresholds; the daemon must say so (#108)
+    source = FakeSource(replace(big_snap(), config_error="p.toml line 3: invalid value"))
+    d = daemon(source, None, [])
+    d.step(0.0)
+    d.step(2.0)
+    err = capsys.readouterr().err
+    assert err.count("p.toml line 3: invalid value") == 1 and "default thresholds" in err
+    source.snap = big_snap()
+    d.step(4.0)
+    assert "read again" in capsys.readouterr().err
+    d.step(6.0)
+    assert capsys.readouterr().err == ""
 
 
 def test_poll_error_keeps_running(capsys: pytest.CaptureFixture[str]) -> None:
