@@ -407,6 +407,26 @@ def test_tools_for_the_picker(tmp_path: Path, paths: Paths) -> None:
     shown = tools.preview_image(p.path, "Dark")
     assert shown is not None and opaque_colors(shown.file) == {(0xE0, 0xE0, 0xE0)}
     assert tools.preview_image(tmp_path / "unknown", "Dark") is None
+    assert tools.enabled()
+
+
+def test_tools_name_no_art_file_before_it_is_made(tmp_path: Path, paths: Paths) -> None:
+    p = project(tmp_path, background=False)
+    tools = Tools(paths, lambda: config(p), lambda: {}, lambda: None)
+    assert tools.art_file(p.path) is None  # switched off before its art was ever made (#126)
+
+
+def test_tools_still_name_art_the_user_deleted(tmp_path: Path, paths: Paths) -> None:
+    p = project(tmp_path)
+    ensure_art(config(p), paths, no_logo)
+    (paths.art_dir / "cardak.txt").unlink()
+    tools = Tools(paths, lambda: config(p), lambda: {}, lambda: None)
+    assert tools.art_file(p.path) == paths.art_dir / "cardak.txt"  # writing it brings it back
+
+
+def test_tools_know_backgrounds_are_off(tmp_path: Path, paths: Paths) -> None:
+    cfg = config(project(tmp_path), background=BackgroundSettings(enabled=False))
+    assert not Tools(paths, lambda: cfg, lambda: {}, lambda: None).enabled()
 
 
 def test_art_stamp_follows_edits(tmp_path: Path, paths: Paths) -> None:

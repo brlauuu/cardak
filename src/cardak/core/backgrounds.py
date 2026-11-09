@@ -420,9 +420,19 @@ class Tools:
         names = record_names(self._paths.record)
         return project, art_files(projects, self._paths.art_dir, names)[project.path]
 
+    def enabled(self) -> bool:
+        """Whether any project shows its art: [background] enabled."""
+        return self._config().background.enabled
+
     def art_file(self, project_path: Path) -> Path | None:
+        """The project's art file; None before it was ever made (that waits for its background
+        to be on). Art the user deleted is still named: writing the file brings it back."""
         found = self._project(project_path)
-        return found[1] if found else None
+        if found is None:
+            return None
+        file = found[1]  # names are unique, so a recorded one is this project's
+        made = file.is_file() or file.name in record_names(self._paths.record).values()
+        return file if made else None
 
     def preview_image(self, project_path: Path, scheme: str) -> Image | None:
         found = self._project(project_path)

@@ -30,6 +30,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - The alert service keeps alerting when it briefly can't list WezTerm's windows, and no longer remembers every pane that ever crossed a threshold for as long as it runs (#108).
 - A broken `projects.toml` is now logged by the alert service, which says it alerts with the default thresholds until the file is fixed (#108).
 - `cardak resources install` says before asking that it adds the `[resources]` thresholds to your config, writes them as decimals (`8.0`), and works when cardak is installed in a folder whose path has a space (#108).
+- With backgrounds turned off for every project (`[background] enabled = false`), the theme picker says so and previews no art, and `ctrl+b` no longer pretends to switch it; for a project whose art hasn't been made yet, the picker says it will be made when the background is turned on instead of naming a file that doesn't exist (#126).
+- A project's background no longer shows the previous scheme's color for a moment when its scheme is one you defined yourself in `wezterm.lua`. Run `cardak wezterm install` again to get the fix (#128).
 
 ## 0.17.0 — 2026-11-01
 
