@@ -131,6 +131,12 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   up the tree, cached per directory, "none" for 30 s), not by running git: the handler runs on the
   GUI thread. Known gaps: a hung network mount in a tab's cwd blocks that first lookup, and a cwd
   reached through a symlink is named by its logical path (the deck resolves the real one).
+- **Project lookups are bounded** (`resolver.Bounded`, #111): a pane's real path and its git root
+  are looked up on a thread, waited for 0.5 s at most, and kept once they come. A hung network
+  mount blocks a stat, and git and the wait after killing it, in the kernel, where no timeout of
+  their own reaches; until that lookup returns, the pane is Other and nothing is asked again. A
+  configured project whose path hung while its resolver was built keeps the unresolved path until
+  the next config change.
 - `cwd` in `wezterm cli list` comes from OSC 7, so it follows the shell, not the foreground
   process. Fallback when it is missing: `/proc/<pid>/cwd`.
 

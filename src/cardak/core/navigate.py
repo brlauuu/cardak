@@ -76,13 +76,16 @@ class Navigator:
         self._counter = itertools.count()
 
     @classmethod
-    def live(cls, lua_file: Path, env: Mapping[str, str] | None = None) -> "Navigator":
+    def live(
+        cls, lua_file: Callable[[], Path], env: Mapping[str, str] | None = None
+    ) -> "Navigator":
+        """lua_file is asked on each jump: cardak.lua can be reinstalled elsewhere meanwhile."""
         env = os.environ if env is None else env
         return cls(
             activate=lambda pane_id: wezterm.activate_pane(pane_id, env),
             write_tty=_write_dev_tty,
             in_wezterm="WEZTERM_PANE" in env,
-            lua_installed=lua_file.exists,
+            lua_installed=lambda: lua_file().exists(),
         )
 
     def jump(self, pane_id: int) -> JumpResult:
