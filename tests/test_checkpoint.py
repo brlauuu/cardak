@@ -9,6 +9,7 @@ from cardak.core.snapshot import AgentView, Group, PaneRow
 
 ASK = {"questions": [{"question": "Tea or coffee?", "header": "Drink"}]}
 NO_HOOKS = "No status for this session (run `cardak hooks install`, then start a new session)."
+NO_STATUS = "No status for this session yet: it shows after the session's next prompt."
 WORKING = "Claude is working; checkpoint when it's done."
 PERMISSION = "Claude is waiting for a permission answer."
 MENU = "Claude is showing a question; answer it first."
@@ -53,7 +54,6 @@ def test_recheck() -> None:
 @pytest.mark.parametrize(
     ("a", "expected"),
     [
-        (None, NO_HOOKS),
         (agent("working"), WORKING),
         (agent("waiting", "permission"), PERMISSION),
         (agent("waiting", "question", "AskUserQuestion"), MENU),
@@ -119,7 +119,17 @@ def test_target_claude_without_hook_record() -> None:
         pane_id=12, label="claude", detail=None, cwd=None, cwd_display=".", cpu_pct=None, rss=0,
         is_self=False, is_claude=True, agent=None,
     )  # fmt: skip
-    assert target(group("config", r), r) == NO_HOOKS
+    assert target(group("config", r), r, hooks_installed=False) == NO_HOOKS
+
+
+def test_target_without_a_record_but_with_hooks() -> None:
+    # #110: a session idle for 7 days was pruned; the hooks are installed, so don't suggest them
+    r = PaneRow(
+        pane_id=12, label="claude", detail=None, cwd=None, cwd_display=".", cpu_pct=None, rss=0,
+        is_self=False, is_claude=True, agent=None,
+    )  # fmt: skip
+    assert target(group("config", r), r) == NO_STATUS
+    assert refusal(None, hooks_installed=True) == NO_STATUS
 
 
 def event(name: str, **kw: object) -> HookEvent:

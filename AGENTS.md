@@ -211,9 +211,14 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   "seen" (jump, or ≥ 1 s of focus from the focus history) and writes `seen_at`; hooks never do.
   `Store.mark_seen` gets the `status_since` the deck saw and does nothing if the session has
   moved into a newer wait since (#37).
-- `SessionStart` with `source: compact` (auto-compaction, mid-turn) changes nothing (#36). Live
+- `SessionStart` with `source: compact` (auto-compaction, mid-turn) changes nothing (#36). A
+  manual `/compact` (recorded 2026-11-09, Claude Code 2.1.319, `tests/fixtures/hooks/*compact*`)
+  sends `PreCompact`, `SubagentStop`, `SessionStart` (`source: compact`) and `PostCompact`, with no
+  `UserPromptSubmit` or `Stop`, so the wait it was typed into stays as it was. Live
   rows with no event for 7 days are pruned with the ended ones (#38); a killed `claude` sends
-  no `SessionEnd`, and after a restart its pane id goes to another pane.
+  no `SessionEnd`, and after a restart its pane id goes to another pane. A pruned session that
+  still runs has no status until its next prompt; `c` and `i` say so, and name
+  `cardak hooks install` only when the hooks aren't installed (#110).
 - Tests never touch the real state or config dirs: `tests/conftest.py` points `XDG_STATE_HOME`
   and `XDG_CONFIG_HOME` at temp dirs for every test (`tests/test_isolation.py` checks it). A
   test that builds its own env passes both too: a ping with the real key reachable spawns a

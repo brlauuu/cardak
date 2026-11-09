@@ -62,25 +62,7 @@ def summarize_argv(session_id: str, wait_since: float) -> list[str]:
     return [sys.executable, "-P", "-c", script, "summarize", session_id, repr(wait_since)]
 
 
-def run(
-    text: str,
-    env: Mapping[str, str],
-    now: float,
-    *,
-    store: Store,
-    config_file: Path,
-    focus_file: Path,
-    keys_dir: Path,
-    spawn: Spawn | None = None,
-) -> None:
-    event = parse(text)
-    if event is None:
-        return
-    _record(event, text, env, now, store=store, config_file=config_file, focus_file=focus_file,
-            keys_dir=keys_dir, spawn=spawn)  # fmt: skip
-
-
-def _record(
+def record(
     event: HookEvent,
     text: str,
     env: Mapping[str, str],
@@ -134,7 +116,7 @@ def main(stdin: TextIO, env: Mapping[str, str] | None = None) -> int:
             return 0
         store = Store(db_path(env))
         try:
-            _record(
+            record(
                 event,
                 text,
                 env,

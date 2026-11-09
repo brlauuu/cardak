@@ -17,6 +17,9 @@ ENTER_DELAY_S = 0.15
 GONE = "That session has ended or moved; nothing sent."
 PROJECT_KINDS = ("config", "git")
 NOT_CLAUDE = "Select a Claude session."
+NO_HOOKS = "No status for this session (run `cardak hooks install`, then start a new session)."
+# hooks installed, no record: started before them, or pruned after 7 quiet days (#110)
+NO_STATUS = "No status for this session yet: it shows after the session's next prompt."
 
 
 class Session(Protocol):  # an AgentView from the snapshot, or a SessionState from the store
@@ -28,10 +31,10 @@ class Session(Protocol):  # an AgentView from the snapshot, or a SessionState fr
     def current_tool(self) -> str | None: ...
 
 
-def refusal(agent: Session | None) -> str | None:
+def refusal(agent: Session | None, hooks_installed: bool = True) -> str | None:
     """Why this session can't take a checkpoint now; None when it can."""
     if agent is None:
-        return "No status for this session (run `cardak hooks install`, then start a new session)."
+        return NO_STATUS if hooks_installed else NO_HOOKS
     if agent.status == "working":
         return "Claude is working; checkpoint when it's done."
     if agent.kind == "permission":
@@ -41,7 +44,7 @@ def refusal(agent: Session | None) -> str | None:
     return None
 
 
-def target(group: Group, row: PaneRow | None) -> PaneRow | str:
+def target(group: Group, row: PaneRow | None, hooks_installed: bool = True) -> PaneRow | str:
     """The pane to send to, or the reason there is none."""
     if row is None:
         if group.kind not in PROJECT_KINDS:
@@ -54,7 +57,7 @@ def target(group: Group, row: PaneRow | None) -> PaneRow | str:
         row = claude[0]
     if not row.is_claude:
         return NOT_CLAUDE
-    return refusal(row.agent) or row
+    return refusal(row.agent, hooks_installed) or row
 
 
 def recheck(state: SessionState | None, pane_id: int) -> str | None:

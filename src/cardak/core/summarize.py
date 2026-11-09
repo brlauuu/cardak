@@ -14,7 +14,7 @@ from pathlib import Path
 from cardak.collectors.hooks import parse
 from cardak.collectors.prices import ModelPrice
 from cardak.collectors.transcripts import read_transcript
-from cardak.core.agents import SessionState
+from cardak.core.agents import QUESTION_NOTIFICATIONS, SessionState
 from cardak.core.config import (
     Config,
     ConfigError,
@@ -64,6 +64,9 @@ def _pending_tool(state: SessionState, event: tuple[str, str] | None) -> tuple[s
     parsed = parse(event[1]) if event is not None else None
     if parsed is not None and parsed.tool_name:
         return parsed.tool_name, json.dumps(parsed.tool_input)
+    if parsed is not None and parsed.notification_type in QUESTION_NOTIFICATIONS:
+        # a dialog opened over an earlier prompt: current_tool still names that one (#110)
+        return parsed.notification_type or "dialog", parsed.message or ""
     return state.current_tool or "tool", state.reason or ""  # payload cut or missing
 
 

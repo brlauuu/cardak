@@ -1,8 +1,9 @@
 from pathlib import Path
 
 import pytest
+from hookfix import text
 
-from cardak.collectors.hooks import HookEvent
+from cardak.collectors.hooks import HookEvent, parse
 from cardak.core.agents import (
     FocusChange,
     SessionState,
@@ -382,6 +383,22 @@ def test_compact_keeps_waiting_and_no_ping() -> None:
         before.status_since,
     )
     assert pings == []
+
+
+def test_manual_compact_as_recorded_keeps_the_wait() -> None:
+    # #110, recorded on Claude Code 2.1.319: `/compact` at the input box sends PreCompact,
+    # SubagentStop, SessionStart (source compact) and PostCompact; no UserPromptSubmit, no Stop
+    before, _ = run(ev("Stop", last_assistant_message="Done."))
+    names = ("pre_compact-manual", "subagent_stop", "session_start-compact", "post_compact-manual")
+    events = [parse(text(n, session_id="s1")) for n in names]
+    assert all(e is not None for e in events)
+    after, pings = run(*[e for e in events if e is not None], start=before)
+    assert (after.status, after.kind, after.status_since) == (
+        "waiting",
+        "finished",
+        before.status_since,
+    )
+    assert after.current_tool is None and pings == []
 
 
 @pytest.mark.parametrize("source", ["startup", "resume", "clear"])

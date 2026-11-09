@@ -509,11 +509,8 @@ class DeckApp(App[None]):
             return
         state = self.source.session(row.agent.session_id) if row.agent else None
         if state is None:
-            self.notify(
-                "No status recorded for this session yet (sessions started before "
-                "`cardak hooks install` report nothing).",
-                severity="warning",
-            )
+            message = checkpoint.NO_STATUS if self._hooks_installed() else checkpoint.NO_HOOKS
+            self.notify(escape(message), severity="warning")
             return
         project = row.agent.project if row.agent else ""
 
@@ -524,6 +521,9 @@ class DeckApp(App[None]):
         info = self.source.summary_info(state)
         self.push_screen(DetailScreen(state, project, info, row.pane_id), done)
 
+    def _hooks_installed(self) -> bool:
+        return self.hooks_status is None or self.hooks_status() is None
+
     def action_checkpoint(self) -> None:
         node = self.deck_tree.cursor_node
         send = self.send
@@ -532,7 +532,7 @@ class DeckApp(App[None]):
         if self.skills_status is not None and (hint := self.skills_status()):
             self.notify(escape(hint), severity="warning")
             return
-        found = checkpoint.target(node.data.group, node.data.row)
+        found = checkpoint.target(node.data.group, node.data.row, self._hooks_installed())
         if isinstance(found, str):
             self.notify(escape(found), severity="warning")
             return
