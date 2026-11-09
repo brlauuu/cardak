@@ -25,20 +25,22 @@ PALETTE = ("cyan", "magenta", "yellow", "green", "blue", "red", "bright_cyan", "
 PLOT_HEIGHT = 12
 TICK_LABELS = {10_000: "10k", 100_000: "100k", 1_000_000: "1M"}
 LABEL = 5  # "100k " left of the plot
-DAY_S = 86_400
 
 
 def _midnight(d: date) -> float:
     return datetime.combine(d, datetime.min.time()).timestamp()
 
 
-def _columns(points: list[tuple[float, int]], start: float, n: int) -> list[float | None]:
-    """One session's dot columns over the day: each column the highest point in it, and the
-    columns between its first and last point held at the last value, so the line is unbroken
-    and a drop is a vertical stroke."""
+def _columns(
+    points: list[tuple[float, int]], start: float, end: float, n: int
+) -> list[float | None]:
+    """One session's dot columns over the day from start to end (23 or 25 hours on a DST
+    change, #117): each column the highest point in it, and the columns between its first and
+    last point held at the last value, so the line is unbroken and a drop is a vertical
+    stroke."""
     cols: list[float | None] = [None] * n
     for ts, ctx in points:
-        c = min(n - 1, max(0, int((ts - start) / DAY_S * n)))
+        c = min(n - 1, max(0, int((ts - start) / (end - start) * n)))
         cols[c] = max(cols[c] or 0.0, position(ctx))
     held: float | None = None
     last = max((i for i, v in enumerate(cols) if v is not None), default=-1)
@@ -70,11 +72,11 @@ def _merged(
     lines: Sequence[SessionLine], day: date, width: int
 ) -> tuple[list[list[int]], list[list[int]]]:
     """Every session's dots in one grid, and which session set each character last."""
-    start = _midnight(day)
+    start, end = _midnight(day), _midnight(day + timedelta(days=1))
     bits = [[0] * width for _ in range(PLOT_HEIGHT)]
     owner = [[-1] * width for _ in range(PLOT_HEIGHT)]
     for i, ln in enumerate(lines):
-        cols = _columns(day_points(ln, day), start, width * 2)
+        cols = _columns(day_points(ln, day), start, end, width * 2)
         for y, cells in enumerate(braille_cells(cols, 1.0, width, PLOT_HEIGHT)):
             for x, b in enumerate(cells):
                 if b:
@@ -83,11 +85,14 @@ def _merged(
     return bits, owner
 
 
-def _hours(width: int) -> str:
+def _hours(day: date, width: int) -> str:
+    """00:00, 06:00, 12:00 and 18:00 where that clock time falls in the day's own length."""
+    start, end = _midnight(day), _midnight(day + timedelta(days=1))
     axis = [" "] * (LABEL + width)
     for hour in (0, 6, 12, 18):
         label = f"{hour:02d}:00"
-        at = LABEL + hour * width // 24
+        at_ts = datetime.combine(day, datetime.min.time()).replace(hour=hour).timestamp()
+        at = LABEL + int((at_ts - start) / (end - start) * width)
         axis[at : at + len(label)] = label
     return "".join(axis).rstrip()
 
@@ -106,7 +111,7 @@ def plot_text(lines: Sequence[SessionLine], day: date, width: int) -> Text:
             else:
                 plot.append("─" if y in grid else BLANK, style="dim" if y in grid else "")
         plot.append("\n")
-    return plot.append(_hours(width), style="dim")
+    return plot.append(_hours(day, width), style="dim")
 
 
 class ContextPlotScreen(Screen[None]):
@@ -138,7 +143,8 @@ class ContextPlotScreen(Screen[None]):
         self._draw()
 
     def _width(self) -> int:
-        return max(48, min(self.size.width - 8 - LABEL, 120))
+        # 24 still fits the four hour labels; under that the terminal is too narrow anyway (#117)
+        return max(24, min(self.size.width - 2 - LABEL, 120))
 
     def _lines(self) -> list[SessionLine]:
         return [ln for ln in self._row.lines if day_points(ln, self._day)]

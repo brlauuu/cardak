@@ -1,5 +1,6 @@
 import os
 import shutil
+import sqlite3
 import threading
 import time
 from dataclasses import replace
@@ -399,6 +400,38 @@ def test_backfill_runs_once(tmp_path: Path, root: Path, monkeypatch: pytest.Monk
     calls.clear()
     again.step()
     assert calls == []  # and only when it starts
+
+
+def test_a_failed_backfill_batch_keeps_the_files_done(
+    tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # #117: one failed batch (a locked database) read the whole window again on the next pass
+    c = counter(tmp_path, root)
+    store_unflagged(c.store, root)
+    files = sorted(p for p in root.rglob("*.jsonl"))
+    real_flag = c.store.flag_sidechains
+    calls: list[Path] = []
+    real = spend.read_usage
+
+    def counting(path: Path, offset: int, limit: int = usage_mod.READ_LIMIT) -> tuple[Usage, int]:
+        calls.append(path)
+        return real(path, offset, limit)
+
+    def locked_once(keys: list[str]) -> None:
+        monkeypatch.setattr(c.store, "flag_sidechains", real_flag)
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(spend, "read_usage", counting)
+    monkeypatch.setattr(c.store, "flag_sidechains", locked_once)
+    with pytest.raises(sqlite3.OperationalError):
+        c.step()
+    first = set(calls)
+    calls.clear()
+    c.step()
+    backfilled = {p for p in calls if p in first} - {p for p in files if "sub" in p.parts}
+    assert len(backfilled) <= 1  # only the file whose batch failed is read again
+    flagged = {r.key for r in c.store.replies_since(0.0) if r.sidechain}
+    assert flagged == {k for k, r in all_replies(root).items() if r.sidechain}
 
 
 def test_new_counter_flags_what_an_older_cardak_stored_since(tmp_path: Path, root: Path) -> None:

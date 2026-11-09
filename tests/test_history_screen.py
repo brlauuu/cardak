@@ -436,3 +436,41 @@ async def test_legend_says_all_projects_has_its_own_scale() -> None:
         await pilot.pause()
         legend = str(app.screen.query_one("#legend", Static).render())
         assert "All projects: relative to its own busiest day" in legend
+
+
+def test_context_plot_spreads_a_25_hour_day(monkeypatch) -> None:  # noqa: ANN001
+    # #117: the deck's day plot took every day as 24 hours; on Oct 25, 2026 Berlin has 25
+    from cardak.ui import context_plot
+
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time.tzset()
+    try:
+        day = date(2026, 10, 25)
+        start = datetime(2026, 10, 25).timestamp()
+        end = datetime(2026, 10, 26).timestamp()
+        assert end - start == 25 * 3600
+        late = datetime(2026, 10, 25, 23, 30).timestamp()  # 24.5 h after midnight
+        cols = context_plot._columns([(start, 100_000), (late, 100_000)], start, end, 100)  # pyright: ignore[reportPrivateUsage]
+        assert max(i for i, v in enumerate(cols) if v is not None) == 98  # not clamped at 99
+        axis = context_plot._hours(day, 100)  # pyright: ignore[reportPrivateUsage]
+        noon = (datetime(2026, 10, 25, 12).timestamp() - start) / (end - start)
+        assert axis.index("12:00") == context_plot.LABEL + int(noon * 100)  # 13 h in, not 12
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+async def test_day_plot_fits_a_narrow_terminal() -> None:
+    # #117: the plot was at least 48 + 5 columns wide, plus padding, and wrapped below that
+    app = DeckApp(StubSource(context_live()), interval=3600, log=log())
+    async with app.run_test(size=(120, 40)) as pilot:
+        screen = await to_context(pilot, app)
+        table = screen.query_one(DataTable)
+        table.move_cursor(row=0, column=len(table.columns) - 1)
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.resize_terminal(44, 40)
+        await pilot.pause()
+        drawn = str(app.screen.query_one("#plot", Static).render()).splitlines()
+        assert max(len(x) for x in drawn) <= 44 - 2  # the padding
+        assert "18:00" in drawn[-1]

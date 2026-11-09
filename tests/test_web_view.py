@@ -345,3 +345,17 @@ def test_pm_json_none() -> None:
     from cardak.web.view import pm_json
 
     assert pm_json(None, 1.0) == {"board": None}
+
+
+def test_thin_keeps_the_tail_with_many_drops() -> None:
+    # #117: past 99 drops, both sides of every drop were over MAX_POINTS and the slice cut the end
+    from cardak.web.view import MAX_POINTS, thin
+
+    points = []
+    for i in range(150):  # 150 compactions: 300k, then 10k
+        points += [(i * 10.0, 300_000), (i * 10.0 + 5, 10_000)]
+    points.append((2000.0, 42_000))
+    kept = thin(points)
+    assert len(kept) <= MAX_POINTS
+    assert kept[0] == points[0] and kept[-1] == points[-1]
+    assert kept == sorted(kept)
