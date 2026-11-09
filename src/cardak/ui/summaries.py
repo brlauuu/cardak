@@ -2,6 +2,7 @@
 
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from rich.text import Text
@@ -10,6 +11,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
+from textual.timer import Timer
 from textual.widgets import Button, Input, OptionList, Select, Static
 
 from cardak.core.config import (
@@ -46,6 +48,7 @@ FIELDS = {
     "openai": ("url", "model", "key"),
     "codex": ("model",),
 }
+URL_SETTLE_S = 0.6  # a typed Ollama URL is asked for its models once typing pauses this long
 KEYS_HINT = "enter use · t test · n set up · e edit · del remove · esc close"
 
 
@@ -58,6 +61,8 @@ class SummaryControl(Protocol):
 
     def has_key(self, name: str) -> bool: ...
 
+    def key_path(self, name: str) -> Path | None: ...
+
     def summary_spend(self) -> float | None: ...
 
     def use_provider(self, name: str) -> str | None: ...
@@ -67,6 +72,14 @@ class SummaryControl(Protocol):
     ) -> str | None: ...
 
     def remove_provider(self, name: str) -> str | None: ...
+
+
+def shown_path(path: Path) -> str:
+    """path with the home directory written as ~."""
+    try:
+        return "~/" + str(path.relative_to(Path.home()))
+    except ValueError:
+        return str(path)
 
 
 @dataclass(frozen=True)
@@ -109,6 +122,9 @@ class SummariesScreen(ModalScreen[None]):
         self._message: str | None = None
         self._form_for: str | None = None
         self._codex: str | None = None
+        self._spend: float | None = None
+        self._listed_url: str | None = None  # the Ollama URL last asked for its models
+        self._url_timer: Timer | None = None  # this month's, read off the UI thread (#119)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="summaries"):
@@ -134,6 +150,22 @@ class SummariesScreen(ModalScreen[None]):
         self._refresh()
         self.query_one("#providers", OptionList).focus()
         self._find_codex()
+
+    @work(thread=True, exit_on_error=False, group="summary-spend", exclusive=True)
+    def _read_spend(self) -> None:
+        """The deck's source answers under the lock a whole poll holds, and from the store."""
+        spend = self._control.summary_spend()
+        self.app.call_from_thread(self._spend_read, spend)
+
+    def _spend_read(self, spend: float | None) -> None:
+        self._spend = spend
+        self._show_top(self._control.summary_settings())
+
+    def _show_top(self, summary: SummarySettings) -> None:
+        top = "Summaries"
+        if self._spend is not None:
+            top += f" · this month ${self._spend:.2f} of ${summary.monthly_limit_usd:.2f}"
+        self.query_one("#summaries-top", Static).update(Text(top))
 
     @work(thread=True, exit_on_error=False)
     def _find_codex(self) -> None:
@@ -166,11 +198,8 @@ class SummariesScreen(ModalScreen[None]):
         options.clear_options()
         options.add_options([self._row(name, summary) for name in PROVIDERS])
         options.highlighted = keep
-        spend = self._control.summary_spend()
-        top = "Summaries"
-        if spend is not None:
-            top += f" · this month ${spend:.2f} of ${summary.monthly_limit_usd:.2f}"
-        self.query_one("#summaries-top", Static).update(Text(top))
+        self._show_top(summary)
+        self._read_spend()
         message = self._message or summary.error or ""
         self.query_one("#message", Static).update(Text(message))
         self._show_detail()
@@ -243,7 +272,7 @@ class SummariesScreen(ModalScreen[None]):
             if yes:
                 self._say(self._control.remove_provider(name))
 
-        note = f"Its key file, if any, stays in ~/.config/cardak/{name}_key."
+        note = f"Its key file, if any, stays in {self._key_shown(name)}."
         self.app.push_screen(ConfirmScreen(f"Remove {name}'s settings?", note, ok="remove"), done)
 
     # --- test
@@ -305,7 +334,8 @@ class SummariesScreen(ModalScreen[None]):
         self.query_one("#form").display = True
         self._show_detail()
         if name == "ollama":
-            self._list_models(url.value, stored.model)
+            self._listed_url = url.value.strip()
+            self._list_models(self._listed_url, stored.model)
         first = url if url.display else model
         first.focus()
 
@@ -317,27 +347,54 @@ class SummariesScreen(ModalScreen[None]):
     def _form_note(self, name: str) -> str:
         notes = []
         if name in KEYED:
-            notes.append(f"A key is saved to ~/.config/cardak/{name}_key, readable by you only.")
+            notes.append(f"A key is saved to {self._key_shown(name)}, readable by you only.")
         if name not in FREE:
             notes.append("On a paid API a test costs a fraction of a cent; it isn't counted.")
         if name == "codex":
             notes.append(f"Found: {self._codex or 'codex is not on PATH'}.")
         return " ".join(notes)
 
-    @work(thread=True, exit_on_error=False, group="ollama-models")
+    def _key_shown(self, name: str) -> str:
+        """Where the key file is: XDG_CONFIG_HOME can put it outside ~/.config (#119)."""
+        path = self._control.key_path(name)
+        return shown_path(path) if path is not None else f"{name}_key in cardak's config folder"
+
+    @on(Input.Changed, "#f-url")
+    def _url_typed(self, event: Input.Changed) -> None:
+        """A new Ollama URL is a new server: list its models once typing settles (#119)."""
+        if self._form_for != "ollama" or event.value.strip() == self._listed_url:
+            return
+        if self._url_timer is not None:
+            self._url_timer.stop()
+        self._url_timer = self.set_timer(URL_SETTLE_S, self._relist)
+
+    def _relist(self) -> None:
+        self._url_timer = None
+        if self._form_for != "ollama":
+            return
+        select = self.query_one("#f-models", Select)
+        current = select.value if select.display and isinstance(select.value, str) else None
+        typed = self.query_one("#f-model", Input).value.strip() or None
+        self._listed_url = self.query_one("#f-url", Input).value.strip()
+        self._list_models(self._listed_url, current or typed)
+
+    @work(thread=True, exit_on_error=False, group="ollama-models", exclusive=True)
     def _list_models(self, url: str, current: str | None) -> None:
         try:
             found: list[str] | str = self._tools.list_models(url)
         except Exception as e:
             found = " ".join(str(e).split())
-        self.app.call_from_thread(self._models_listed, found, current)
+        self.app.call_from_thread(self._models_listed, found, current, url)
 
-    def _models_listed(self, found: list[str] | str, current: str | None) -> None:
-        if self._form_for != "ollama":
-            return
+    def _models_listed(self, found: list[str] | str, current: str | None, url: str) -> None:
+        if self._form_for != "ollama" or url != self.query_one("#f-url", Input).value.strip():
+            return  # the form closed, or the URL changed since: a later answer is coming
         select = self.query_one("#f-models", Select)
         model = self.query_one("#f-model", Input)
         if isinstance(found, str) or not found:
+            if select.display and isinstance(select.value, str):
+                model.value = select.value
+            select.display, model.display = False, True
             why = found or "no models on the server"
             self._say(f"couldn't list the server's models ({why}); type one")
             return

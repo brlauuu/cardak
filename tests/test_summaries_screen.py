@@ -40,6 +40,9 @@ class FakeControl:
     def has_key(self, name: str) -> bool:
         return name in self.keyed
 
+    def key_path(self, name: str) -> Path:
+        return Path("/elsewhere/cardak") / f"{name}_key"
+
     def summary_spend(self) -> float | None:
         return self.spend
 
@@ -380,3 +383,95 @@ async def test_keyed_provider_needs_a_key_to_save() -> None:
         await pilot.pause()
         assert control.calls == []
         assert "fireworks needs a key" in text_of(app, "#message")
+
+
+async def test_key_path_is_where_the_keys_really_are() -> None:
+    # XDG_CONFIG_HOME elsewhere: the form and the remove dialog named ~/.config/cardak (#119)
+    app = Host(two_set_up(), FakeTools().tools())
+    async with app.run_test(size=(110, 30)) as pilot:
+        await move_to(app, pilot, "fireworks")
+        await pilot.press("n")
+        await pilot.pause()
+        note = text_of(app, "#form-note")
+        assert "/elsewhere/cardak/fireworks_key" in note and "~/.config" not in note
+
+
+def test_key_paths_under_home_are_shortened(tmp_path: Path) -> None:
+    from cardak.ui.summaries import shown_path
+
+    assert shown_path(Path.home() / ".config/cardak/x_key") == "~/.config/cardak/x_key"
+    assert shown_path(Path("/etc/cardak/x_key")) == "/etc/cardak/x_key"
+
+
+async def test_editing_the_ollama_url_lists_that_servers_models() -> None:
+    # the models came from the URL the form opened with, whatever was typed after (#119)
+    fake = FakeTools()
+    by_url = {"http://127.0.0.1:11434": ["gemma4:e4b"], "http://gpu:11434": ["llama9:70b"]}
+    asked: list[str] = []
+
+    def list_models(url: str) -> list[str]:
+        asked.append(url)
+        if url not in by_url:
+            raise ProviderError(f"can't reach {url}")
+        return by_url[url]
+
+    fake.list_models = list_models  # type: ignore[method-assign]
+    app = Host(two_set_up(), fake.tools())
+    async with app.run_test(size=(110, 30)) as pilot:
+        await move_to(app, pilot, "ollama")
+        await pilot.press("e")
+        await app.workers.wait_for_complete()
+        url = app.screen.query_one("#f-url", Input)
+        for typed in ("http://gp", "http://gpu:11434"):  # typing: asked once it settles
+            url.value = typed
+            await pilot.pause()
+        await pilot.pause(0.8)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert asked == ["http://127.0.0.1:11434", "http://gpu:11434"]
+        select = app.screen.query_one("#f-models", Select)
+        assert select.display and select.value == "llama9:70b"
+        url.value = "http://nowhere:1"
+        await pilot.pause(0.8)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert not select.display and app.screen.query_one("#f-model", Input).display
+
+
+async def test_screen_opens_while_a_poll_holds_the_lock(tmp_path: Path) -> None:
+    # LiveSource holds its lock for a whole poll (WezTerm, /proc, Docker's timeout); the screen
+    # read it on the UI thread (#119)
+    import threading
+    import time
+
+    source = LiveSource(tmp_path / "projects.toml", env={}, keys_dir=tmp_path / "keys")
+    got: list[object] = []
+
+    def read() -> None:
+        got.extend(
+            (source.summary_settings().provider, source.is_set_up("anthropic"),
+             source.has_key("anthropic"))
+        )  # fmt: skip
+
+    with source._lock:  # a poll in progress
+        reader = threading.Thread(target=read, daemon=True)
+        start = time.monotonic()
+        reader.start()
+        reader.join(0.5)
+        assert got == ["anthropic", False, False] and time.monotonic() - start < 0.5
+
+    release = threading.Event()
+
+    class SlowSpend(FakeControl):
+        def summary_spend(self) -> float | None:
+            release.wait(5)
+            return 2.5
+
+    app = Host(SlowSpend(), FakeTools().tools())
+    async with app.run_test(size=(110, 30)) as pilot:
+        await pilot.pause()
+        assert rows(app) and "this month" not in text_of(app, "#summaries-top")
+        release.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert "this month $2.50 of $5.00" in text_of(app, "#summaries-top")

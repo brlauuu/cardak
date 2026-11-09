@@ -92,6 +92,7 @@ class PriceBook:
         self._clock = clock
         self._log = log
         self._failed_at: float | None = None
+        self._checked = False  # the cache is known to hold more than Claude's prices
         self._loaded: tuple[float | None, Mapping[str, ModelPrice]] = (None, BUILTIN)
 
     def _mtime(self) -> float | None:
@@ -104,7 +105,7 @@ class PriceBook:
         """Download the list if the cached copy is missing or a day old (not right after a
         failure); on any problem keep what is cached and log one line."""
         now, mtime = self._clock(), self._mtime()
-        if mtime is not None and now - mtime < MAX_AGE_S:
+        if mtime is not None and now - mtime < MAX_AGE_S and self._complete():
             return
         if self._failed_at is not None and now - self._failed_at < RETRY_S:
             return
@@ -118,6 +119,22 @@ class PriceBook:
             self._log(f"couldn't update prices: {e!r}")
             return
         self._failed_at = None
+        self._checked = True  # whatever the list had: one download, not one per pass
+
+    def _complete(self) -> bool:
+        """Whether the cached copy has more than Claude's prices. 0.14 cached only those, so
+        until it was a day old Fireworks and OpenAI summaries cost $0 (#119); that copy is
+        replaced once, on this cardak's first refresh."""
+        if not self._checked:
+            try:
+                data = json.loads(self._file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return False
+            self._checked = isinstance(data, dict) and any(
+                isinstance(e, dict) and e.get("litellm_provider") != "anthropic"
+                for e in data.values()
+            )
+        return self._checked
 
     def current(self) -> Mapping[str, ModelPrice]:
         mtime = self._mtime()

@@ -137,3 +137,44 @@ def test_pricebook_unreadable_cache_is_builtin(tmp_path: Path) -> None:
 def test_cache_dir_follows_xdg() -> None:
     assert cache_dir({"XDG_CACHE_HOME": "/c", "HOME": "/h"}) == Path("/c/cardak")
     assert cache_dir({"HOME": "/h"}) == Path("/h/.cache/cardak")
+
+
+def test_pricebook_replaces_a_cache_with_claude_prices_only(tmp_path: Path) -> None:
+    # 0.14 cached the Anthropic entries only: Fireworks and OpenAI summaries would cost $0
+    # until the copy was a day old (#119)
+    entries = select(SUBSET.read_bytes())
+    cache = tmp_path / "prices.json"
+    import json
+
+    cache.write_text(
+        json.dumps({k: v for k, v in entries.items() if "/" not in k and "gpt" not in k})
+    )
+    calls: list[int] = []
+
+    def fetch() -> bytes:
+        calls.append(1)
+        return SUBSET.read_bytes()
+
+    book = PriceBook(cache, fetch=fetch)
+    book.refresh()
+    assert calls == [1]
+    assert any(name.startswith("fireworks_ai/") for name in book.current())
+    book.refresh()  # complete now, and fresh
+    assert calls == [1]
+
+
+def test_pricebook_asks_once_when_the_list_has_claude_prices_only(tmp_path: Path) -> None:
+    import json
+
+    claude_only = {k: v for k, v in select(SUBSET.read_bytes()).items() if "/" not in k}
+    claude_only = {k: v for k, v in claude_only.items() if v.get("litellm_provider") == "anthropic"}
+    calls: list[int] = []
+
+    def fetch() -> bytes:
+        calls.append(1)
+        return json.dumps(claude_only).encode()
+
+    book = PriceBook(tmp_path / "prices.json", fetch=fetch)
+    book.refresh()
+    book.refresh()  # the download itself had nothing else: no download every pass
+    assert calls == [1]

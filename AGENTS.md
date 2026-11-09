@@ -453,6 +453,14 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `qwen2.5:3b` ~2 s; Codex ~10 s and ~26k input tokens of the plan per summary. The small
   models' lines were less faithful (one said the folder was "cleaned" while it was still
   asking); Codex's were the best.
+- A write to `projects.toml` through tomlkit keeps the blank lines and comments that end a table
+  with whatever follows them (`config._take_trivia`): tomlkit stores them in the table above, so a
+  provider table added, replaced or removed would carry off or drop the comment introducing the
+  next table (#119). The price cache is replaced once when it holds Claude's prices only (0.14's).
+- The screen's reads (`summary_settings`, `is_set_up`, `has_key`, `key_path`) take no lock: a poll
+  holds `LiveSource._lock` throughout, and they read only the config a reload replaces whole.
+  The month's spend is read on a worker (it uses the poll's store connection); saves still take
+  the lock on the UI thread, once per key press.
 - The Summaries screen's test sends `summary.SAMPLE_INPUT`, a made-up wait, never a session's
   text, from a worker thread; it is not stored and not counted. Textual selects an `Input`'s text
   on focus, so a key typed into a just-focused field replaces it.

@@ -230,18 +230,22 @@ class LiveSource:
                     config_mod.set_project_background(self.config_file, project_path, background)
             self._reload_if_changed()
 
+    # The Summaries screen calls these on the UI thread, and a poll holds the lock throughout
+    # (WezTerm, /proc, Docker's timeout): they read only the config, which a reload replaces
+    # whole, and the keys dir, which never changes, so they take no lock (#119).
+
     def summary_settings(self) -> SummarySettings:
-        with self._lock:
-            return self._config.summary
+        return self._config.summary
 
     def is_set_up(self, name: str) -> bool:
-        with self._lock:
-            keys = self._keys_dir
-            return keys is not None and is_set_up(self._config.summary, name, keys)
+        keys = self._keys_dir
+        return keys is not None and is_set_up(self._config.summary, name, keys)
 
     def has_key(self, name: str) -> bool:
-        with self._lock:
-            return self._keys_dir is not None and key_file(self._keys_dir, name).exists()
+        return self._keys_dir is not None and key_file(self._keys_dir, name).exists()
+
+    def key_path(self, name: str) -> Path | None:
+        return None if self._keys_dir is None else key_file(self._keys_dir, name)
 
     def summary_spend(self) -> float | None:
         """This month's spend on summaries; None without a store."""

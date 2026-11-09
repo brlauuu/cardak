@@ -36,6 +36,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - If the status line command cardak wraps can't be started (no `sh` on the PATH), `hook.log` now says why, instead of the status line staying blank with no trace (#118).
 - `cardak statusline` typed in a terminal now says it is run by Claude Code and how to set it up, instead of waiting silently for input (#118).
 - `cardak statusline uninstall` now lists the settings added since to a status line cardak created (such as `padding`), which go with it, before asking (#118).
+- Setting up, changing or removing a summary provider from the Summaries screen no longer moves or drops a comment you wrote above the next section of `projects.toml` (#119).
+- Fireworks and OpenAI summaries are priced from the first run after upgrading from 0.14, instead of counting as $0 until the cached price list was a day old (#119).
+- The Summaries screen names the key file where it really is when `XDG_CONFIG_HOME` is set, lists a new Ollama server's models when you edit its URL, and opens without waiting for the deck's refresh (#119).
 - For a Claude session with no status yet (one left idle for over a week, for instance), `c` and `i` now say its status shows after its next prompt, and suggest `cardak hooks install` only when the hooks really aren't installed (#110).
 - The waiting summary for an MCP dialog that opens over a permission prompt now describes the dialog, instead of mixing it up with the command waiting for permission (#110).
 
