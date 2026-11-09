@@ -442,12 +442,16 @@ class PlotScreen(Screen[None]):
         self._events = events
         self._today = today
         self._first = _first_day(today)
-        start = _midnight(self._first)
+        # 24 slots per local day, by the hour on the clock: a day with a DST change has 23 or
+        # 25 hours, and counting hours from the first midnight would shift every later day.
         self._values: list[float | None] = [None] * HOURS
         for hour, ram, cpu in hours:
-            index = int((hour - start) // 3600)
+            local = datetime.fromtimestamp(hour)
+            index = (local.date() - self._first).days * 24 + local.hour
             if 0 <= index < HOURS:
-                self._values[index] = float(ram if metric == "ram" else cpu)
+                value = float(ram if metric == "ram" else cpu)
+                held = self._values[index]
+                self._values[index] = value if held is None else max(held, value)  # 02:00 twice
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -494,11 +498,9 @@ class PlotScreen(Screen[None]):
 
     def _day_text(self) -> str:
         start = _midnight(self._day)
-        end = start + 86_400
-        values = [
-            v for i, v in enumerate(self._values)
-            if v is not None and start <= _midnight(self._first) + i * 3600 < end
-        ]  # fmt: skip
+        end = _midnight(self._day + timedelta(days=1))  # 23 or 25 hours across a DST change
+        index = (self._day - self._first).days * 24
+        values = [v for v in self._values[index : index + 24] if v is not None]
         events = [e for e in self._events if start <= e.ts < end]
         notified = sum(e.notified for e in events if e.kind not in ("crash", "daemon"))
         when = f"{self._day:%b %-d}"

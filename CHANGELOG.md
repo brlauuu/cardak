@@ -9,6 +9,13 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Fixed
+- A crash report for a window of a second WezTerm no longer says cardak "didn't see" the killed process without saying why: cardak lists the panes of the newest WezTerm only, and the report now says so (#109).
+- When the kernel kills WezTerm itself, the crash report says so, and no longer suggests the `OOMPolicy` drop-in, which can't keep a killed WezTerm open (#109).
+- The history's hour plot no longer shifts by an hour after a daylight-saving change: each day's hours line up with its own clock (#109).
+- Docker containers a project leaves running while WezTerm is closed now count as that project's in the history and on the phone page, instead of inflating Other's median; the alert service watches them too (#109).
+- The alert service no longer keeps every pane it has ever seen in memory for as long as it runs (#109).
+
 ## 0.17.1 — 2026-11-09
 
 ### Fixed

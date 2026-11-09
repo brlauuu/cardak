@@ -586,7 +586,10 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - **History** (`core/history.Rollup`): the daemon writes one row per minute per project and for Other
   (RAM mean/max, CPU mean/max) to `resource_minutes`, and keeps each local day's peak in
   `resource_days` as it writes, so the history view reads ~30 rows per project (500k minutes:
-  70 ms). With WezTerm unreachable, Other is the machine's used RAM minus the projects.
+  70 ms). With WezTerm unreachable, Docker containers still go to their projects (the snapshot
+  then has those groups and no Other group), and Other is the machine's used RAM minus them
+  (#109). The hour plot keeps 24 slots per local day, by clock hour: a DST day's extra 02:00
+  takes the higher of the two, its missing hour stays empty.
 - **Crash report** (`core/crash.py`): every poll the daemon lists the live `gui-sock-<pid>` GUIs and
   their scope (from `/proc/<pid>/cgroup`). When one disappears it waits 5 s, then reads
   `journalctl -o json` (kernel and `--user`, `collectors/journal.py`) for `oom-kill:` lines in that

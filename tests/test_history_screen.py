@@ -375,3 +375,36 @@ def test_plot_text_colors_each_session() -> None:
     assert colors == {PALETTE[0], PALETTE[1]}  # the two sessions with points today
     rows = drawn.plain.splitlines()
     assert [r[:5] for r in rows[:12] if r[:5].strip()] == ["  1M ", "100k ", " 10k "]
+
+
+def test_plot_hours_follow_local_days_across_dst(monkeypatch) -> None:  # noqa: ANN001
+    # Berlin leaves summer time on Oct 25, 2026: that day has 25 hours, so counting hours from
+    # the window's first midnight put every later hour one slot late.
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time.tzset()
+    try:
+        today = date(2026, 11, 9)
+        first = today - timedelta(days=DAYS - 1)
+
+        def at(d: date, hour: int, minute: int = 0) -> int:
+            return int(datetime(d.year, d.month, d.day, hour, minute).timestamp())
+
+        oct30, oct25 = date(2026, 10, 30), date(2026, 10, 25)
+        first_two = at(oct25, 2)  # 02:00 summer time; an hour later it's 02:00 again
+        hours = [
+            (at(oct30, 0), 5 * GIB, 0.0),
+            (at(oct30, 12), 7 * GIB, 0.0),
+            (first_two, 2 * GIB, 0.0),
+            (first_two + 3600, 3 * GIB, 0.0),
+        ]
+        plot = PlotScreen("api", API, "ram", hours, None, oct30, [], today)
+        values = plot._values  # pyright: ignore[reportPrivateUsage]
+        assert values[(oct30 - first).days * 24 + 0] == 5 * GIB
+        assert values[(oct30 - first).days * 24 + 12] == 7 * GIB
+        assert values[(oct25 - first).days * 24 + 2] == 3 * GIB  # both 02:00s: the higher
+        assert plot._day_text().startswith("Oct 30: peak 7.0 GB")  # pyright: ignore[reportPrivateUsage]
+        previous = PlotScreen("api", API, "ram", hours, None, date(2026, 10, 29), [], today)
+        assert previous._day_text().startswith("Oct 29: no data")  # pyright: ignore[reportPrivateUsage]
+    finally:
+        monkeypatch.undo()
+        time.tzset()
