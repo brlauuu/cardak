@@ -1029,6 +1029,31 @@ async def test_c_refused_working_shows_reason() -> None:
         assert sends.calls == []
 
 
+@pytest.mark.parametrize(
+    ("hooks", "expected"),
+    [
+        (None, "No status for this session yet: it shows after the session's next prompt."),
+        (
+            "Run `cardak hooks install` to see Claude Code sessions' status.",
+            "No status for this session (run `cardak hooks install`, then start a new session).",
+        ),
+    ],
+)
+async def test_c_without_a_record_names_hooks_only_when_missing(
+    hooks: str | None, expected: str
+) -> None:
+    snap = waiting_snap(others=(replace(agent_row(7, "idle", None), agent=None), row(2)))
+    sends = Sends()
+    app = DeckApp(StubSource(snap), interval=3600, send=sends, hooks_status=lambda: hooks)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])
+        await pilot.press("c")
+        await pilot.pause()
+        assert expected in notices(app)
+        assert sends.calls == []
+
+
 async def test_c_skills_missing_hint_no_send() -> None:
     app, sends = await checkpoint_app(skills="Run `cardak skills install` to add them.")
     async with app.run_test() as pilot:

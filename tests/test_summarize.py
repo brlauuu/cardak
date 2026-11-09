@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from hookfix import text
 
+from cardak.collectors.hooks import parse
 from cardak.core import hook
 from cardak.core.config import Config, ProviderSettings, SummarySettings, load
 from cardak.core.prices import BUILTIN
@@ -56,8 +57,12 @@ def setup(tmp_path: Path) -> tuple[Store, Path, Path]:
 def seed(store: Store, config: Path, *steps: tuple[str, dict]) -> tuple[str, float]:
     """Run hook events at t = 100, 101, …; return the session id and its status_since."""
     for i, (name, overrides) in enumerate(steps):
-        hook.run(
-            text(name, **overrides),
+        payload = text(name, **overrides)
+        event = parse(payload)
+        assert event is not None
+        hook.record(
+            event,
+            payload,
             {"WEZTERM_PANE": "7"},
             100.0 + i,
             store=store,
@@ -136,6 +141,31 @@ def test_mid_turn_wait_without_transcript(setup: tuple[Store, Path, Path], tmp_p
     do(store, key, stub, sid, since)
     _, user = stub.calls[0]
     assert "PREVIOUS TURN TEXT" not in user and "touch made.txt" in user
+
+
+def test_a_kind_change_names_the_dialog_not_the_earlier_tool(
+    setup: tuple[Store, Path, Path],
+) -> None:
+    # #110: a permission wait for Bash, then an MCP dialog: the new wait's pending item is the
+    # dialog; current_tool still names Bash (it marks the open prompt for `c`)
+    store, config, key = setup
+    sid, since = seed(
+        store,
+        config,
+        ("user_prompt_submit", {"prompt": "fix the retry bug"}),
+        ("pre_tool_use-bash", {"tool_input": {"command": "cargo test"}}),
+        ("permission_request", {"tool_input": {"command": "cargo test"}}),
+        (
+            "notification-permission_prompt",
+            {"notification_type": "elicitation_dialog", "message": "Pick a database for the app"},
+        ),
+    )
+    assert since == 103.0  # the kind change started a new wait
+    stub = Stub()
+    do(store, key, stub, sid, since)
+    _, user = stub.calls[0]
+    assert "Pick a database for the app" in user
+    assert "cargo test" not in user.split("PENDING TOOL", 1)[-1]
 
 
 def test_truncated_event_payload_falls_back_to_reason(

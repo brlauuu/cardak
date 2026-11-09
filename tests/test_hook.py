@@ -8,10 +8,11 @@ from pathlib import Path
 import pytest
 from hookfix import text
 
+from cardak.collectors.hooks import parse
 from cardak.core import hook, hooklog
 from cardak.core.config import Config, Project
 from cardak.core.focus import FOCUS_HEADER
-from cardak.core.hook import main, project_name, run, summarize_argv
+from cardak.core.hook import main, project_name, record, summarize_argv
 from cardak.core.store import Store, StoreError
 
 ENV = {"WEZTERM_PANE": "7"}
@@ -31,7 +32,10 @@ def paths(tmp_path: Path) -> dict[str, Path]:
 
 def call(store: Store, paths: dict[str, Path], name: str, now: float = 100.0, **kw: object) -> list:
     spawned: list[list[str]] = []
-    run(text(name, **kw), ENV, now, store=store, spawn=spawned.append, **paths)
+    payload = text(name, **kw)
+    event = parse(payload)
+    assert event is not None
+    record(event, payload, ENV, now, store=store, spawn=spawned.append, **paths)
     return spawned
 
 
@@ -65,12 +69,6 @@ def test_hook_bad_config_still_pings(tmp_path: Path, paths: dict[str, Path]) -> 
     paths["config_file"].write_text("[[broken")
     spawned = call(Store(tmp_path / "db"), paths, "stop-finished")
     assert spawned[0][0] == "notify-send" and spawned[0][3] == "demo · claude"
-
-
-def test_hook_ignores_garbage(tmp_path: Path, paths: dict[str, Path]) -> None:
-    store = Store(tmp_path / "db")
-    run("nope", ENV, 1.0, store=store, spawn=lambda argv: None, **paths)
-    assert store.live_sessions() == [] and store.event_count() == 0
 
 
 def test_session_start_prunes(tmp_path: Path, paths: dict[str, Path]) -> None:
@@ -130,7 +128,7 @@ def test_hook_exception_is_logged(
     def broken(*_a: object, **_k: object) -> None:
         raise StoreError("disk on fire")
 
-    monkeypatch.setattr(hook, "_record", broken)
+    monkeypatch.setattr(hook, "record", broken)
     env = env_for(tmp_path)
     assert main(io.StringIO(text("stop-finished")), env) == 0
     assert capsys.readouterr() == ("", "")
