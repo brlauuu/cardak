@@ -1,3 +1,4 @@
+import json
 import random
 import subprocess
 from pathlib import Path
@@ -263,3 +264,26 @@ def test_off_reads_no_packs(monkeypatch: pytest.MonkeyPatch) -> None:
     spawned: list[list[str]] = []
     alert("notes", PING, NotifySettings(desktop=False, sound="off"), spawn=spawned.append)
     assert spawned == []
+
+
+def test_same_stem_clips_are_both_named(tmp_path: Path) -> None:
+    # #116: A.wav and A.mp3 were both "duo/A", and which one played depended on the manifest
+    from cardak.collectors.soundpacks import read_packs
+    from cardak.core.alerts import SOUND_EXTS
+
+    d = tmp_path / "duo"
+    d.mkdir()
+    for f in ("A.wav", "A.mp3"):
+        (d / f).write_text("x")
+    entry = {"sounds": [{"file": "A.wav"}, {"file": "A.mp3"}]}
+    (d / "openpeon.json").write_text(json.dumps({"categories": {"input.required": entry}}))
+    packs = read_packs(tmp_path, SOUND_EXTS)
+    rng = random.Random(1)
+
+    def chosen(name: str) -> Path | None:
+        return choose_sound("waiting", NotifySettings(waiting_sound=name), {}, packs, rng)
+
+    assert chosen("duo/A.wav") == (d / "A.wav").resolve()
+    assert chosen("duo/A.mp3") == (d / "A.mp3").resolve()
+    assert chosen("duo/A") == (d / "A.mp3").resolve()  # the first by file name
+    assert check(NotifySettings(waiting_sound="duo/A.wav"), {}, packs) == []

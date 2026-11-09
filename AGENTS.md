@@ -246,6 +246,13 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   outside its pack, missing or of another type is skipped; an unreadable manifest becomes a deck
   warning. They're read once per sound played (the hook only when pinging) and when the deck
   reloads its config. Tests point `pack_root` at an empty folder (`tests/conftest.py`).
+- A clip is also named by its file name (`<folder>/A.mp3`); of two with one stem, `<folder>/A` is
+  the first by file name (#116). An empty theme key is unset. The deck re-checks the sound
+  warnings when `packs_stamp` (the packs' folder and manifest mtimes) or sounds_dir's presence
+  changes, not only on a config edit.
+- Measured 2026-11-09 (#116), a `Notification` permission prompt that pings, five real packs,
+  desktop notifications off and no player on PATH, load 3.4: median 100 ms with `sound = "random"`
+  (packs read) against 81 ms with `"off"`, inside the hook's 150 ms budget.
 - `pw-play` plays mp3 through libsndfile ≥ 1.1 (1.2.2 here, checked 2026-10-29).
 
 ## Claude Code hooks (measured in M4, Claude Code 2.1.306)

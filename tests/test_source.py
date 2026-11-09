@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from collections.abc import Iterable, Mapping
@@ -810,6 +811,22 @@ def test_broken_sound_pack_becomes_a_warning(tmp_path: Path, packs_dir: Path) ->
     )
     (warning,) = source.poll().config_warnings
     assert warning.startswith("sound pack bad: openpeon.json unreadable")
+
+
+def test_sound_pack_warnings_follow_the_packs(tmp_path: Path, packs_dir: Path) -> None:
+    # #116: a pack fixed, broken or added while the deck runs, with the config untouched
+    source = LiveSource(
+        tmp_path / "p.toml", env={}, list_panes=panes, sample=sample,
+        claude_lookup=lambda p: None, git=no_git, home=HOME, machine=no_machine,
+        docker=no_docker,
+    )  # fmt: skip
+    assert source.poll().config_warnings == ()
+    (packs_dir / "bad").mkdir()
+    (packs_dir / "bad" / "openpeon.json").write_text("{")
+    assert source.poll().config_warnings[0].startswith("sound pack bad: openpeon.json")
+    (packs_dir / "bad" / "openpeon.json").write_text('{"categories": {}}')
+    os.utime(packs_dir / "bad" / "openpeon.json", ns=(1, 1))  # a new mtime within one tick
+    assert source.poll().config_warnings == ()
 
 
 def with_context(today: date, latest: dict[str, int]) -> MonthSpend:

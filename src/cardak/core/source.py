@@ -13,7 +13,7 @@ from cardak.collectors import claude, wezterm
 from cardak.collectors.docker import DockerSampler, DockerWork
 from cardak.collectors.machine import MachineSample, MachineSampler
 from cardak.collectors.processes import PaneProcs, ProcessSampler
-from cardak.collectors.soundpacks import read_packs
+from cardak.collectors.soundpacks import packs_stamp, read_packs
 from cardak.core import alerts
 from cardak.core import config as config_mod
 from cardak.core.accounting import account
@@ -127,6 +127,7 @@ class LiveSource:
         self._resolver = ProjectResolver(Config(), git)
         self._art_stamp = art_stamp  # the projects' art files: an edit redraws their images (#9)
         self._art_seen: object = None
+        self._sounds_seen: tuple[object, ...] | None = None
         self._stamp: Stamp | bool = False  # never equal to a real stamp, so the first check loads
         self._reload_if_changed()
 
@@ -147,10 +148,22 @@ class LiveSource:
         # ctime too: a chmod that makes the file readable again changes ctime, not mtime.
         return (st.st_ctime_ns, st.st_mtime_ns, st.st_size, st.st_ino)
 
+    def _check_sounds(self, cfg: Config) -> None:
+        """The sound settings' warnings, again whenever the packs or sounds_dir change (#116)."""
+        root = alerts.pack_root()  # looked up late: tests replace it
+        sounds_dir = cfg.notify.sounds_dir
+        seen = (packs_stamp(root), sounds_dir.is_dir() if sounds_dir is not None else None)
+        if seen == self._sounds_seen:
+            return
+        self._sounds_seen = seen
+        packs = read_packs(root, SOUND_EXTS)
+        self._notify_warnings = tuple(check(cfg.notify, bundled_sounds(), packs))
+
     def _reload_if_changed(self) -> None:
         stamp = self._current_stamp()
         art = self._art_stamp() if self._art_stamp else None
         if stamp == self._stamp:
+            self._check_sounds(self._config)
             if art != self._art_seen:
                 self._art_seen = art
                 if self._config_error is None:
@@ -166,8 +179,8 @@ class LiveSource:
             self._config_error = str(e)
             self._warnings = ()
         self._config = cfg
-        packs = read_packs(alerts.pack_root(), SOUND_EXTS)  # looked up late: tests replace it
-        self._notify_warnings = tuple(check(cfg.notify, bundled_sounds(), packs))
+        self._sounds_seen = None  # a new config: its sound names are checked again
+        self._check_sounds(cfg)
         self._resolver = ProjectResolver(cfg, self._git)
         if self._config_error is None:
             self._run_on_config()

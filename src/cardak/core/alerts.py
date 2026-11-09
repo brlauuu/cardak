@@ -56,7 +56,11 @@ def _user_sounds(settings: NotifySettings) -> dict[str, Path]:
 def named_sounds(
     settings: NotifySettings, bundled: Mapping[str, Path], packs: Packs
 ) -> dict[str, Path]:
-    return {**bundled, **_user_sounds(settings), **{c.name: c.path for c in packs.clips}}
+    clips: dict[str, Path] = {}
+    for c in packs.clips:  # by its file name too, so either of two same-stem clips can be named
+        clips.setdefault(c.name, c.path)
+        clips[f"{c.name.rpartition('/')[0]}/{c.path.name}"] = c.path
+    return {**bundled, **_user_sounds(settings), **clips}
 
 
 def theme_pool(

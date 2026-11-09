@@ -723,3 +723,16 @@ def test_add_project_with_background_off(tmp_path: Path, home: Path) -> None:
     add_project(f, "x", home / "x", background=False)
     assert "background = false" in f.read_text()
     assert load(f).projects[0].background is False
+
+
+def test_empty_sound_keys_are_unset(tmp_path: Path) -> None:
+    # #116: "" was a sound named "" for memory and other, and unset for waiting
+    f = tmp_path / "p.toml"
+    f.write_text(
+        '[notify]\nsound = "off"\nwaiting_sound = ""\nmemory_sound = ""\nother_sound = ""\n'
+    )
+    n = load(f).notify
+    assert (n.waiting_sound, n.memory_sound, n.other_sound) == (None, None, None)
+    assert [n.theme_sound(t) for t in ("waiting", "memory", "other")] == ["off", "off", "off"]
+    f.write_text('[notify]\nsound = ""\n')
+    assert load(f).notify.sound == "random"
