@@ -2,7 +2,7 @@
 
 import subprocess
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -126,3 +126,51 @@ class ProjectResolver:
         found = self._git(cwd)
         root = None if found is None else found[0]
         return OTHER if root is None else Resolved("git", root, root.name)
+
+
+class Warmer:
+    """Asks a resolver about many folders on a thread of its own, so the poll never waits on git
+    for folders no pane is in: those of the month's spend, trends and context (#114). One pass
+    at a time; `ready` waits a moment for it, enough for folders already asked."""
+
+    def __init__(self, wait: float = 0.05) -> None:
+        self._wait = wait
+        self._lock = threading.Lock()
+        self._done: tuple[object, object] | None = None
+        self._running: tuple[object, object] | None = None
+        self._thread: threading.Thread | None = None
+
+    def ready(
+        self, resolver: ProjectResolver, key: object, folders: Callable[[], Iterable[str | None]]
+    ) -> bool:
+        """Whether resolver has answered every folder of key (compared by identity), starting
+        a pass for them when none is running."""
+        token = (resolver, key)
+        with self._lock:
+            if _same(self._done, token):
+                return True
+            if self._thread is None or not self._thread.is_alive():
+                self._running = token
+                self._thread = threading.Thread(
+                    target=self._warm, args=(token, list(folders())), name="cardak-warm",
+                    daemon=True,
+                )  # fmt: skip
+                self._thread.start()
+            thread, running = self._thread, self._running
+        if _same(running, token):
+            thread.join(self._wait)
+        with self._lock:
+            return _same(self._done, token)
+
+    def _warm(self, token: tuple[ProjectResolver, object], folders: list[str | None]) -> None:
+        try:
+            for cwd in folders:
+                token[0].resolve(Path(cwd) if cwd else None)
+        except Exception:  # raised again where the poll groups them; nothing printed here
+            pass
+        with self._lock:
+            self._done = token
+
+
+def _same(a: tuple[object, object] | None, b: tuple[object, object]) -> bool:
+    return a is not None and a[0] is b[0] and a[1] is b[1]

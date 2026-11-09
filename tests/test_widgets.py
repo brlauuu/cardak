@@ -242,7 +242,14 @@ def test_machine_label_levels() -> None:
 
 @pytest.mark.parametrize(
     ("usd", "shown"),
-    [(0.421, "$0.42"), (9.994, "$9.99"), (37.4, "$37"), (1204.6, "$1,205"), (0.0, "$0")],
+    [
+        (0.421, "$0.42"),
+        (9.994, "$9.99"),
+        (37.4, "$37"),
+        (1204.6, "$1,205"),
+        (0.0, "$0"),
+        (0.004, "<$0.01"),
+    ],  # fmt: skip
 )
 def test_fmt_usd(usd: float, shown: str) -> None:
     assert fmt_usd(usd) == shown

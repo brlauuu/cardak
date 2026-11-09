@@ -113,7 +113,7 @@ def test_every_ram_figure_carries_its_share() -> None:
 def test_usd_matches_the_deck() -> None:
     from cardak.ui.widgets import fmt_usd
 
-    values = [0.421, 9.994, 37.4, 1204.6, 0.0, 12345.0]
+    values = [0.421, 9.994, 37.4, 1204.6, 0.0, 12345.0, 0.004, 0.0004]
     script = _js_function("usd") + f"console.log(JSON.stringify({values}.map(usd)));"
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert json.loads(out.stdout) == [fmt_usd(v) for v in values]

@@ -134,3 +134,13 @@ def test_sidechain_replies_are_flagged() -> None:
     main = read_usage(FIXTURES / "session.jsonl", 0)[0].replies
     assert sub and all(r.sidechain for r in sub)
     assert main and not any(r.sidechain for r in main)
+
+
+def test_ends_a_line(tmp_path: Path) -> None:
+    from cardak.collectors.usage import ends_a_line
+
+    f = tmp_path / "t.jsonl"
+    f.write_bytes(b'{"a": 1}\n{"b"')
+    assert ends_a_line(f, 0) and ends_a_line(f, 9) and not ends_a_line(f, 5)
+    assert ends_a_line(f, 99)  # past the end: nothing there to contradict it
+    assert ends_a_line(tmp_path / "gone.jsonl", 9)

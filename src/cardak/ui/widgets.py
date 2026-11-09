@@ -29,9 +29,12 @@ def fmt_rss(rss: int) -> str:
 
 
 def fmt_usd(usd: float) -> str:
-    """ "$0.42" under $10, then whole dollars: "$37", "$1,204"; nothing at all is "$0"."""
+    """ "$0.42" under $10, then whole dollars: "$37", "$1,204"; nothing at all is "$0", and
+    less than a cent "<$0.01" (#114)."""
     if usd == 0:
         return "$0"
+    if usd < 0.005:
+        return "<$0.01"
     return f"${usd:.2f}" if usd < 10 else f"${usd:,.0f}"
 
 

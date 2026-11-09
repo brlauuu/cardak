@@ -98,6 +98,22 @@ def test_counter_rereads_replaced_file_without_doubling(tmp_path: Path, root: Pa
     assert c.step().total == pytest.approx(first)
 
 
+def test_counter_rereads_a_file_rewritten_in_place(tmp_path: Path, root: Path) -> None:
+    # #114: same inode, at least as long: the stored offset no longer ends a line it read
+    c = counter(tmp_path, root)
+    first = c.step().total
+    resumed = root / "-home-user-webshop" / "resumed.jsonl"
+    offset, inode = resumed.stat().st_size, resumed.stat().st_ino
+    data = resumed.read_bytes().replace(b'"msg_', b'"msg_new_').replace(b'"req_', b'"req_new_')
+    assert len(data) > offset and data[offset - 1 : offset] != b"\n"
+    with resumed.open("r+b") as f:
+        f.write(data)
+        f.truncate()
+    assert resumed.stat().st_ino == inode
+    added = [r for r in read_usage(resumed, 0)[0].replies if r.key.startswith("msg_new_")]
+    assert added and c.step().total == pytest.approx(first + sum(map(cost, added)))
+
+
 def test_two_counters_count_once(tmp_path: Path, root: Path) -> None:
     alone = counter(tmp_path, root, "alone.db").step().total
     deck, daemon = counter(tmp_path, root, "shared.db"), counter(tmp_path, root, "shared.db")
@@ -165,6 +181,33 @@ def test_run_logs_and_continues(
     spend.run(c, stop, logged.append)
     assert len(steps) == 2
     assert logged == ["monthly spend: RuntimeError('boom')"]
+
+
+def test_run_logs_a_lasting_problem_once_per_cause(
+    tmp_path: Path, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # #114: a problem that lasts was a hook.log line every 30 s
+    c = counter(tmp_path, root)
+    stop = threading.Event()
+    outcomes = iter(["locked", "locked", "locked", "full", "full", None, "locked"])
+    logged: list[str] = []
+
+    def step() -> MonthSpend:
+        outcome = next(outcomes, "end")
+        if outcome == "end":
+            stop.set()
+        elif outcome is not None:
+            raise RuntimeError(outcome)
+        return MonthSpend(0.0, 0.0, {}, ())
+
+    monkeypatch.setattr(c, "step", step)
+    monkeypatch.setattr(spend, "PASS_EVERY_S", 0.0)
+    spend.run(c, stop, logged.append)
+    assert logged == [
+        "monthly spend: RuntimeError('locked')",
+        "monthly spend: RuntimeError('full')",
+        "monthly spend: RuntimeError('locked')",  # it came back after a pass that worked
+    ]
 
 
 def test_start_runs_in_a_daemon_thread(tmp_path: Path, root: Path) -> None:
