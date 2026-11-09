@@ -9,6 +9,7 @@ from running: problems go to hook.log.
 
 import os
 import signal
+import sys
 import time
 import traceback
 from collections.abc import Callable, Mapping
@@ -30,9 +31,25 @@ def _save(data: bytes, env: Mapping[str, str], now: float) -> None:
         log_problem(env, "statusline: " + traceback.format_exc())
 
 
-def _exec(command: str, data: bytes) -> int:
+NO_SHELL = 127  # what a shell answers for a command it can't find
+TERMINAL_HINT = (
+    "cardak statusline is run by Claude Code, which pipes it the status line's input; "
+    "`cardak statusline install` sets that up, `cardak statusline status` shows it."
+)
+
+
+def _exec(command: str, data: bytes, env: Mapping[str, str]) -> int:
     """Become `sh -c command` with `data` as its stdin: its output and exit code are ours, and
-    nothing is copied or waited for (a subprocess took ~35 ms more per refresh, measured)."""
+    nothing is copied or waited for (a subprocess took ~35 ms more per refresh, measured). When
+    sh can't be run the status line stays blank, so hook.log says why (#118)."""
+    try:
+        return _become_sh(command, data)
+    except OSError as e:
+        log_problem(env, f"statusline: can't run sh for the original command: {e}")
+        return NO_SHELL
+
+
+def _become_sh(command: str, data: bytes) -> int:
     if len(data) > PIPE_MAX:
         import subprocess
 
@@ -44,7 +61,7 @@ def _exec(command: str, data: bytes) -> int:
     os.close(read)
     for sig in (signal.SIGPIPE, signal.SIGXFSZ):  # Python ignores these; exec would keep that
         signal.signal(sig, signal.SIG_DFL)
-    os.execvp("sh", ["sh", "-c", command])
+    os.execvp("sh", ["sh", "-c", command])  # returns only by raising
 
 
 def main(
@@ -55,6 +72,9 @@ def main(
     run: Callable[[str, bytes], int] | None = None,
 ) -> int:
     env = os.environ if env is None else env
+    if stdin.isatty():  # typed by hand: reading would wait with no hint (#118)
+        print(TERMINAL_HINT, file=sys.stderr)
+        return 2
     data = stdin.read()
     if argv and not (len(argv) == 2 and argv[0] == "--then"):
         log_problem(env, f"statusline: ignored arguments {argv!r}")
@@ -62,4 +82,4 @@ def main(
     _save(data, env, clock())
     if not argv:
         return 0
-    return _exec(argv[1], data) if run is None else run(argv[1], data)
+    return _exec(argv[1], data, env) if run is None else run(argv[1], data)

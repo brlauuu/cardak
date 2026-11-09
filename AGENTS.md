@@ -168,7 +168,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   | `~/.config/systemd/user/cardak.service` | `cardak resources install` / `uninstall`, after asking (or `--yes`) | runs `cardak daemon`; first line `# cardak: generated` |
   | `~/.local/state/cardak/hook.log` | `cardak hook`, `cardak summarize`, `cardak statusline` (#70); the deck's spend counter (#29, a lasting problem once per cause, #114) and PM view (#68) | tracebacks and ignored payloads; restarted past 1 MB |
   | `~/.claude/settings.json` | `cardak hooks install` / `uninstall` only, after asking (or `--yes`) | cardak's entries only; a `.cardak-backup-<time>` copy first |
-  | `~/.claude/settings.json` → `statusLine.command` | `cardak statusline install` / `uninstall` only, after asking (or `--yes`) | `<cardak> statusline --then '<the user's command>'`; nothing else in `statusLine` or the file (#70) |
+  | `~/.claude/settings.json` → `statusLine.command` | `cardak statusline install` / `uninstall` only, after asking (or `--yes`) | `<cardak> statusline --then '<the user's command>'`; nothing else in `statusLine` or the file (#70); uninstall removes a `statusLine` cardak added whole, other keys added to it since included, and lists them in what it asks (#118) |
   | `~/.claude/skills/{checkpoint,where-were-we}/SKILL.md` | `cardak skills install` / `uninstall`, after asking (or `--yes`) | the bundled skills; `<!-- cardak: generated -->` after the frontmatter (only those files are replaced or removed; `--force` replaces others) |
   | `<project or worktree>/.cardak/handoff.md` (+ `.cardak/.gitignore` = `*`) | the `/checkpoint` skill (Claude), never cardak; read by the deck's recap and `/where-were-we` | dated entries, newest last |
 - `cardak.lua`'s second line is `-- cardak-module: N`. Bump `MODULE_VERSION`
@@ -504,16 +504,22 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   that on. Claude Code itself runs the command with `/bin/sh -c` (checked 2026-10-30, 2.1.314). Nothing in
   cardak's part (parse, merge, write) can stop the original running; problems go to `hook.log`
   (`core/hooklog.py`). `tests/test_cli.py::test_statusline_imports_only_what_it_needs` keeps
-  Textual, SQLite and the store out. Measured 2026-10-30 at load ~6 (the
-  machine wasn't idle): 65 ms median for `cardak statusline` without `--then` against 23 ms for bare
-  `python -c pass` and 48 ms for `import cardak.cli`; re-measure on an idle machine.
+  Textual, SQLite and the store out. Measured 2026-11-10 at load ~1.4 (40 runs each, medians): 66 ms
+  for `cardak statusline` without `--then` and 59 ms with `--then true`, against 19 ms for bare
+  `python -c pass` and 56 ms for `import cardak.cli` (2026-10-30 at load ~6 gave 65 / 23 / 48, so
+  load isn't what costs). The time is imports: `cardak.cli` takes ~32 ms, 18 of them
+  `core.config` (which the hook needs too), and `core.statusline` ~12. If sh can't be run, the
+  status line stays blank and `hook.log` says why (exit 127, #118); typed in a terminal it prints
+  what it is instead of waiting on stdin.
 - **Merging.** Each session hands over the figures from its own last reply, so an idle one repeats
   an older, lower use. Per window, a later `resets_at` replaces, the same one keeps the higher use,
   an earlier one is ignored; `read_at` moves only for a reading at least as new as the stored one.
   The file is written when a window changed, else at most once a minute.
 - Shown as one row (`ui/widgets.limits_label`, the page's `limitParts`, kept equal by a node test):
   bars of what's left, yellow below 20%, red below 10%, "—" past `resets_at`, "read N min ago" past
-  15 minutes. Halves round up on both sides (`Math.round`). No refresh action: cardak can't ask for
+  15 minutes. The percent left is rounded once, in `core/limits` (Python's `round`, so 27.5 → 28
+  and 26.5 → 26), and both sides get that integer; the bar's cells and the minutes are rounded
+  half up on both (`int(x + 0.5)` against `Math.round`, equal for the positive values there). No refresh action: cardak can't ask for
   new numbers. Only `~/.claude/settings.json` is wrapped; a project's or managed `statusLine`
   overrides it and those sessions report nothing.
 

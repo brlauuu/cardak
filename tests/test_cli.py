@@ -309,7 +309,7 @@ def test_statusline_imports_only_what_it_needs(tmp_path: Path) -> None:
         f"sys.stdin = io.TextIOWrapper(io.BytesIO({plan!r}))\n"
         "sys.argv = ['cardak', 'statusline', '--then', 'printf ok']\n"
         "import cardak.core.statusline as sl\n"
-        "sl._exec = lambda command, data: print(command, end='') or 0\n"  # exec would end us here
+        "sl._become_sh = lambda command, data: print(command, end='') or 0\n"  # no exec over us
         "from cardak.cli import main\n"
         "assert main() == 0\n"
         f"loaded = [m for m in {STATUSLINE_FORBIDDEN!r} if m in sys.modules]\n"

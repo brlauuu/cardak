@@ -143,3 +143,15 @@ def test_statusline_help_is_not_the_wrapper(capsys: pytest.CaptureFixture[str]) 
     with pytest.raises(SystemExit):
         main(["statusline", "--help"])
     assert "install" in capsys.readouterr().out
+
+
+def test_uninstall_lists_keys_added_to_cardaks_statusline() -> None:
+    # cardak made the entry; a padding added since goes with it, and the confirmation says so (#118)
+    after = with_statusline({}, EXE)
+    after["statusLine"]["padding"] = 2
+    removed = without_statusline(after)
+    assert removed == {}
+    assert changes(after, removed) == [
+        "- statusLine.command: /u/bin/cardak statusline",
+        "- statusLine.padding: 2",
+    ]
