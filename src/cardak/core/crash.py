@@ -43,6 +43,7 @@ class Gone:
     pid: int
     scope: str | None
     ts: float
+    others: int = 0  # other GUIs running when it went: the deck lists only the newest one's panes
 
 
 @dataclass(frozen=True)
@@ -106,8 +107,9 @@ class CrashWatch:
         self._snaps: deque[tuple[float, DeckSnapshot]] = deque()  # good ones, for "then"
 
     def observe(self, guis: Mapping[int, str | None], snap: DeckSnapshot, now: float) -> None:
+        others = len(self._guis) - 1
         self._pending += [
-            Gone(pid, scope, now) for pid, scope in self._guis.items() if pid not in guis
+            Gone(pid, scope, now, others) for pid, scope in self._guis.items() if pid not in guis
         ]
         self._guis = {pid: scope or self._guis.get(pid) for pid, scope in guis.items()}
         if snap.machine is not None:
@@ -128,6 +130,8 @@ class CrashWatch:
             if not series:
                 del self._series[key]
         self._pids = {p: seen for p, seen in self._pids.items() if seen[1] >= now - PID_KEEP_S}
+        kept = self._series.keys() | {pane for pane, _ in self._pids.values()}
+        self._panes = {pane: info for pane, info in self._panes.items() if pane in kept}
 
     def _record_panes(self, snap: DeckSnapshot, now: float) -> None:
         for g in snap.groups:
@@ -162,9 +166,18 @@ class CrashWatch:
         machines = [m for ts, m in self._machine if ts < cutoff] or [m for _, m in self._machine]
         return (snaps[-1] if snaps else None), (machines[-1] if machines else None)
 
-    def _killed(self, k: OomKill) -> str:
+    def _killed(self, k: OomKill, gone: Gone) -> str:
+        if k.pid == gone.pid:
+            held = f", {gb(k.anon_rss)}" if k.anon_rss else ""
+            return f"The kernel killed WezTerm itself (`{k.task}`, pid {k.pid}{held})."
         seen = self._pids.get(k.pid)
         series = self._series.get(seen[0]) if seen else None
+        if (seen is None or not series) and gone.others:
+            return (
+                f"The kernel killed `{k.task}` (pid {k.pid}) in this WezTerm's window. cardak "
+                f"lists the panes of the newest WezTerm only, and {gone.others + 1} were running, "
+                "so it didn't see that pane."
+            )
         if seen is None or not series:
             return (
                 f"The kernel killed `{k.task}` (pid {k.pid}), which cardak didn't see in a "
@@ -213,14 +226,16 @@ class CrashWatch:
         biggest = _biggest(snap)
         if not (kills or failed or critical):
             return _quiet(gone, kernel is not None, biggest)
-        killed = self._killed(max(kills, key=lambda k: k.anon_rss or 0)) if kills else None
+        top = max(kills, key=lambda k: k.anon_rss or 0) if kills else None
+        killed = self._killed(top, gone) if top else None
+        policy = failed and (top is None or top.pid != gone.pid)  # a dead GUI no policy keeps
         sentences = [
             f"WezTerm was closed at {_when(gone.ts)}.",
             self._memory(critical, machine),
             killed,
-            POLICY if failed else None,
+            POLICY if policy else None,
             biggest,
-            FIX if failed else None,
+            FIX if policy else None,
         ]
         text = " ".join(s for s in sentences if s)
         return CrashReport(True, "cardak · WezTerm closed: out of memory", text)

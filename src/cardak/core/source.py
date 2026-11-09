@@ -474,13 +474,15 @@ class LiveSource:
     def _resources(self, snap: DeckSnapshot) -> DeckSnapshot:
         """Docker attributed, Other as the remainder, sparklines and threshold marks."""
         machine = self._sample_machine()
+        roots = [p.path for p in self._config.projects]
+        roots += [g.key for g in snap.groups if g.kind == "git" and g.key]
+        docker = self._sample_docker()
         if snap.error is None:
-            roots = [p.path for p in self._config.projects]
-            roots += [g.key for g in snap.groups if g.kind == "git" and g.key]
-            docker = self._sample_docker()
             snap = account(snap, docker, machine, roots, self._make_group, self._resolver.real)
-        else:
-            snap = replace(snap, machine=machine)
+        else:  # no panes, but a project's containers still run; the rest stays the remainder
+            held = account(snap, docker, None, roots, self._make_group, self._resolver.real)
+            projects = tuple(g for g in held.groups if g.kind != "other")
+            snap = replace(snap, groups=projects, machine=machine)
         self._recent.record(snap)
         if machine is None:
             return snap

@@ -14,6 +14,7 @@ from cardak.collectors.wezterm import Pane, WeztermUnavailable
 from cardak.core.agents import FocusChange, SessionState, mark_seen
 from cardak.core.config import Config
 from cardak.core.context import ContextSeries, SessionLine
+from cardak.core.history import Rollup
 from cardak.core.resources import derive
 from cardak.core.snapshot import DeckSnapshot
 from cardak.core.source import LiveSource
@@ -582,6 +583,23 @@ def test_unreachable_wezterm_still_shows_machine(tmp_path: Path) -> None:
     snap = resourced(tmp_path / "p.toml", list_panes=unavailable).poll()
     assert snap.error == "no WezTerm GUI socket found"
     assert snap.machine_view is not None and snap.groups == ()
+
+
+def test_unreachable_wezterm_keeps_projects_containers(tmp_path: Path) -> None:
+    # #109: a compose stack left running with WezTerm closed went into Other's history
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(WEBSHOP_CFG)
+    db = DockerWork("container", "i", "webshop-db-1", 3 * GIB, 5.0, HOME / "repos/webshop")
+    stray = DockerWork("container", "j", "stray-1", GIB, 1.0, None)
+    snap = resourced(cfg, docker=lambda: [db, stray], list_panes=unavailable).poll()
+    assert snap.error == "no WezTerm GUI socket found"
+    [webshop] = snap.groups  # no Other group: the machine's remainder is Other, as before
+    assert webshop.name == "webshop" and webshop.rss == 3 * GIB
+    assert [line.label for line in webshop.docker] == ["docker: webshop-db-1"]
+    rollup = Rollup()
+    rollup.add(snap, 0.0)
+    other = {r.subject: r for r in rollup.flush()}["other"]
+    assert other.ram_mean == 20 * GIB - 3 * GIB  # the machine's 20 GB used, less webshop's
 
 
 def test_sampler_errors_do_not_break_poll(tmp_path: Path) -> None:

@@ -172,3 +172,51 @@ def test_earlier_kill_does_not_make_a_normal_quit_loud() -> None:
     [gone] = w.due(G + 95)
     rep = w.report(gone, kernel(), [], None)  # the kill is in the journal, no failed scope
     assert not rep.loud
+
+
+def gui_kill(pid: int, ts: float = G - 1.6) -> list[JournalEntry]:
+    """The kernel killing WezTerm's own GUI process in SCOPE."""
+    memcg = f"/user.slice/user-1000.slice/user@1000.service/app.slice/{SCOPE}"
+    return [
+        JournalEntry(ts, "oom-kill:constraint=CONSTRAINT_NONE,nodemask=(null),cpuset=/,"
+                     f"mems_allowed=0,global_oom,task_memcg={memcg},task=wezterm-gui,pid={pid},"
+                     "uid=1000"),
+        JournalEntry(ts, f"Out of memory: Killed process {pid} (wezterm-gui) "
+                     "total-vm:9000000kB, anon-rss:5242880kB, file-rss:8kB, shmem-rss:0kB"),
+    ]  # fmt: skip
+
+
+def test_a_kill_in_another_guis_window_says_cardak_lists_one_gui() -> None:
+    w = CrashWatch()
+    both = {7: SCOPE, 8: OTHER_SCOPE}
+    listed = DeckSnapshot(machine=FULL)  # the deck lists GUI 8's panes; pytest ran in GUI 7's
+    w.observe(both, listed, G - 6)
+    w.observe({8: OTHER_SCOPE}, listed, G)
+    [gone] = w.due(G + 5)
+    rep = w.report(gone, kernel(), user(), None)
+    assert rep.loud
+    assert (
+        "The kernel killed `pytest` (pid 41872) in this WezTerm's window. cardak lists the panes "
+        "of the newest WezTerm only, and 2 were running, so it didn't see that pane."
+    ) in rep.text
+    assert "didn't see in a WezTerm pane" not in rep.text
+
+
+def test_the_gui_itself_killed() -> None:
+    w = CrashWatch()
+    w.observe({7: SCOPE}, snap(2.0), G - 6)
+    w.observe({}, DeckSnapshot(error="no WezTerm GUI socket found", machine=FULL), G)
+    [gone] = w.due(G + 5)
+    rep = w.report(gone, gui_kill(7), user(), None)
+    assert rep.loud
+    assert "The kernel killed WezTerm itself (`wezterm-gui`, pid 7, 5.0 GB)." in rep.text
+    assert "didn't see" not in rep.text
+    assert "OOMPolicy" not in rep.text and "drop-in" not in rep.text  # it can't keep a dead GUI
+
+
+def test_panes_that_are_gone_are_forgotten() -> None:
+    w = CrashWatch()
+    w.observe({7: SCOPE}, snap(2.0), 0.0)
+    for t in range(1, 400):  # the panes close; ten minutes of polls without them
+        w.observe({7: SCOPE}, DeckSnapshot(machine=CALM), t * 2.0)
+    assert w._panes == {}  # pyright: ignore[reportPrivateUsage]
