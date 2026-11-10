@@ -10,6 +10,7 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 ## Unreleased
 
 ### Fixed
+- The PM view's board, the price list, plan limits, summary and web keys and the scheme cache are now written through a symlink, as the theme files and `projects.toml` already were, instead of replacing the link with a plain file; a failed write of the scheme cache no longer leaves a temporary file behind (#137).
 - The deck no longer stops responding for a moment when you add a project or change its look: the project's background art is made in the background, and its theme follows a moment later (#129).
 
 ## 0.17.2 — 2026-11-10

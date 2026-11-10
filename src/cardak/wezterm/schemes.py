@@ -4,6 +4,7 @@
 opening a window. The result is cached per WezTerm version.
 """
 
+import contextlib
 import json
 import os
 import re
@@ -13,6 +14,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from cardak.core.themes import Scheme
+from cardak.shared.files import write_atomic
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -135,12 +137,6 @@ def load_schemes(cache_dir: Path, runner: Runner = subprocess.run) -> dict[str, 
     schemes = parse_schemes(data)
     if not schemes:
         raise SchemesUnavailable("wezterm returned no schemes")
-    try:  # the cache is an optimisation; failing to write it is not an error
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=cache_dir, prefix=".schemes.", suffix=".json")
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f)
-        os.replace(tmp, cache)
-    except OSError:
-        pass
+    with contextlib.suppress(OSError):  # the cache is an optimisation, not a requirement
+        write_atomic(cache, json.dumps(data), new_mode=0o600)
     return schemes

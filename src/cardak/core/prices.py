@@ -5,9 +5,7 @@ daemon (`PriceBook.refresh`) and cached; `BUILTIN` covers a first run with no ne
 """
 
 import json
-import os
 import re
-import tempfile
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -15,6 +13,7 @@ from pathlib import Path
 from cardak.collectors import prices
 from cardak.collectors.prices import ModelPrice, Rates
 from cardak.collectors.usage import Reply
+from cardak.shared.files import write_atomic
 
 MAX_AGE_S = 86_400.0
 RETRY_S = 3_600.0  # after a failed download: offline must not mean a 10 s wait every pass
@@ -65,18 +64,6 @@ def reply_cost(price: ModelPrice, r: Reply) -> float:
     )
 
 
-def _write_atomic(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-
-
 class PriceBook:
     """The current prices: the cached download over BUILTIN. Used from one thread."""
 
@@ -113,7 +100,7 @@ class PriceBook:
             entries = prices.select(self._fetch())
             if not prices.parse(entries):
                 raise ValueError("no Claude prices in the download")
-            _write_atomic(self._file, json.dumps(entries))
+            write_atomic(self._file, json.dumps(entries), new_mode=0o600)
         except Exception as e:
             self._failed_at = now
             self._log(f"couldn't update prices: {e!r}")

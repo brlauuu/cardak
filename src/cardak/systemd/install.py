@@ -8,9 +8,10 @@ OOMPolicy defaults to `stop`, so one OOM kill closes the whole window. A prefix 
 import os
 import re
 import subprocess
-import tempfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
+
+from cardak.shared.files import write_atomic
 
 MARKER = "# cardak: generated"
 UNIT = "cardak.service"
@@ -67,16 +68,7 @@ def write_unit(path: Path, text: str, force: bool = False) -> None:
     """Atomic, mode 0644; refuses a unit cardak didn't write unless force. Raises OSError."""
     if path.exists() and not force and not is_ours(path):
         raise FileExistsError(f"{path} was not written by cardak (use --force to replace it)")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    write_atomic(path, text, mode=0o644)
 
 
 def _systemctl(run: Run, *args: str) -> subprocess.CompletedProcess[str] | str:

@@ -9,9 +9,7 @@ seconds, without asking GitHub. Each repository's last fetch and done column are
 
 import contextlib
 import json
-import os
 import re
-import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -46,6 +44,7 @@ from cardak.core.pm import (
 from cardak.core.pm_done import done_hash, write_done
 from cardak.core.store import Store, StoreError
 from cardak.core.summary import ProviderTools
+from cardak.shared.files import write_atomic
 
 REFRESH_EVERY = 3600.0
 ERROR_RETRY = 300.0  # after a failed fetch (offline, logged out); `R` is always sooner
@@ -93,15 +92,7 @@ class _Repo:
 
 
 def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    write_atomic(path, text, new_mode=0o600)
 
 
 def _labels(items: Sequence[Mapping[str, Any]]) -> tuple[Label, ...]:

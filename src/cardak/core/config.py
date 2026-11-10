@@ -426,25 +426,13 @@ def _appended(existing: str, block: str) -> str:
 
 
 def _atomic_write(path: Path, target: Path, text: str) -> None:
-    """Replace target with text via a temp file in its directory, keeping its mode."""
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
-        import tempfile
+    """Replace target with text atomically, keeping its mode; ConfigError naming path."""
+    from cardak.shared.files import write_atomic
 
-        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".projects.", suffix=".toml")
+    try:
+        write_atomic(target, text)
     except OSError as e:
         raise ConfigError(path, f"cannot write: {e}") from e
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.chmod(tmp, mode)  # mkstemp creates 0600
-        os.replace(tmp, target)
-    except BaseException as e:
-        Path(tmp).unlink(missing_ok=True)
-        if isinstance(e, OSError):
-            raise ConfigError(path, f"cannot write: {e}") from e
-        raise
 
 
 def add_project(

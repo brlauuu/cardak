@@ -4,8 +4,6 @@ The pure parts: the tag, the input sent to the model, validation of what comes b
 and the API key file. `core/summarize.py` runs the job; providers live in `cardak.llm`.
 """
 
-import os
-import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,6 +16,7 @@ from cardak.collectors.transcripts import Entry
 from cardak.core.agents import KIND_LABELS, SessionState, WaitKind
 from cardak.core.config import KEYED, ProviderSettings, key_file
 from cardak.core.prices import lookup
+from cardak.shared.files import write_atomic
 
 MODEL = "claude-haiku-5-5"
 TAGS: dict[WaitKind, str] = {"permission": "approve", "question": "decide", "finished": "review"}
@@ -98,15 +97,7 @@ def provider_key(name: str, keys_dir: Path) -> str | None:
 
 def write_key(path: Path, key: str) -> None:
     """Save a provider's key atomically, readable by its owner only."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:  # mkstemp makes it 0600
-            f.write(key.strip() + "\n")
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    write_atomic(path, key.strip() + "\n", mode=0o600)
 
 
 def key_warning(path: Path) -> str | None:

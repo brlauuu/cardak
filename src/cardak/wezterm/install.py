@@ -7,7 +7,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
-from cardak.wezterm.files import write_atomic
+from cardak.shared.files import write_atomic
 
 MARKER = "-- cardak: generated"
 

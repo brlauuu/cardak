@@ -48,7 +48,8 @@ src/cardak/
   ui/pm.py                                             # #68: `p` / `P`, the PM view
   ui/context_plot.py                                   # #86: one project's sessions over a day
   web/{view, server, key, lan}.py, page.html          # M7: the read-only page for phones
-  wezterm/{cardak.lua, generate.py, install.py, schemes.py, files.py, tint.zsh}
+  wezterm/{cardak.lua, generate.py, install.py, schemes.py, tint.zsh}
+  shared/files.py         # #137: `write_atomic`, the one atomic write; stdlib only
   claude/install.py       # M4: cardak's hooks in ~/.claude/settings.json
   claude/statusline.py    # #70: wraps statusLine.command in ~/.claude/settings.json
   claude/skills.py        # M6: installs claude/skills/{checkpoint,where-were-we}/SKILL.md
@@ -69,7 +70,11 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
   imports `ui`, `cardak.web`, `cardak.wezterm`, `cardak.claude`, `cardak.llm` or `cardak.systemd`, `collectors`
   import nothing from cardak, and `wezterm/` (the Lua module and its installer), `claude/` (the
   hooks installer), `llm/` (model providers for waiting summaries) and `systemd/` (the alert
-  service's unit) import nothing from cardak. `core`
+  service's unit) import nothing from cardak, except `shared/`: stdlib-only helpers every layer
+  may import, which import nothing from cardak themselves (#137). Every file cardak writes goes
+  through `shared.files.write_atomic` (a temp file beside it, then `os.replace`; through a
+  symlink; mode kept, or forced with `mode=` for keys). `tests/test_layers.py` checks these
+  rules. `core`
   defines the `Summarizer` protocol; `cli.py` hands it a provider. `core/filter.py` is core's only
   Textual import (`textual.fuzzy`). `cli.py` is the only module at the
   package root besides `__init__.py`; anything else at that level makes `src/cardak`
@@ -827,6 +832,9 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `cli._resources_install` (11: `_defaults_note`), and computes the config path once there.
   Accepted: `daemon.log` at fan-in 14 with #113's callers (`_list_guis` and `_config_problem` are
   two more lines in the daemon's one log).
+- **#137 (one atomic write)** folded twelve copies into `shared.files.write_atomic`. Reported
+  as designed: its fan-in (15: every file cardak writes) and `src/cardak/shared` as the most
+  depended-upon package (Ca 5, I 0.00): a stable, stdlib-only leaf is what it is for.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.
