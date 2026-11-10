@@ -26,6 +26,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - In the history's usage figures, the dates above the grid are the grid's own, so a screen opened just after midnight no longer labels each day with the next one's date (#115).
 - The history's usage legend says that All projects is shaded relative to its own busiest day (#115).
 - On the phone page, the Trends and Projects sheets say "can't reach cardak" instead of "loading…" forever, opening one without a key no longer swaps the "open the link" notice for "no longer valid", the figure picker no longer closes under you when the sheet refreshes, and picking "context" no longer sticks on "loading…" (#115).
+- Of two clips in a sound pack with the same name (`A.wav` and `A.mp3`), either can now be chosen by its file name (`pack/A.mp3`), and `pack/A` always means the same one (#116).
+- A sound pack fixed, broken or added while the deck runs updates its warning at once, without editing the config (#116).
+- An empty sound setting (`memory_sound = ""`) means the same as leaving it out, instead of a sound called "" (#116).
 - For a Claude session with no status yet (one left idle for over a week, for instance), `c` and `i` now say its status shows after its next prompt, and suggest `cardak hooks install` only when the hooks really aren't installed (#110).
 - The waiting summary for an MCP dialog that opens over a permission prompt now describes the dialog, instead of mixing it up with the command waiting for permission (#110).
 

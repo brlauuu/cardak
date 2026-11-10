@@ -15,7 +15,7 @@ MANIFEST = "openpeon.json"
 
 @dataclass(frozen=True)
 class Clip:
-    name: str  # "<folder>/<file stem>"
+    name: str  # "<folder>/<file stem>"; "<folder>/<file name>" names it too (alerts.named_sounds)
     path: Path
     categories: frozenset[str]
 
@@ -56,7 +56,8 @@ def _clips(folder: Path, categories: dict[object, object], exts: tuple[str, ...]
             path = (folder / file).resolve()
             if path.is_relative_to(base) and path.suffix.lower() in exts and path.is_file():
                 found.setdefault(path, set()).add(category)
-    return [Clip(f"{folder.name}/{p.stem}", p, frozenset(c)) for p, c in found.items()]
+    # by file name: of two clips with one stem (A.mp3, A.wav), "<folder>/A" is the first (#116)
+    return [Clip(f"{folder.name}/{p.stem}", p, frozenset(found[p])) for p in sorted(found)]
 
 
 def _files(entry: object) -> list[str]:
@@ -66,3 +67,23 @@ def _files(entry: object) -> list[str]:
         return []
     files = (s.get("file") if isinstance(s, dict) else None for s in sounds)
     return [f for f in files if isinstance(f, str)]
+
+
+def packs_stamp(root: Path) -> tuple[object, ...]:
+    """What changes when a pack is added, removed or edited: the root's and each pack folder's
+    mtime and each manifest's, a few stats. A clip deleted in a pack's subfolder isn't seen."""
+    found: list[object] = []
+    try:
+        found.append(root.stat().st_mtime_ns)
+        folders = sorted(p for p in root.iterdir() if p.is_dir())
+    except OSError:
+        return ()
+    for folder in folders:
+        for path in (folder, folder / MANIFEST):
+            try:
+                st = path.stat()
+            except OSError:
+                found.append((str(path), None))
+                continue
+            found.append((str(path), st.st_mtime_ns, st.st_size))
+    return tuple(found)

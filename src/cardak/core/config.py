@@ -291,7 +291,7 @@ def _notify(path: Path, data: Mapping[str, object]) -> NotifySettings:
         raise ConfigError(path, "[notify] sounds_dir must be a string")
     return NotifySettings(
         desktop,
-        sound,
+        sound or "random",  # "" is the default spelled out, as for the theme keys (#116)
         Path(sounds_dir).expanduser() if sounds_dir else None,
         *_theme_sounds(path, raw),
     )
@@ -304,7 +304,7 @@ def _theme_sounds(path: Path, raw: Mapping[str, object]) -> list[str | None]:
         value = raw.get(f"{t}_sound")
         if value is not None and not isinstance(value, str):
             raise ConfigError(path, f"[notify] {t}_sound must be a string")
-        values.append(value)
+        values.append(value or None)  # "": unset, so it follows `sound` (#116)
     return values
 
 

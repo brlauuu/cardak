@@ -104,7 +104,10 @@ sounds_dir = "~/sounds/cardak" # optional: your own .wav/.oga/.ogg/.mp3 files jo
 
 Each sound is `"random"`, `"off"` (the notification still shows) or a name: a built-in one
 (chime, pluck, bell, blip, drop), a file in `sounds_dir`, or a pack clip as `<pack folder>/<file
-name without extension>`. The older `sound` key still works and stands for `waiting_sound`.
+name without extension>`, or with it (`<pack folder>/A.mp3`) when two clips share a name. An
+empty `""` is the same as leaving the key out. The older `sound` key still works and stands for
+`waiting_sound`; `sound = "off"` with none of the three set silences them all, as it did before
+there were three.
 
 **Sound packs.** Copy packs in the openpeon format (a folder with `openpeon.json` and its clips)
 into `src/cardak/sounds/packs/` of an editable install. That folder is git-ignored and left out

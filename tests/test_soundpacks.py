@@ -89,3 +89,15 @@ def test_uppercase_extension(tmp_path: Path) -> None:
 
 def test_missing_root(tmp_path: Path) -> None:
     assert read_packs(tmp_path / "none", EXTS) == Packs((), ())
+
+
+def test_packs_stamp_changes_with_a_manifest(tmp_path: Path) -> None:
+    from cardak.collectors.soundpacks import packs_stamp
+
+    assert packs_stamp(tmp_path / "missing") == ()
+    d = _pack(tmp_path, "demo", {})
+    (tmp_path / "loose").mkdir()  # no manifest: listed as missing one
+    before = packs_stamp(tmp_path)
+    assert (str(tmp_path / "loose" / "openpeon.json"), None) in before
+    (d / "openpeon.json").write_text('{"categories": {"input.required": {}}}')
+    assert packs_stamp(tmp_path) != before
