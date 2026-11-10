@@ -8,8 +8,6 @@ higher figure and a later `resets_at` is a new window.
 
 import fcntl
 import json
-import os
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +15,7 @@ from typing import Literal
 
 from cardak.collectors.limits import Reading, Window
 from cardak.core.config import state_dir
+from cardak.shared.files import write_atomic
 
 MIN_WRITE_S = 60  # an unchanged reading rewrites the file at most this often
 STALE_S = 900  # older than this, the row says how old it is
@@ -98,15 +97,7 @@ def _save(path: Path, stored: Stored) -> None:
             "seven_day": _window_json(stored.seven_day),
         }
     )
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    write_atomic(path, text, mode=0o600)
 
 
 def record(path: Path, reading: Reading, now: float) -> None:

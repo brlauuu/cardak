@@ -8,7 +8,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
-from cardak.claude.install import write_atomic
+from cardak.shared.files import write_atomic
 
 NAMES = ("checkpoint", "where-were-we")
 MARKER = "<!-- cardak: generated -->"
@@ -61,7 +61,7 @@ def install(dir: Path, force: bool) -> list[Path]:
     for name, state in states.items():
         if state != "installed":
             path = dir / name / FILE
-            write_atomic(path.resolve() if path.exists() else path, bundled(name), 0o644)
+            write_atomic(path, bundled(name))
             written.append(path)
     return written
 

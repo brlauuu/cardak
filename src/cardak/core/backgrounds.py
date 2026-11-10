@@ -11,7 +11,6 @@ import hashlib
 import json
 import os
 import re
-import tempfile
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -23,6 +22,7 @@ from cardak.collectors.logos import readme_images
 from cardak.core.ascii_art import ArtError, load_image, logo_art, name_art
 from cardak.core.config import Config, Project, cache_dir, config_dir, real_path, state_dir
 from cardak.core.themes import Scheme
+from cardak.shared.files import write_atomic
 
 if TYPE_CHECKING:
     from PIL.ImageFont import FreeTypeFont, ImageFont
@@ -164,23 +164,6 @@ def read_art(file: Path) -> str | None:
     return art or None
 
 
-def _write_atomic(path: Path, data: bytes) -> None:
-    """Replace the file via a temp file beside it, through a symlink (dotfiles kept elsewhere)
-    and keeping its mode (new files: 0644). Raises OSError."""
-    target = real_path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    mode = target.stat().st_mode & 0o777 if target.exists() else 0o644
-    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.chmod(tmp, mode)
-        os.replace(tmp, target)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-
-
 def _entry(item: tuple[object, object]) -> bool:
     """A record entry: a project path and a plain `.txt` file name in the art folder."""
     path, name = item
@@ -282,7 +265,7 @@ def _ensure_locked(
     if made:
         data = {"version": RECORD_VERSION, "generated": dict(sorted(done.items()))}
         try:
-            _write_atomic(paths.record, (json.dumps(data, indent=1) + "\n").encode())
+            write_atomic(paths.record, (json.dumps(data, indent=1) + "\n").encode())
         except OSError as e:
             problems.append(f"couldn't write {paths.record}: {e}")
     return problems
@@ -336,7 +319,7 @@ def render(text: str, color: str, cache: Path, font: Path | None) -> Image:
     key = hashlib.sha1("\0".join((text, color, str(font), str(FONT_PX))).encode()).hexdigest()
     target = cache / f"{key[:16]}.png"
     if not _touch(target):
-        _write_atomic(target, _draw(lines, color, font))
+        write_atomic(target, _draw(lines, color, font))
     return Image(target, cols, rows)
 
 

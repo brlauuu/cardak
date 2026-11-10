@@ -7,14 +7,14 @@ nothing from cardak.
 
 import copy
 import json
-import os
 import shlex
 import shutil
-import tempfile
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
+
+from cardak.shared.files import write_atomic
 
 EVENTS = (
     "SessionStart",
@@ -163,7 +163,7 @@ def save_settings(path: Path, data: Settings, now: datetime) -> Path | None:
         backup = backup_path(path, now)
         shutil.copy2(target, backup)
     text = json.dumps(data, indent=indent, ensure_ascii=False) + "\n"
-    write_atomic(target, text, 0o600)
+    write_atomic(target, text, new_mode=0o600)
     return backup
 
 
@@ -179,21 +179,6 @@ def _indent(text: str) -> int | str:
         if spaces:
             return spaces
     return 2
-
-
-def write_atomic(target: Path, text: str, new_mode: int) -> None:
-    """Replace target via a temp file beside it; keep its mode (a new file gets new_mode)."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    mode = target.stat().st_mode & 0o777 if target.exists() else new_mode
-    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.chmod(tmp, mode)
-        os.replace(tmp, target)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
 
 
 def find_executable(argv0: str, which: Callable[[str], str | None] | None = None) -> Path | None:

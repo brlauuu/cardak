@@ -9,7 +9,7 @@ from pathlib import Path
 from cardak.core.backgrounds import Image
 from cardak.core.config import Config, Project, real_path
 from cardak.core.themes import Scheme, project_tint
-from cardak.wezterm.files import write_atomic
+from cardak.shared.files import write_atomic
 from cardak.wezterm.install import MARKER
 
 MODULE_VERSION = 6
