@@ -29,6 +29,10 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - Of two clips in a sound pack with the same name (`A.wav` and `A.mp3`), either can now be chosen by its file name (`pack/A.mp3`), and `pack/A` always means the same one (#116).
 - A sound pack fixed, broken or added while the deck runs updates its warning at once, without editing the config (#116).
 - An empty sound setting (`memory_sound = ""`) means the same as leaving it out, instead of a sound called "" (#116).
+- On the phone, a session with more than 99 compactions in the window no longer loses the end of its context line (#117).
+- The deck's context day plot spreads a 23- or 25-hour day (a daylight-saving change) over its width, with each hour under its own label, and fits a terminal 44 columns wide instead of needing 55 (#117).
+- On the phone, a session's context line holds until its next reply and then jumps, as in the deck, instead of sloping between replies; a picked day stays picked when the window moves on at midnight (#117).
+- If marking older subagent replies (a one-time pass after upgrading) fails halfway, the retry no longer reads every transcript of the last 30 days again (#117).
 - For a Claude session with no status yet (one left idle for over a week, for instance), `c` and `i` now say its status shows after its next prompt, and suggest `cardak hooks install` only when the hooks really aren't installed (#110).
 - The waiting summary for an MCP dialog that opens over a permission prompt now describes the dialog, instead of mixing it up with the command waiting for permission (#110).
 

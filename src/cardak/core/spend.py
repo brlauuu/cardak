@@ -100,6 +100,7 @@ class SpendCounter:
         self._built_on: tuple[object, ...] | None = None  # what latest was built from
         self._backfilled = False
         self._mtimes: dict[Path, float] = {}  # each file's mtime when this counter last read it
+        self._flagged_files: set[Path] = set()  # this start's backfill: the files it finished
 
     def _read(self, f: TranscriptFile, stored: tuple[int, int] | None) -> None:
         inode, offset = stored or (f.inode, 0)
@@ -133,13 +134,17 @@ class SpendCounter:
             return
         full = not self.store.backfilled(SIDECHAINS) and self.store.usage_mark() != (0, 0)
         for f in transcript_files(self._root, window_start(today)):
+            if f.path in self._flagged_files:
+                continue  # done before a later batch failed: not read again (#117)
             if full or len(f.path.relative_to(self._root).parts) > 2:
                 keys = _sidechain_keys(f)
                 for i in range(0, len(keys), BATCH):
                     self.store.flag_sidechains(keys[i : i + BATCH])
+            self._flagged_files.add(f.path)
         if not self.store.backfilled(SIDECHAINS):
             self.store.mark_backfilled(SIDECHAINS, now)
         self._backfilled = True
+        self._flagged_files.clear()
 
     def step(self) -> MonthSpend:
         now = self._clock()

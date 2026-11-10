@@ -206,7 +206,11 @@ def thin(points: Sequence[Point]) -> list[Point]:
     if len(points) <= MAX_POINTS:
         return list(points)
     keep = {0, len(points) - 1}
-    for i in drop_indices(points):
+    drops = drop_indices(points)
+    room = (MAX_POINTS - 2) // 2
+    if len(drops) > room:  # more drops than fit: evenly chosen ones, never the tail cut (#117)
+        drops = [drops[k * len(drops) // room] for k in range(room)]
+    for i in drops:
         keep |= {i - 1, i}
     spare = MAX_POINTS - len(keep)
     if spare > 0:

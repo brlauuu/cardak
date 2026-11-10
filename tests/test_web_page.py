@@ -265,3 +265,24 @@ console.log(JSON.stringify([out, log]));
     out, log = json.loads(done.stdout)
     assert out == [True, True, "new", False, "new", True, False, "new", False]
     assert log == ["notice:", "poll:old", "close", "stop:bad", "notice:", "poll:new"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_context_line_is_steps() -> None:
+    # #117: context holds until the next reply, then jumps, as the deck draws it; not a slope
+    script = _js_function("steps") + (
+        "console.log(JSON.stringify(steps([[0, 10], [5, 30], [9, 4]], (t) => t, (v) => v)));"
+    )
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) == [[0, 10], [5, 10], [5, 30], [9, 30], [9, 4]]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_picked_context_day_is_a_date() -> None:
+    # #117: kept as an index, a picked day moved to the next one at midnight
+    script = _js_function("dayIso") + (
+        'const trends = {first: "2026-10-11"};'
+        "console.log(JSON.stringify([dayIso(0), dayIso(14), dayIso(29)]));"
+    )
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) == ["2026-10-11", "2026-10-25", "2026-11-09"]

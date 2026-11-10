@@ -190,12 +190,14 @@ def test_newer_compatible_db_opens_untouched(tmp_path: Path) -> None:
     con = sqlite3.connect(tmp_path / "db")
     assert con.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION + 5  # not lowered
     assert con.execute("PRAGMA application_id").fetchone()[0] == 1  # not rewritten
+    con.close()
 
 
 def test_new_store_records_min_reader(tmp_path: Path) -> None:
     Store(tmp_path / "db").close()
     con = sqlite3.connect(tmp_path / "db")
     assert con.execute("PRAGMA application_id").fetchone()[0] == MIN_READER == 1
+    con.close()
 
 
 def test_unopenable_path_raises_store_error(tmp_path: Path) -> None:
@@ -615,6 +617,7 @@ def test_schema_7_keeps_min_reader(tmp_path: Path) -> None:
     con = sqlite3.connect(tmp_path / "c.db")
     assert con.execute("PRAGMA user_version").fetchone()[0] == 7
     assert con.execute("PRAGMA application_id").fetchone()[0] == 1
+    con.close()
 
 
 def test_pm_summaries_pruned_with_summaries(tmp_path: Path) -> None:
