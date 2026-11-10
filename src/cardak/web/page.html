@@ -167,7 +167,7 @@ const $ = (id) => document.getElementById(id);
 
 let key = null, last = null, timer = null, sheetId = null, stopped = false, inflight = false;
 const opened = new Set();
-let trends = null, trendsOpen = false, trendsTimer = null, figure = "cost";
+let trends = null, trendsOpen = false, trendsTimer = null, figure = "cost", trendsHeld = false;
 let pm = null, pmOpen = false, pmTimer = null;
 const sentWith = new WeakMap();  // response -> the key its request carried
 const ctxDay = new Map();  // project name -> the day picked on its context plot, across refreshes
@@ -207,10 +207,13 @@ function usd(v) {
 }
 // as the deck's fmt_count: "999", "1.2k", "340k", "1.2M", "3.4B"
 function count(n) {
-  for (const [unit, size] of [["B", 1e9], ["M", 1e6], ["k", 1e3]]) {
-    if (n >= size) return n < 10 * size ? (n / size).toFixed(1) + unit : Math.round(n / size) + unit;
+  for (const [unit, size] of [["", 1], ["k", 1e3], ["M", 1e6], ["B", 1e9]]) {
+    const v = n / size;
+    const tenths = Math.floor(v * 10 + 0.5) / 10;
+    if (unit && tenths < 10) return tenths.toFixed(1) + unit;
+    const whole = Math.floor(v + 0.5);
+    if (whole < 1000 || unit === "B") return whole + unit;
   }
-  return String(Math.round(n));
 }
 function pct(v) { return v === null || v === undefined ? "–" : Math.round(v) + "%"; }
 function clock(ts) {
@@ -637,7 +640,9 @@ function renderTrends() {
     o.selected = f.key === figure;
     add(pick, o);
   }
+  pick.addEventListener("blur", () => { if (trendsHeld) { trendsHeld = false; renderTrends(); } });
   pick.addEventListener("change", () => {
+    trendsHeld = false;
     figure = pick.value;
     renderTrends();
     if (figure === "context" && !trends.context) loadTrends();
@@ -661,11 +666,13 @@ function renderTrends() {
 
 async function loadTrends() {
   if (!trendsOpen || document.visibilityState !== "visible") return;
+  const asked = figure === "context";  // context only when shown
   let r;
   try {
-    r = await get("/api/trends" + (figure === "context" ? "?context=1" : ""));  // context only when shown
+    r = await get("/api/trends" + (asked ? "?context=1" : ""));
   } catch (e) {
-    return; // the list says the computer can't be reached
+    if (!trends) unreachable(); // the list says it too; the sheet's "loading…" would stay (#115)
+    return;
   }
   if (!trendsOpen) return;
   if (badKey(r)) return;
@@ -679,12 +686,25 @@ async function loadTrends() {
     return; // keep what the sheet shows
   }
   trends = t;
-  renderTrends();
+  if (figure === "context" && !asked && trends.figures.some((f) => f.key === "context")) {
+    loadTrends();  // context was picked while an answer without it was on its way (#115)
+    return;
+  }
+  // an open picker would be replaced with the sheet, and close: its change or blur renders (#115)
+  trendsHeld = document.activeElement !== null && document.activeElement.id === "figure";
+  if (!trendsHeld) renderTrends();
+}
+
+function unreachable() {
+  clear($("sheet-body"));
+  add($("sheet-body"), el("p", "muted", "can't reach cardak"));
 }
 
 function openTrends() {
+  if (stopped) return;  // no key, or a refused one: the notice says what to do (#115)
   closeSheet();
   trendsOpen = true;
+  trends = null;  // so a sheet opened while cardak can't be reached says so
   clear($("sheet-body"));
   add($("sheet-body"), el("p", "muted", "loading…"));
   $("sheet").classList.add("show");
@@ -761,7 +781,8 @@ async function loadPm() {
   try {
     r = await get("/api/pm");
   } catch (e) {
-    return; // the list says the computer can't be reached
+    if (!pm) unreachable(); // the list says it too
+    return;
   }
   if (!pmOpen) return;
   if (badKey(r)) return;
@@ -779,8 +800,10 @@ async function loadPm() {
 }
 
 function openPm() {
+  if (stopped) return;
   closeSheet();
   pmOpen = true;
+  pm = null;
   clear($("sheet-body"));
   add($("sheet-body"), el("p", "muted", "loading…"));
   $("sheet").classList.add("show");

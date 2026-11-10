@@ -14,7 +14,7 @@ from pathlib import Path
 READ_LIMIT = 4 * 2**20  # bytes per read: a month's biggest transcript is ~80 MB
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Reply:
     key: str  # "<message.id>:<requestId>"
     ts: float
@@ -30,7 +30,7 @@ class Reply:
     sidechain: bool = False  # a subagent's reply, filed under its parent's session (#86)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Prompt:
     key: str  # the line's uuid
     ts: float
