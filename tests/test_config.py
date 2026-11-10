@@ -736,3 +736,48 @@ def test_empty_sound_keys_are_unset(tmp_path: Path) -> None:
     assert [n.theme_sound(t) for t in ("waiting", "memory", "other")] == ["off", "off", "off"]
     f.write_text('[notify]\nsound = ""\n')
     assert load(f).notify.sound == "random"
+
+
+NEXT = '\n# --- my projects below\n[[project]]\nname = "a"\npath = "/r/a"\n'
+
+
+def _intro_stays(text: str) -> None:
+    """The comment introducing [[project]] is still right above it (#119)."""
+    assert "# --- my projects below\n[[project]]" in text, text
+
+
+def test_adding_a_provider_keeps_the_next_tables_comment(tmp_path: Path) -> None:
+    path = tmp_path / "p.toml"
+    path.write_text('[summary]\nprovider = "anthropic"\n' + NEXT)
+    set_provider(path, "ollama", "http://x", "m")
+    _intro_stays(path.read_text())
+    set_provider(path, "codex", None, "c")  # after a subtable this time
+    text = path.read_text()
+    _intro_stays(text)
+    assert text.index("[summary.ollama]") < text.index("[summary.codex]") < text.index("# ---")
+    assert load(path).summary.providers["codex"].model == "c"
+
+
+def test_replacing_or_removing_a_provider_keeps_the_next_tables_comment(tmp_path: Path) -> None:
+    path = tmp_path / "p.toml"
+    path.write_text('[summary]\nprovider = "anthropic"\n\n[summary.ollama]\nmodel = "m"\n' + NEXT)
+    set_provider(path, "ollama", "http://y", "m")
+    _intro_stays(path.read_text())
+    remove_provider(path, "ollama")
+    text = path.read_text()
+    _intro_stays(text)
+    assert "ollama" not in text and load(path).projects[0].name == "a"
+    assert "\n\n\n" not in text
+
+
+def test_removing_a_middle_provider_keeps_the_comment_on_the_next_one(tmp_path: Path) -> None:
+    path = tmp_path / "p.toml"
+    path.write_text(
+        '[summary]\nprovider = "anthropic"\n\n[summary.ollama]\nmodel = "m"\n'
+        '\n# the other one\n[summary.codex]\nmodel = "o"\n' + NEXT
+    )
+    remove_provider(path, "ollama")
+    text = path.read_text()
+    assert 'provider = "anthropic"\n\n# the other one\n[summary.codex]' in text, text
+    _intro_stays(text)
+    assert set(load(path).summary.providers) == {"codex"}

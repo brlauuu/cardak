@@ -567,6 +567,26 @@ def _write_doc(path: Path, target: Path, doc: "TOMLDocument") -> None:
     _atomic_write(path, target, text)
 
 
+def _end(table: "Table") -> list:
+    """The body that ends `table` in the text: its own, or its last subtable's (and so on)."""
+    from tomlkit.items import Table
+
+    body = table.value.body
+    while body and body[-1][0] is not None and isinstance(body[-1][1], Table):
+        body = body[-1][1].value.body
+    return body
+
+
+def _take_trivia(table: "Table") -> list:
+    """The blank lines and comments ending `table`, taken out of it. tomlkit keeps them in the
+    table above, but they introduce whatever comes next: a table added, replaced or removed would
+    carry them off or drop them (#119). Only the text is dumped after this."""
+    body, trail = _end(table), []
+    while body and body[-1][0] is None:
+        trail.insert(0, body.pop())
+    return trail
+
+
 def set_provider(path: Path, name: str, url: str | None, model: str | None) -> None:
     """Write [summary.<name>], replacing what it had; None leaves that key out."""
     import tomlkit
@@ -578,10 +598,12 @@ def set_provider(path: Path, name: str, url: str | None, model: str | None) -> N
     for key, value in (("url", url), ("model", model)):
         if value:
             table.add(key, value)
+    trail = _take_trivia(summary.get(name, summary))
     if name in summary:
         summary[name] = table
     else:
         summary.add(name, table)
+    _end(table).extend(trail)
     _write_doc(path, target, doc)
 
 
@@ -604,8 +626,25 @@ def remove_provider(path: Path, name: str) -> None:
     target, doc, table = _summary_doc(path)
     if name not in table:
         return
+    body = table.value.body
+    at = next(i for i, (key, _) in enumerate(body) if key is not None and key.key == name)
+    trail = _take_trivia(table[name])
     del table[name]
+    _put_before(body, at, trail)
     _write_doc(path, target, doc)
+
+
+def _put_before(body: list, at: int, trail: list) -> None:
+    """Put `trail` where the text reads just before body[at], or at the end past the last."""
+    from tomlkit.items import Table, Whitespace
+
+    if at > 0 and body[at - 1][0] is not None and isinstance(body[at - 1][1], Table):
+        body = _end(body[at - 1][1])  # a subtable above ends the text before body[at]
+        at = len(body)
+    blank = at > 0 and body[at - 1][0] is None and isinstance(body[at - 1][1], Whitespace)
+    while blank and trail and isinstance(trail[0][1], Whitespace):  # one blank line, not two
+        trail = trail[1:]
+    body[at:at] = trail
 
 
 def set_project_theme(path: Path, project_path: Path, theme: str) -> None:
