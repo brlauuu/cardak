@@ -185,3 +185,42 @@ def test_a_hung_symlink_lookup_doesnt_stall_the_poll() -> None:
             break
         time.sleep(0.01)
     assert found.name == "webshop"
+
+
+def test_warmer_asks_off_the_caller_and_one_pass_at_a_time() -> None:
+    import threading
+    import time
+
+    from cardak.core.resolver import Warmer
+
+    release = threading.Event()
+    asked: list[Path] = []
+
+    def git(cwd: Path) -> Path | None:
+        asked.append(cwd)
+        release.wait(5)
+        return None
+
+    r, w = ProjectResolver(Config(), git=git), Warmer(wait=0.01)
+    first, second = object(), object()
+    assert not w.ready(r, first, lambda: ["/a", None])
+    assert not w.ready(r, second, lambda: ["/b"])  # waits for the running pass, starts none
+    release.set()
+    deadline = time.monotonic() + 5
+    while not w.ready(r, first, lambda: ["/a"]):
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    while not w.ready(r, second, lambda: ["/b"]):
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    assert asked == [Path("/a"), Path("/b")]
+
+
+def test_warmer_finishes_a_pass_that_raises() -> None:
+    from cardak.core.resolver import Warmer
+
+    def git(cwd: Path) -> Path | None:
+        raise RuntimeError("bug")
+
+    r, w, key = ProjectResolver(Config(), git=git), Warmer(wait=1.0), object()
+    assert w.ready(r, key, lambda: ["/a"])  # the poll's own grouping raises it again

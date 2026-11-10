@@ -198,9 +198,11 @@ function share(bytes, total) {
   return v > 0 && v < 0.5 ? " (<1%)" : " (" + Math.round(v) + "%)";
 }
 function ram(bytes, total) { return gb(bytes) + share(bytes, total); }
-// as the deck's fmt_usd: "$0.42" under $10, then whole dollars ("$1,204"); nothing is "$0"
+// as the deck's fmt_usd: "$0.42" under $10, then whole dollars ("$1,204"); nothing is "$0",
+// under a cent "<$0.01"
 function usd(v) {
   if (v === 0) return "$0";
+  if (v < 0.005) return "<$0.01";
   return v < 10 ? "$" + v.toFixed(2) : "$" + Math.round(v).toLocaleString("en-US");
 }
 // as the deck's fmt_count: "999", "1.2k", "340k", "1.2M", "3.4B"

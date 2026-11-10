@@ -686,6 +686,29 @@ def test_spend_by_project(tmp_path: Path) -> None:
     assert spent == {"webshop": 15.0, "Other": 15.0}  # notes and no cwd both resolve to Other
 
 
+def test_spend_by_project_never_waits_on_git(tmp_path: Path) -> None:
+    # #114: the month's folders were resolved on the poll thread, a git call each (~0.4 s for
+    # 99 folders on the dev machine, every config change); now off it, the last figures kept
+    def slow_git(cwd: Path) -> Path | None:
+        if cwd.is_relative_to(HOME / "repos/api-gw"):  # a folder no pane is in
+            time.sleep(0.3)
+        return git_api_gw(cwd)
+
+    cfg = tmp_path / "p.toml"
+    cfg.write_text(WEBSHOP_CFG)
+    source = spending(cfg, MONTH, git=slow_git)
+    start = time.monotonic()
+    snap = source.poll()
+    assert time.monotonic() - start < 0.25  # 0.3 s inline
+    assert snap.month_spend == 60.0
+    deadline = time.monotonic() + 5
+    while {g.name: g.spend_usd for g in snap.groups}.get("webshop") is None:
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+        snap = source.poll()
+    assert {g.name: g.spend_usd for g in snap.groups} == {"webshop": 15.0, "Other": 15.0}
+
+
 def test_spend_none_before_first_pass(tmp_path: Path) -> None:
     snap = spending(tmp_path / "p.toml", None).poll()
     assert snap.month_spend is None

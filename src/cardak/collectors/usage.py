@@ -164,6 +164,19 @@ def _complete_lines(path: Path, offset: int, limit: int) -> bytes:
     return data[: data.rfind(b"\n") + 1]
 
 
+def ends_a_line(path: Path, offset: int) -> bool:
+    """Whether the byte before offset is a newline, as it is where a read stopped; a file
+    rewritten in place rarely has one there (#114). True at 0 and when it can't be read."""
+    if offset == 0:
+        return True
+    try:
+        with path.open("rb") as f:
+            f.seek(offset - 1)
+            return f.read(1) in (b"\n", b"")
+    except OSError:
+        return True
+
+
 def read_usage(path: Path, offset: int, limit: int = READ_LIMIT) -> tuple[Usage, int]:
     """Replies and prompts in at most `limit` bytes from `offset`, cut at the last complete
     line, and where that line ends: call again from there until it stops moving."""

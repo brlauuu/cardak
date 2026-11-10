@@ -30,7 +30,7 @@ from cardak.core.config import (
 from cardak.core.context import ContextSeries, GroupedContext, group_context
 from cardak.core.limits import Stored, limits_view, load_limits
 from cardak.core.recent import Recent, decorate
-from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, run_git
+from cardak.core.resolver import GitLookup, ProjectResolver, Resolved, Warmer, run_git
 from cardak.core.resources import derive
 from cardak.core.snapshot import (
     ClaudeLookup,
@@ -114,6 +114,7 @@ class LiveSource:
         self._spend_seen: tuple[MonthSpend, ProjectResolver, dict[GroupKey, float]] | None = None
         self._trends_seen: tuple[UsageTrends, ProjectResolver, GroupedTrends] | None = None
         self._context_seen: tuple[ContextSeries, ProjectResolver, GroupedContext] | None = None
+        self._warmer = Warmer()  # resolves the month's folders off the poll thread (#114)
         self._limits_file = limits_file  # None: no plan limits row (#70)
         self._limits_seen: tuple[tuple[int, int], Stored | None] | None = None
         self._recent = Recent()
@@ -388,12 +389,15 @@ class LiveSource:
             *unpriced,
         )
 
-    def _spend_by_group(self, spend: MonthSpend) -> dict[GroupKey, float]:
+    def _spend_by_group(self, spend: MonthSpend, ready: bool) -> dict[GroupKey, float] | None:
         """Each cwd's spend under the project it resolves to; resolved again only when the
-        figure or the config changed, not every poll."""
+        figure or the config changed, not every poll. Until the warmer has asked the resolver
+        about every folder (`ready`), the last grouping, else None."""
         seen = self._spend_seen
-        if seen is not None and seen[0] is spend and seen[1] is self._resolver:
+        if seen is not None and (not ready or (seen[0] is spend and seen[1] is self._resolver)):
             return seen[2]
+        if not ready:
+            return None
         found: dict[GroupKey, float] = {}
         for cwd, usd in spend.by_cwd.items():
             r = self._resolver.resolve(Path(cwd) if cwd else None)
@@ -401,30 +405,34 @@ class LiveSource:
         self._spend_seen = (spend, self._resolver, found)
         return found
 
-    def _trends_by_group(self, trends: UsageTrends) -> GroupedTrends:
+    def _trends_by_group(self, trends: UsageTrends, ready: bool) -> GroupedTrends | None:
         """The trends under each cwd's project, cached like `_spend_by_group`."""
         seen = self._trends_seen
-        if seen is not None and seen[0] is trends and seen[1] is self._resolver:
+        if seen is not None and (not ready or (seen[0] is trends and seen[1] is self._resolver)):
             return seen[2]
+        if not ready:
+            return None
         resolver = self._resolver
         grouped = group_trends(trends, lambda cwd: resolver.resolve(Path(cwd) if cwd else None))
         self._trends_seen = (trends, resolver, grouped)
         return grouped
 
-    def _context_by_group(self, series: ContextSeries) -> GroupedContext:
+    def _context_by_group(self, series: ContextSeries, ready: bool) -> GroupedContext | None:
         """Each session under its project, cached like `_trends_by_group`."""
         seen = self._context_seen
-        if seen is not None and seen[0] is series and seen[1] is self._resolver:
+        if seen is not None and (not ready or (seen[0] is series and seen[1] is self._resolver)):
             return seen[2]
+        if not ready:
+            return None
         resolver = self._resolver
         grouped = group_context(series, lambda cwd: resolver.resolve(Path(cwd) if cwd else None))
         self._context_seen = (series, resolver, grouped)
         return grouped
 
-    def _with_context(self, snap: DeckSnapshot, series: ContextSeries) -> DeckSnapshot:
+    def _with_context(self, snap: DeckSnapshot, series: ContextSeries, ready: bool) -> DeckSnapshot:
         """The grouped context (today's only), and each agent row's current context."""
         if series.today == date.fromtimestamp(self._clock()):
-            snap = replace(snap, usage_context=self._context_by_group(series))
+            snap = replace(snap, usage_context=self._context_by_group(series, ready))
 
         def row(p: PaneRow) -> PaneRow:
             if p.agent is None:
@@ -436,14 +444,18 @@ class LiveSource:
 
     def _with_spend(self, snap: DeckSnapshot) -> DeckSnapshot:
         spend = self._spend()
-        trends = spend.trends if spend is not None else None
+        if spend is None:
+            return snap  # not counted yet
+        ready = self._warmer.ready(self._resolver, spend, lambda: _folders(spend))
+        trends = spend.trends
         if trends is not None and trends.today == date.fromtimestamp(self._clock()):
-            snap = replace(snap, usage_trends=self._trends_by_group(trends))  # not a stalled day's
-        if spend is not None and spend.context is not None:
-            snap = self._with_context(snap, spend.context)
-        if spend is None or spend.since != month_start(self._clock()):
-            return snap  # not counted yet, or a stalled counter's figure from last month
-        by_group = self._spend_by_group(spend)
+            grouped = self._trends_by_group(trends, ready)  # not a stalled day's
+            snap = replace(snap, usage_trends=grouped) if grouped is not None else snap
+        if spend.context is not None:
+            snap = self._with_context(snap, spend.context, ready)
+        if spend.since != month_start(self._clock()):
+            return snap  # a stalled counter's figure from last month
+        by_group = self._spend_by_group(spend, ready) or {}
         groups = tuple(
             g if g.kind == "waiting" else replace(g, spend_usd=by_group.get((g.kind, g.key)))
             for g in snap.groups
@@ -547,3 +559,13 @@ class LiveSource:
         with self._lock:
             config_mod.add_project(self.config_file, name, path)
             self._reload_if_changed()
+
+
+def _folders(spend: MonthSpend) -> list[str | None]:
+    """Every folder the month's spend, trends and context name, once each."""
+    found: dict[str | None, None] = dict.fromkeys(spend.by_cwd)
+    if spend.trends is not None:
+        found.update(dict.fromkeys(cwd for cwd, _ in spend.trends.cells))
+    if spend.context is not None:
+        found.update(dict.fromkeys(ln.cwd for ln in spend.context.lines))
+    return list(found)

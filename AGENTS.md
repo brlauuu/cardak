@@ -166,7 +166,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   | `~/.local/state/cardak/wezterm_dir` | `cardak wezterm install [--dir]` | the directory `cardak.lua` was installed to; the deck, `themes apply` and `themes zsh` use it while `cardak.lua` is there, else `~/.config/wezterm` (#19) |
   | `~/.local/state/cardak/daemon.lock` | `cardak daemon` | empty; locked while a daemon runs, so a second one exits |
   | `~/.config/systemd/user/cardak.service` | `cardak resources install` / `uninstall`, after asking (or `--yes`) | runs `cardak daemon`; first line `# cardak: generated` |
-  | `~/.local/state/cardak/hook.log` | `cardak hook`, `cardak summarize` | tracebacks; restarted past 1 MB |
+  | `~/.local/state/cardak/hook.log` | `cardak hook`, `cardak summarize`, `cardak statusline` (#70); the deck's spend counter (#29, a lasting problem once per cause, #114) and PM view (#68) | tracebacks and ignored payloads; restarted past 1 MB |
   | `~/.claude/settings.json` | `cardak hooks install` / `uninstall` only, after asking (or `--yes`) | cardak's entries only; a `.cardak-backup-<time>` copy first |
   | `~/.claude/settings.json` → `statusLine.command` | `cardak statusline install` / `uninstall` only, after asking (or `--yes`) | `<cardak> statusline --then '<the user's command>'`; nothing else in `statusLine` or the file (#70) |
   | `~/.claude/skills/{checkpoint,where-were-we}/SKILL.md` | `cardak skills install` / `uninstall`, after asking (or `--yes`) | the bundled skills; `<!-- cardak: generated -->` after the frontmatter (only those files are replaced or removed; `--force` replaces others) |
@@ -325,7 +325,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 ## Monthly spend (#29)
 - The deck and `cardak daemon` each run a `SpendCounter` thread (`core/spend.background`) with its
   own store connection: every 30 s it reads what `~/.claude/projects/**/*.jsonl` gained since its
-  stored offset (files modified this month only; a replaced or shorter file is read from 0) and
+  stored offset (files modified this month only; a replaced or shorter file, or one changed since the last pass whose stored offset no longer follows a newline (rewritten in place, #114), is read from 0) and
   stores replies with `INSERT OR IGNORE`, so the two never double the figure. At most 500 replies
   per transaction, for the hooks' 2 s busy timeout. The first pass over a month of transcripts
   took 3.8 s (~480 MB); later ones ~70 ms. Transcripts are read 4 MiB at a time (the biggest is ~80 MB;
@@ -361,6 +361,10 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   2026-10-28: a pass with nothing new takes ~7 ms (#29's took ~70 ms), one with new rows ~160 ms,
   the first over a month of transcripts 5.3 s; the daemon peaked at 54 MB and averaged 1.0% of
   one core over 90 s with sessions running.
+- Spend, trends and context name every folder of the month, most with no pane open; resolving
+  them took ~0.4 s of git for 99 folders on the dev machine at deck start and after every config
+  change. `resolver.Warmer` asks the resolver about them on a thread of its own (one pass at a
+  time, 50 ms waited for), and until it's done the poll shows the last grouping, else none (#114).
 - `LiveSource` folds cwds into projects (`group_trends`, cached on the trends and the resolver)
   and puts `GroupedTrends` on `DeckSnapshot.usage_trends`, only when it was built today. A
   project's subject is `project:<key>` as in the RAM history, then Other, then All projects

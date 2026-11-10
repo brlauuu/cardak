@@ -21,6 +21,7 @@ from cardak.collectors.usage import (
     Reply,
     TranscriptFile,
     Usage,
+    ends_a_line,
     read_usage,
     transcript_files,
 )
@@ -98,11 +99,12 @@ class SpendCounter:
         self.latest: MonthSpend | None = None  # read from other threads; replaced whole
         self._built_on: tuple[object, ...] | None = None  # what latest was built from
         self._backfilled = False
+        self._mtimes: dict[Path, float] = {}  # each file's mtime when this counter last read it
 
     def _read(self, f: TranscriptFile, stored: tuple[int, int] | None) -> None:
         inode, offset = stored or (f.inode, 0)
-        if inode != f.inode or f.size < offset:  # replaced or cut: read it again from the top
-            offset = 0
+        if inode != f.inode or f.size < offset or self._rewritten(f, offset):
+            offset = 0  # replaced, cut or rewritten in place: read it again from the top
         while offset < f.size:  # a few MB at a time: a first pass meets 80 MB transcripts
             usage, end = read_usage(f.path, offset, READ_LIMIT)
             if end == offset:
@@ -113,6 +115,14 @@ class SpendCounter:
                 done = end if i == len(chunks) - 1 else offset
                 self.store.record_usage(str(f.path), f.inode, done, chunk)
             offset = end
+
+    def _rewritten(self, f: TranscriptFile, offset: int) -> bool:
+        """A file changed since this counter last read it whose stored offset no longer ends a
+        line: written over in place rather than appended to (#114). Replies are stored once
+        by key, so reading it again from the top counts nothing twice."""
+        changed = self._mtimes.get(f.path) != f.mtime
+        self._mtimes[f.path] = f.mtime
+        return changed and not ends_a_line(f.path, offset)
 
     def _backfill(self, today: date, now: float) -> None:
         """Flag subagent replies stored without the flag (#86); stores no reply. Once ever, over
@@ -156,13 +166,18 @@ class SpendCounter:
 
 
 def run(counter: SpendCounter, stop: threading.Event, log: Callable[[str], None]) -> None:
+    last: str | None = None  # a problem that lasts is logged once, not every pass (#114)
     while not stop.is_set():
         try:
             counter.step()  # first: a download hanging on DNS must not hold up the count
             counter.prices.refresh()
+            last = None
         except Exception as e:  # a pass that fails is retried on the next one
-            with contextlib.suppress(Exception):  # nor may a log that can't be written stop it
-                log(f"monthly spend: {e!r}")
+            message = f"monthly spend: {e!r}"
+            if message != last:
+                with contextlib.suppress(Exception):  # nor may a log that can't be written stop it
+                    log(message)
+                last = message
         stop.wait(PASS_EVERY_S)
 
 

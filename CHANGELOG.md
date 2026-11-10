@@ -18,6 +18,10 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - A pane whose folder is on a network mount that stopped answering no longer freezes the deck and the alert service: that pane shows under Other until the mount answers, then moves to its project (#111).
 - Reinstalling `cardak.lua` to another folder with `cardak wezterm install --dir` while the deck runs now counts at once: the deck writes its theme files there and stops asking you to install it (#111).
 - The theme picker no longer says it couldn't list the schemes when the list loaded and only the refresh after it went wrong (#111).
+- The deck no longer pauses for a moment when it starts or after a config change while it sorts the month's spend, trends and context into projects; until that's done it shows the figures it had (#114).
+- A month that has cost less than a cent shows `<$0.01` instead of `$0.00`, in the deck and on the phone page (#114).
+- A transcript written over in place, rather than replaced, is counted again from the top, so its replies aren't missed (#114).
+- A problem that keeps the monthly spend from counting is written to `hook.log` once, not every 30 seconds (#114).
 - For a Claude session with no status yet (one left idle for over a week, for instance), `c` and `i` now say its status shows after its next prompt, and suggest `cardak hooks install` only when the hooks really aren't installed (#110).
 - The waiting summary for an MCP dialog that opens over a permission prompt now describes the dialog, instead of mixing it up with the command waiting for permission (#110).
 
