@@ -102,6 +102,7 @@ class LiveSource:
         self._self_pane = int(pane) if pane.isdigit() else None
         self._lock = threading.Lock()
         self._on_config = on_config
+        self._themes_due = False  # on_config is owed a run: the config or art changed
         self._schemes: Callable[[], Mapping[str, Scheme]] = schemes or (lambda: {})
         self._store = store
         self._focus_history = focus_history
@@ -159,15 +160,24 @@ class LiveSource:
         packs = read_packs(root, SOUND_EXTS)
         self._notify_warnings = tuple(check(cfg.notify, bundled_sounds(), packs))
 
-    def _reload_if_changed(self) -> None:
+    def _reload_if_changed(self, themes_now: bool = True) -> None:
+        """Re-read a changed config and run on_config. With themes_now off (the deck's UI
+        thread: `a`, the picker, the Summaries screen) on_config waits for the next poll, which
+        runs on a worker: a new project's art takes 80–150 ms to make (#129)."""
+        self._reload_config()
+        if themes_now and self._themes_due:
+            self._themes_due = False
+            if self._config_error is None:
+                self._run_on_config()
+
+    def _reload_config(self) -> None:
         stamp = self._current_stamp()
         art = self._art_stamp() if self._art_stamp else None
         if stamp == self._stamp:
             self._check_sounds(self._config)
             if art != self._art_seen:
                 self._art_seen = art
-                if self._config_error is None:
-                    self._run_on_config()
+                self._themes_due = True
             return
         self._art_seen = art
         self._stamp = stamp
@@ -182,8 +192,7 @@ class LiveSource:
         self._sounds_seen = None  # a new config: its sound names are checked again
         self._check_sounds(cfg)
         self._resolver = ProjectResolver(cfg, self._git)
-        if self._config_error is None:
-            self._run_on_config()
+        self._themes_due = True
 
     def _run_on_config(self) -> None:
         if self._on_config is None:
@@ -228,7 +237,7 @@ class LiveSource:
                     config_mod.set_project_theme(self.config_file, project_path, theme)
                 if project.background != background:
                     config_mod.set_project_background(self.config_file, project_path, background)
-            self._reload_if_changed()
+            self._reload_if_changed(themes_now=False)
 
     # The Summaries screen calls these on the UI thread, and a poll holds the lock throughout
     # (WezTerm, /proc, Docker's timeout): they read only the config, which a reload replaces
@@ -268,7 +277,7 @@ class LiveSource:
                 return e.message
             except OSError as e:
                 return f"cannot write: {e}"
-            self._reload_if_changed()
+            self._reload_if_changed(themes_now=False)
             return None
 
     def use_provider(self, name: str) -> str | None:
@@ -575,7 +584,7 @@ class LiveSource:
     def add_project(self, name: str, path: Path) -> None:
         with self._lock:
             config_mod.add_project(self.config_file, name, path)
-            self._reload_if_changed()
+            self._reload_if_changed(themes_now=False)
 
 
 def _folders(spend: MonthSpend) -> list[str | None]:

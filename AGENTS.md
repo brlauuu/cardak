@@ -171,6 +171,9 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   | `~/.claude/settings.json` → `statusLine.command` | `cardak statusline install` / `uninstall` only, after asking (or `--yes`) | `<cardak> statusline --then '<the user's command>'`; nothing else in `statusLine` or the file (#70); uninstall removes a `statusLine` cardak added whole, other keys added to it since included, and lists them in what it asks (#118) |
   | `~/.claude/skills/{checkpoint,where-were-we}/SKILL.md` | `cardak skills install` / `uninstall`, after asking (or `--yes`) | the bundled skills; `<!-- cardak: generated -->` after the frontmatter (only those files are replaced or removed; `--force` replaces others) |
   | `<project or worktree>/.cardak/handoff.md` (+ `.cardak/.gitignore` = `*`) | the `/checkpoint` skill (Claude), never cardak; read by the deck's recap and `/where-were-we` | dated entries, newest last |
+- The deck's own config writes (`a`, the picker, the Summaries screen) run on the UI thread and
+  only re-read the config; the theme files and any new art are written by the next poll, on its
+  worker (`LiveSource._themes_due`): making one project's art took 80–150 ms (#129).
 - `cardak.lua`'s second line is `-- cardak-module: N`. Bump `MODULE_VERSION`
   (`wezterm/generate.py`) whenever the Lua module gains a feature the Python side relies on,
   or a fix users get only by reinstalling it (#128); the deck and `cardak themes apply` tell users with an older module to re-run
