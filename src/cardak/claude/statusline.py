@@ -6,6 +6,7 @@ file changes. A workaround until Claude Code offers another way to read plan lim
 """
 
 import copy
+import json
 import shlex
 from pathlib import Path
 
@@ -88,4 +89,17 @@ def statusline_status(settings: Settings) -> str | None:
 def changes(before: Settings, after: Settings) -> list[str]:
     old, new = _command(before), _command(after)
     lines = [f"- statusLine.command: {old}"] if old is not None and old != new else []
-    return lines + ([f"+ statusLine.command: {new}"] if new is not None and new != old else [])
+    lines += [f"+ statusLine.command: {new}"] if new is not None and new != old else []
+    return lines + _dropped(before, after)
+
+
+def _dropped(before: Settings, after: Settings) -> list[str]:
+    """Other keys of a statusLine cardak made (`padding`, added since) that go with it, so the
+    confirmation names them (#118): they describe a status line there no longer is."""
+    if "statusLine" not in before or "statusLine" in after:
+        return []
+    return [
+        f"- statusLine.{key}: {json.dumps(value)}"
+        for key, value in before["statusLine"].items()
+        if key not in ("type", "command")
+    ]

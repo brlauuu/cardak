@@ -90,3 +90,43 @@ def test_exec_gives_original_default_signals(tmp_path: Path) -> None:
 def test_pipe_threshold_fits_the_smallest_pipe() -> None:
     # a user over pipe-user-pages-soft gets one-page (4 KiB) pipes; writing more would hang
     assert PIPE_MAX <= 4096
+
+
+def test_exec_failure_is_logged(tmp_path: Path) -> None:
+    # no `sh` on PATH: the status line can only stay blank, but hook.log says why (#118)
+    script = "import sys\nfrom cardak.cli import main\nsys.exit(main())\n"
+    env = {"XDG_STATE_HOME": str(tmp_path), "CARDAK_CONFIG": str(tmp_path / "p"), "PATH": ""}
+    done = subprocess.run(
+        [sys.executable, "-c", script, "statusline", "--then", "x"],
+        input=PLAN, env=env, capture_output=True, check=False,
+    )  # fmt: skip
+    assert done.returncode == 127 and done.stdout == b""
+    assert "can't run sh" in (tmp_path / "cardak" / "hook.log").read_text()
+
+
+def test_large_input_exec_failure_is_logged(
+    env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", "")
+    data = PLAN[:-2] + b', "pad": "' + b"x" * PIPE_MAX + b'"}\n'
+    assert main(["--then", "x"], io.BytesIO(data), env, clock=lambda: 1.0) == 127
+    assert "can't run sh" in (Path(env["XDG_STATE_HOME"]) / "cardak" / "hook.log").read_text()
+
+
+class Terminal(io.BytesIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_typed_in_a_terminal_says_what_it_is(
+    env: dict[str, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # typed by hand it would wait on stdin with no hint (#118)
+    assert _run_with(Terminal(b""), env) == (2, [])
+    assert "cardak statusline install" in capsys.readouterr().err
+
+
+def _run_with(stdin: io.BytesIO, env: dict[str, str]) -> tuple[int, list[str]]:
+    ran: list[str] = []
+    code = main(["--then", "x"], stdin, env, run=lambda c, d: ran.append(c) or 0)
+    return code, ran

@@ -33,6 +33,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - The deck's context day plot spreads a 23- or 25-hour day (a daylight-saving change) over its width, with each hour under its own label, and fits a terminal 44 columns wide instead of needing 55 (#117).
 - On the phone, a session's context line holds until its next reply and then jumps, as in the deck, instead of sloping between replies; a picked day stays picked when the window moves on at midnight (#117).
 - If marking older subagent replies (a one-time pass after upgrading) fails halfway, the retry no longer reads every transcript of the last 30 days again (#117).
+- If the status line command cardak wraps can't be started (no `sh` on the PATH), `hook.log` now says why, instead of the status line staying blank with no trace (#118).
+- `cardak statusline` typed in a terminal now says it is run by Claude Code and how to set it up, instead of waiting silently for input (#118).
+- `cardak statusline uninstall` now lists the settings added since to a status line cardak created (such as `padding`), which go with it, before asking (#118).
 - For a Claude session with no status yet (one left idle for over a week, for instance), `c` and `i` now say its status shows after its next prompt, and suggest `cardak hooks install` only when the hooks really aren't installed (#110).
 - The waiting summary for an MCP dialog that opens over a permission prompt now describes the dialog, instead of mixing it up with the command waiting for permission (#110).
 
