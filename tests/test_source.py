@@ -940,3 +940,36 @@ def test_edited_art_reruns_on_config(tmp_path: Path) -> None:
     assert len(runs) == 2
     source.poll()
     assert len(runs) == 2
+
+
+def test_ui_writes_leave_the_theme_files_to_the_next_poll(tmp_path: Path) -> None:
+    # making a new project's art took 80–150 ms on the UI thread, where `a` and the picker
+    # call these (#129); the poll runs on a worker
+    import threading
+
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\n')
+    ran: list[tuple[str, tuple[str, ...]]] = []
+
+    def on_config(c: Config) -> list[str]:
+        ran.append((threading.current_thread().name, tuple(p.name for p in c.projects)))
+        return []
+
+    source = LiveSource(
+        cfg, env={}, list_panes=panes, sample=sample, claude_lookup=lambda p: None, git=no_git,
+        home=HOME, machine=no_machine, docker=no_docker, on_config=on_config,
+    )  # fmt: skip
+    source.poll()
+    ran.clear()
+    source.add_project("webshop", HOME / "repos/webshop")
+    source.set_look(HOME / "notes", "Nord", True)
+    assert ran == []
+    assert [p.name for p in source._config.projects] == [
+        "notes", "webshop",
+    ]  # the config itself is read at once  # fmt: skip
+    worker = threading.Thread(target=source.poll, name="poll")
+    worker.start()
+    worker.join()
+    assert ran == [("poll", ("notes", "webshop"))]  # once, for both changes
+    source.poll()
+    assert len(ran) == 1

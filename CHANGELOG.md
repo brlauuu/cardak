@@ -9,6 +9,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Fixed
+- The deck no longer stops responding for a moment when you add a project or change its look: the project's background art is made in the background, and its theme follows a moment later (#129).
+
 ## 0.17.2 — 2026-11-10
 
 ### Fixed
