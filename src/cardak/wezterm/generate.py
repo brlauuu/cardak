@@ -12,7 +12,7 @@ from cardak.core.themes import Scheme, project_tint
 from cardak.shared.files import write_atomic
 from cardak.wezterm.install import MARKER
 
-MODULE_VERSION = 6
+MODULE_VERSION = 7
 ZSH_MARKER = "# cardak: generated"
 PROJECTS_FILE = "cardak_projects.lua"
 TINTS_FILE = "tints"
@@ -96,6 +96,10 @@ def _background(image: Image | None) -> str:
     return f", background = {{ file = {file}, cols = {image.cols}, rows = {image.rows} }}"
 
 
+def _position(at: tuple[int, int] | None) -> str:
+    return "" if at is None else f", position = {{ {at[0]}, {at[1]} }}"
+
+
 def _project_lines(
     p: Project, known: Collection[str] | None, image: Image | None, problems: list[str]
 ) -> list[str]:
@@ -104,7 +108,7 @@ def _project_lines(
         problems.append(f'unknown scheme "{p.theme}" for {p.name}')
     elif p.theme is not None:
         scheme = f", scheme = {lua_str(p.theme)}"
-    rest = f"name = {lua_str(p.name)}{scheme}{_background(image)}"
+    rest = f"name = {lua_str(p.name)}{scheme}{_position(p.background_position)}{_background(image)}"
     # a symlinked project under its real path too: WezTerm may see either (#14)
     paths = dict.fromkeys((str(p.path), str(real_path(p.path))))
     return [f"    {{ path = {lua_str(path)}, {rest} }}," for path in paths]
@@ -116,6 +120,9 @@ def render_projects_lua(
     projects, problems = _first_per_path(config)
     lines = [f"{MARKER} by cardak from projects.toml; edits are overwritten.", "return {"]
     lines.append(f"  background_opacity = {config.background.opacity:g},")
+    at = config.background.position
+    if at is not None:
+        lines.append(f"  background_position = {{ {at[0]}, {at[1]} }},")
     default = config.defaults.get("theme")
     if isinstance(default, str):
         if known is not None and default not in known:

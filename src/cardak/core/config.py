@@ -25,6 +25,7 @@ class Project:
     github: str | None = None
     tint: str | None = None
     background: bool = True  # the project's ASCII art behind its windows (#9)
+    background_position: tuple[int, int] | None = None  # cells from the top-right (#132)
 
 
 Theme = Literal["waiting", "memory", "other"]  # which notification a sound is for (#91)
@@ -118,6 +119,8 @@ class BackgroundSettings:
 
     enabled: bool = True
     opacity: float = 0.06
+    # (columns left, rows down) from the window's top-right corner; None: bottom-right (#132)
+    position: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -249,6 +252,9 @@ def load(path: Path) -> Config:
         background = entry.get("background", True)
         if not isinstance(background, bool):
             raise ConfigError(path, f"project #{i}: 'background' must be true or false")
+        position = _position(
+            path, entry.get("background_position"), f"project #{i}: 'background_position'"
+        )
         projects.append(
             Project(
                 name=entry["name"],
@@ -258,6 +264,7 @@ def load(path: Path) -> Config:
                 github=_opt_str(entry, "github"),
                 tint=_opt_str(entry, "tint"),
                 background=background,
+                background_position=position,
             )
         )
     defaults = data.get("defaults", {})
@@ -401,7 +408,21 @@ def _background(path: Path, data: Mapping[str, object]) -> BackgroundSettings:
         raise ConfigError(path, "[background] enabled must be true or false")
     if isinstance(opacity, bool) or not isinstance(opacity, int | float) or not 0 < opacity <= 1:
         raise ConfigError(path, "[background] opacity must be a number > 0 and ≤ 1")
-    return BackgroundSettings(enabled, float(opacity))
+    position = _position(path, raw.get("position"), "[background] position")
+    return BackgroundSettings(enabled, float(opacity), position)
+
+
+def _position(path: Path, value: object, what: str) -> tuple[int, int] | None:
+    """[columns, rows], whole and ≥ 0, from the window's top-right corner (#132)."""
+    if value is None:
+        return None
+    if (
+        not isinstance(value, list)
+        or len(value) != 2
+        or not all(type(n) is int and n >= 0 for n in value)
+    ):
+        raise ConfigError(path, f"{what} must be [columns, rows], two whole numbers ≥ 0")
+    return (value[0], value[1])
 
 
 def _resource(path: Path, name: str, value: object) -> float:

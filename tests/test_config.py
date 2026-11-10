@@ -703,6 +703,38 @@ def test_bad_project_background(tmp_path: Path) -> None:
         load(_cfg(tmp_path, text))
 
 
+def test_background_position_global_and_per_project(tmp_path: Path) -> None:
+    text = (
+        "[background]\nposition = [2, 1]\n"
+        '[[project]]\nname = "a"\npath = "/a"\nbackground_position = [10, 4]\n'
+        '[[project]]\nname = "b"\npath = "/b"\n'
+    )
+    cfg = load(_cfg(tmp_path, text))
+    assert cfg.background.position == (2, 1)
+    assert [p.background_position for p in cfg.projects] == [(10, 4), None]
+
+
+def test_background_position_defaults_to_none(tmp_path: Path) -> None:
+    cfg = load(_cfg(tmp_path, '[[project]]\nname = "a"\npath = "/a"\n'))
+    assert cfg.background.position is None and cfg.projects[0].background_position is None
+
+
+BAD_POSITIONS = ["[1]", "[1, 2, 3]", "[-1, 0]", '["a", 1]', "[1.5, 2]", "[true, 1]", '"2,1"']
+
+
+@pytest.mark.parametrize("value", BAD_POSITIONS)
+def test_bad_background_position(tmp_path: Path, value: str) -> None:
+    with pytest.raises(ConfigError, match=r"\[background\] position"):
+        load(_cfg(tmp_path, f"[background]\nposition = {value}\n"))
+
+
+@pytest.mark.parametrize("value", BAD_POSITIONS)
+def test_bad_project_background_position(tmp_path: Path, value: str) -> None:
+    text = f'[[project]]\nname = "a"\npath = "/a"\nbackground_position = {value}\n'
+    with pytest.raises(ConfigError, match="project #1: 'background_position'"):
+        load(_cfg(tmp_path, text))
+
+
 def test_set_project_background_off_then_on_keeps_comments(tmp_path: Path, home: Path) -> None:
     f = _cfg(tmp_path, SAMPLE)
     set_project_background(f, home / "repos/webshop", False)

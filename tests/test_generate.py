@@ -74,10 +74,10 @@ def test_module_version(tmp_path: Path) -> None:
     lua.write_text(MARKER + " by `cardak wezterm install`\nlocal wezterm\n")
     assert module_version(lua) == 1
     install(tmp_path)
-    assert module_version(lua) == MODULE_VERSION == 6
+    assert module_version(lua) == MODULE_VERSION == 7
     lua.write_text("-- mine\n")
     assert module_version(lua) is None
-    assert module_text().splitlines()[1] == "-- cardak-module: 6"
+    assert module_text().splitlines()[1] == "-- cardak-module: 7"
 
 
 def test_write_generated_needs_the_module(tmp_path: Path) -> None:
@@ -247,6 +247,21 @@ def test_lua_data_lists_backgrounds() -> None:
     text, _ = render_projects_lua(cfg, None, {web.path: Image(Path("/c/x.png"), 32, 5)})
     assert "  background_opacity = 0.1,\n" in text
     assert "background = { file = [[/c/x.png]], cols = 32, rows = 5 }" in text
+
+
+def test_lua_data_carries_the_background_positions() -> None:
+    web = Project(name="web", path=Path("/r/web"), background_position=(10, 4))
+    api = Project(name="api", path=Path("/r/api"))
+    cfg = Config(projects=(web, api), background=BackgroundSettings(position=(2, 1)))
+    text, _ = render_projects_lua(cfg, None)
+    assert "  background_position = { 2, 1 },\n" in text
+    assert "{ path = [[/r/web]], name = [[web]], position = { 10, 4 } }," in text
+    assert "{ path = [[/r/api]], name = [[api]] }," in text
+
+
+def test_lua_data_without_positions_names_none() -> None:
+    text, _ = render_projects_lua(CONFIG, None)
+    assert "position" not in text
 
 
 def test_lua_data_without_images_has_no_background_entries() -> None:
