@@ -15,6 +15,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - The history's hour plot no longer shifts by an hour after a daylight-saving change: each day's hours line up with its own clock (#109).
 - Docker containers a project leaves running while WezTerm is closed now count as that project's in the history and on the phone page, instead of inflating Other's median; the alert service watches them too (#109).
 - The alert service no longer keeps every pane it has ever seen in memory for as long as it runs (#109).
+- A pane whose folder is on a network mount that stopped answering no longer freezes the deck and the alert service: that pane shows under Other until the mount answers, then moves to its project (#111).
+- Reinstalling `cardak.lua` to another folder with `cardak wezterm install --dir` while the deck runs now counts at once: the deck writes its theme files there and stops asking you to install it (#111).
+- The theme picker no longer says it couldn't list the schemes when the list loaded and only the refresh after it went wrong (#111).
 - For a Claude session with no status yet (one left idle for over a week, for instance), `c` and `i` now say its status shows after its next prompt, and suggest `cardak hooks install` only when the hooks really aren't installed (#110).
 - The waiting summary for an MCP dialog that opens over a permission prompt now describes the dialog, instead of mixing it up with the command waiting for permission (#110).
 

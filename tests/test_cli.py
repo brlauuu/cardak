@@ -233,7 +233,7 @@ def test_theme_writer_reports_old_module(tmp_path: Path) -> None:
     (tmp_path / "wez").mkdir()
     (tmp_path / "wez" / "cardak.lua").write_text(MARKER + "\n")
     paths = Paths(tmp_path / "logos", tmp_path / "bg.json", tmp_path / "cache")
-    write = _theme_writer(tmp_path / "wez", tmp_path / "card", SchemeStore(), paths)
+    write = _theme_writer(lambda: tmp_path / "wez", tmp_path / "card", SchemeStore(), paths)
     assert any("older cardak" in w for w in write(Config()))
 
 
@@ -1061,3 +1061,31 @@ def test_deck_leaves_the_pm_store_open_when_its_thread_hangs(
     finally:
         release()  # the thread finds its stop event set and ends
     assert closes == []  # still mid-step: closing it under the thread would crash (#104)
+
+
+def test_deck_follows_a_reinstall_to_another_dir(
+    xdg: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # #111: `cardak wezterm install --dir` while the deck runs moves where its files go
+    from cardak.core.backgrounds import Paths
+    from cardak.core.config import Config
+    from cardak.core.themes import SchemeStore
+
+    first, second = xdg / "first", xdg / "second"
+    assert main(["wezterm", "install", "--dir", str(first)]) == 0
+    seen: list[DeckApp] = []
+    monkeypatch.setattr(DeckApp, "run", lambda self: seen.append(self))
+    monkeypatch.setattr("cardak.wezterm.schemes.read_cached_schemes", lambda cache_dir: None)
+    assert main([]) == 0
+    assert main(["wezterm", "install", "--dir", str(second)]) == 0
+    (first / "cardak.lua").unlink()
+    nav = seen[0].navigator
+    assert isinstance(nav, Navigator) and nav.lua_installed()
+    assert seen[0].theme_status is not None and seen[0].theme_status() is None
+    from cardak.cli import _lua_dir, _theme_writer
+
+    paths = Paths(xdg / "logos", xdg / "bg.json", xdg / "cache")
+    write = _theme_writer(_lua_dir, xdg / "card", SchemeStore(), paths)
+    main(["wezterm", "install", "--dir", str(first)])
+    write(Config())
+    assert (first / "cardak_projects.lua").exists()

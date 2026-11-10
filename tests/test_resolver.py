@@ -129,3 +129,59 @@ def test_missing_project_path_is_harmless(tmp_path: Path) -> None:
     gone = tmp_path / "gone"
     r = ProjectResolver(Config(projects=(Project(name="gone", path=gone),)), git=FakeGit({}))
     assert r.resolve(gone / "x").name == "gone"
+
+
+class Hung:
+    """A lookup stuck on a hung network mount until released (#111)."""
+
+    def __init__(self, result: Path | None) -> None:
+        import threading
+
+        self.release = threading.Event()
+        self.result = result
+        self.calls = 0
+
+    def __call__(self, path: Path) -> Path | None:
+        self.calls += 1
+        self.release.wait(5)
+        return self.result
+
+
+def test_a_hung_git_lookup_doesnt_stall_the_poll() -> None:
+    import time
+
+    git = Hung(Path("/mnt/nas/repo"))
+    r = ProjectResolver(Config(), git=git, timeout=0.05)
+    start = time.monotonic()
+    assert r.resolve(Path("/mnt/nas/repo/src")) == OTHER
+    assert time.monotonic() - start < 1
+    start = time.monotonic()
+    assert r.resolve(Path("/mnt/nas/repo/src")) == OTHER  # still hung: no second wait or call
+    assert time.monotonic() - start < 0.04 and git.calls == 1
+    git.release.set()
+    found = OTHER
+    for _ in range(100):  # once the mount answers, the pane gets its repo
+        if (found := r.resolve(Path("/mnt/nas/repo/src"))) != OTHER:
+            break
+        time.sleep(0.01)
+    assert found == Resolved("git", Path("/mnt/nas/repo"), "repo")
+
+
+def test_a_hung_symlink_lookup_doesnt_stall_the_poll() -> None:
+    import time
+
+    real = Hung(Path("/r/webshop/src"))
+    r = ProjectResolver(
+        Config(projects=(Project(name="webshop", path=Path("/r/webshop")),)),
+        git=FakeGit({}), real=lambda p: real(p) or p, timeout=0.05,
+    )  # fmt: skip
+    start = time.monotonic()
+    assert r.resolve(Path("/mnt/nas/link")) == OTHER
+    assert time.monotonic() - start < 1
+    real.release.set()
+    found = OTHER
+    for _ in range(100):
+        if (found := r.resolve(Path("/mnt/nas/link"))) != OTHER:
+            break
+        time.sleep(0.01)
+    assert found.name == "webshop"

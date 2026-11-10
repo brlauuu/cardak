@@ -93,12 +93,12 @@ def test_missing_lua_hints_once_and_still_writes() -> None:
 
 def test_live_defaults(tmp_path: Path) -> None:
     lua = tmp_path / "cardak.lua"
-    n = Navigator.live(lua, env={"WEZTERM_PANE": "3"})
+    n = Navigator.live(lambda: lua, env={"WEZTERM_PANE": "3"})
     assert n.in_wezterm
     assert not n.lua_installed()
     lua.write_text("x")
     assert n.lua_installed()
-    assert not Navigator.live(lua, env={}).in_wezterm
+    assert not Navigator.live(lambda: lua, env={}).in_wezterm
 
 
 def test_preview_request_bytes() -> None:

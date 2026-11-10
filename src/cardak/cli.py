@@ -522,15 +522,17 @@ def _backgrounds(
 
 
 def _theme_writer(
-    wezterm_dir: Path, cardak_dir: Path, store: SchemeStore, paths: Paths
+    wezterm_dir: Callable[[], Path], cardak_dir: Path, store: SchemeStore, paths: Paths
 ) -> Callable[[Config], list[str]]:
-    """What the deck runs after every config change: regenerate, return banner warnings."""
+    """What the deck runs after every config change: regenerate, return banner warnings.
+    wezterm_dir is asked each time, so a reinstall to another dir while the deck runs counts
+    (#111)."""
     from cardak.wezterm.generate import MODULE_VERSION, OLD_MODULE_MSG, write_generated
 
     def write(config: Config) -> list[str]:
         schemes = store.get() or None
         found, problems = _backgrounds(config, schemes, paths)
-        result = write_generated(wezterm_dir, cardak_dir, config, schemes, found)
+        result = write_generated(wezterm_dir(), cardak_dir, config, schemes, found)
         warnings = [
             f"projects.toml: {p}" if p.startswith("unknown") else p
             for p in (*result.problems, *problems)
@@ -1012,7 +1014,6 @@ def _deck(config_arg: str | None) -> int:
     from cardak.wezterm.schemes import default_cache_dir, load_schemes, read_cached_schemes
 
     cache_dir = default_cache_dir()
-    lua_dir = _lua_dir()
     store = SchemeStore(read_cached_schemes(cache_dir))
     backgrounds = Paths.default()
     try:
@@ -1029,7 +1030,7 @@ def _deck(config_arg: str | None) -> int:
         config_path(config_arg),
         spend=counted[0] if counted else lambda: None,
         limits_file=limits_path(),
-        on_config=_theme_writer(lua_dir, config_dir(), store, backgrounds),
+        on_config=_theme_writer(_lua_dir, config_dir(), store, backgrounds),
         schemes=store.get,
         store=agents,
         focus_history=lambda: read_history(focus_path()),
@@ -1039,11 +1040,11 @@ def _deck(config_arg: str | None) -> int:
     pm, pm_worker, pm_store = _pm_service(source)
     DeckApp(
         source,
-        navigator=Navigator.live(lua_dir / "cardak.lua"),
+        navigator=Navigator.live(lambda: _lua_dir() / "cardak.lua"),
         previewer=Previewer.live(),
         schemes=store,
         load_schemes=lambda: load_schemes(cache_dir),
-        theme_status=lambda: _module_message(module_version(lua_dir / "cardak.lua")),
+        theme_status=lambda: _module_message(module_version(_lua_dir() / "cardak.lua")),
         hooks_status=_hooks_hint,
         resources_status=_resources_hint,
         log=log,

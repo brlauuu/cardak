@@ -812,8 +812,11 @@ class DeckApp(App[None]):
             schemes = self.load_schemes()
             if self.schemes is not None:
                 self.schemes.set(schemes)
-        self.source.regenerate()
-        self.call_from_thread(self.action_refresh)
+        try:  # the list loaded: what follows mustn't make the picker say it couldn't (#111)
+            self.source.regenerate()
+            self.call_from_thread(self.action_refresh)
+        except Exception:  # the next poll refreshes; the theme writer reports its own trouble
+            pass
         return schemes
 
     def _clear_preview(self, path: Path) -> None:

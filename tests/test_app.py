@@ -1607,3 +1607,16 @@ async def test_snapshot_feeds_pm_the_claude_sessions() -> None:
     async with app.run_test() as pilot:
         await settle(app, pilot)
         assert pm.observed[-1] == [(Path("/repos/webshop"), Path("/repos/webshop/wt"), "working")]
+
+
+async def test_picker_lists_schemes_when_the_refresh_after_the_probe_fails() -> None:
+    # #111: the probe worked, so a theme-file or refresh failure after it isn't "couldn't list"
+    class Broken(StubSource):
+        def regenerate(self) -> None:
+            raise RuntimeError("theme files")
+
+    store = SchemeStore()
+    app = DeckApp(Broken(SNAP), interval=3600, schemes=store, load_schemes=lambda: THEMES)
+    app.call_from_thread = lambda *a, **k: None  # type: ignore[method-assign]  # no running app
+    assert app._schemes_for_picker() == THEMES  # noqa: SLF001
+    assert store.get() == THEMES
