@@ -325,16 +325,61 @@ async def test_enter_on_pane_jumps() -> None:
         assert nav.jumps == [3]
 
 
-async def test_enter_on_group_toggles_without_jumping() -> None:
+async def test_enter_on_a_project_jumps_to_its_first_claude_session() -> None:
+    claude = replace(row(3), label="claude", is_claude=True)
+    snap = replace(SNAP, groups=(SNAP.groups[0], replace(SNAP.groups[1], panes=(row(2), claude))))
+    nav = StubNavigator()
+    app = DeckApp(StubSource(snap), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == [3]  # its Claude pane, not the shell listed first (#123)
+        assert app.deck_tree.root.children[1].is_expanded  # Enter no longer toggles
+
+
+async def test_enter_on_a_project_without_claude_jumps_to_its_first_pane() -> None:
     nav = StubNavigator()
     app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
     async with app.run_test() as pilot:
         await settle(app, pilot)
-        app.deck_tree.move_cursor(app.deck_tree.root.children[0])
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
         await pilot.press("enter")
         await settle(app, pilot)
-        assert nav.jumps == []
-        assert not app.deck_tree.root.children[0].is_expanded
+        assert nav.jumps == [2]
+
+
+async def test_left_and_right_collapse_and_expand_a_project() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(SNAP), navigator=nav, interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        tree = app.deck_tree
+        project = tree.root.children[1]
+        tree.move_cursor(project)
+        await pilot.press("left")
+        await settle(app, pilot)
+        assert not project.is_expanded
+        await pilot.press("right")
+        await settle(app, pilot)
+        assert project.is_expanded
+        tree.move_cursor(project.children[1])
+        await pilot.press("right")  # on a pane: nothing
+        await settle(app, pilot)
+        assert project.is_expanded and tree.cursor_node is project.children[1]
+        await pilot.press("left")  # on a pane: its project closes, the cursor lands on it
+        await settle(app, pilot)
+        assert not project.is_expanded and tree.cursor_node is project
+        await pilot.press("space")  # space still toggles
+        await settle(app, pilot)
+        assert project.is_expanded and nav.jumps == []
+        app.action_refresh()  # a poll keeps what the keys did
+        await settle(app, pilot)
+        await pilot.press("left")
+        app.action_refresh()
+        await settle(app, pilot)
+        assert not app.deck_tree.root.children[1].is_expanded
 
 
 async def test_jump_failure_is_notified() -> None:

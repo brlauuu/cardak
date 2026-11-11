@@ -199,6 +199,11 @@ def _leaves(group: Group, now: float, total: int | None) -> list[tuple[Text, Nod
     return lines + _resource_lines(group, total)
 
 
+def first_session(group: Group) -> PaneRow | None:
+    """Where Enter on a project goes: its first Claude pane, else its first pane (#123)."""
+    return next((r for r in group.panes if r.is_claude), group.panes[0] if group.panes else None)
+
+
 def _resource_lines(group: Group, total: int | None) -> list[tuple[Text, Node]]:
     """Docker work and, under Other, what runs outside WezTerm."""
     lines = [(docker_label(d, total), Node(group, role="docker", line=d)) for d in group.docker]
@@ -239,6 +244,8 @@ class DeckApp(App[None]):
         Binding("d", "dismiss_crash", "Dismiss", show=False),
         Binding("slash", "find", "Find"),
         Binding("escape", "clear_find", "Clear find", show=False),
+        Binding("left", "collapse", "Collapse", show=False),
+        Binding("right", "expand", "Expand", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("c", "checkpoint", "Checkpoint"),
@@ -333,6 +340,7 @@ class DeckApp(App[None]):
 
     def on_mount(self) -> None:
         self.deck_tree.show_root = False
+        self.deck_tree.auto_expand = False  # Enter on a project jumps; ←/→ and space fold (#123)
         # AUTO_FOCUS would pick the hidden #find input, which then swallows every key.
         self.deck_tree.focus()
         self.action_refresh()
@@ -774,11 +782,33 @@ class DeckApp(App[None]):
     def action_cursor_up(self) -> None:
         self.deck_tree.action_cursor_up()
 
+    def action_collapse(self) -> None:
+        """←: close the project; on a line inside it, close it and land on it (#123)."""
+        tree = self.deck_tree
+        node = tree.cursor_node
+        if node is None or node.data is None:
+            return
+        project = node if node.data.role == "group" else node.parent
+        if project is None or project is tree.root:
+            return
+        project.collapse()
+        tree.move_cursor(project)
+
+    def action_expand(self) -> None:
+        """→: open the project under the cursor; nothing on a line inside one."""
+        node = self.deck_tree.cursor_node
+        if node is not None and node.data is not None and node.data.role == "group":
+            node.expand()
+
     @on(Tree.NodeSelected)
     def _selected(self, event: Tree.NodeSelected[NodeData]) -> None:
         data = event.node.data
-        if data is not None and data.row is not None:  # a group row toggles itself (auto_expand)
+        if data is None:
+            return
+        if data.row is not None:
             self.jump(data.row.pane_id)
+        elif data.role == "group" and (target := first_session(data.group)) is not None:
+            self.jump(target.pane_id)
 
     def jump(self, pane_id: int) -> None:
         navigator = self.navigator
