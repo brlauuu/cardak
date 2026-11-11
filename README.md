@@ -37,6 +37,10 @@ The deck lists every WezTerm pane grouped by project. Projects come from
 `~/.config/cardak/projects.toml`; repos you haven't configured are grouped by their git root,
 and `a` adds one.
 
+Enter on a pane jumps to it; Enter on a project jumps to its first Claude Code session (else its
+first pane). ← folds a project away (from any line inside it too), → unfolds it, and space
+toggles it.
+
 ```toml
 [[project]]
 name  = "webshop"

@@ -865,3 +865,5 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   as a hotspot at fan-out 6 (one more step: `_show_top`), and three more dead-code candidates
   (`TopBar.on_resize`, `DeckApp._tick_top`, `TopBar._lay_out` through them: Textual calls the
   handler and the interval, which enola doesn't see).
+- **#123 (fold keys)** adds `first_session`. Accepted: two more dead-code candidates
+  (`DeckApp.action_collapse` / `action_expand`, which Textual calls through the ←/→ bindings).
