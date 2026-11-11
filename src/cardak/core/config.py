@@ -8,6 +8,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from cardak.shared import extras
+
 if TYPE_CHECKING:
     from tomlkit import TOMLDocument
     from tomlkit.items import Table
@@ -175,6 +177,8 @@ def summary_ready(summary: SummarySettings, keys_dir: Path) -> bool:
     """Whether a summary could be made now: config and a stat, cheap enough for the hook."""
     if not summary.enabled:
         return False
+    if summary.provider == "anthropic" and extras.missing("anthropic"):
+        return False  # #131: its SDK is an extra
     return not KEYED.get(summary.provider) or key_file(keys_dir, summary.provider).exists()
 
 

@@ -73,8 +73,18 @@ def test_no_text_block_is_none() -> None:
 
 
 def test_real_client_gets_the_key_explicitly(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("anthropic")  # the anthropic extra (#131)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
     client = AnthropicSummarizer("from-file", MODEL).client
     assert client.api_key == "from-file"
     assert client.max_retries == 2
     assert client.timeout == 20.0
+
+
+def test_without_the_sdk_the_error_says_how_to_add_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cardak.shared import extras
+
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", None)  # import raises (#131)
+    with pytest.raises(RuntimeError) as e:
+        AnthropicSummarizer("k", MODEL)
+    assert str(e.value) == extras.needs("anthropic", "Anthropic summaries")

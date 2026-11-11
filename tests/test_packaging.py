@@ -21,3 +21,17 @@ def test_site_is_not_packaged() -> None:
     for key in ("source-include", "wheel-include"):
         for line in text.splitlines():
             assert not (line.startswith(key) and "site" in line)
+
+
+def test_extras_and_a_slim_base() -> None:
+    # #131: the art's and Anthropic's libraries are extras; [all] is the documented install
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    extras = project["optional-dependencies"]
+    assert set(extras) == {"background", "anthropic", "all"}
+    assert extras["all"] == ["cardak[background,anthropic]"]
+    names = {d.split(">")[0].split("=")[0] for group in extras.values() for d in group}
+    base = {d.split(">")[0].split("=")[0] for d in project["dependencies"]}
+    assert not base & names
+    assert {"pillow", "pyfiglet", "resvg-py", "anthropic"} <= names

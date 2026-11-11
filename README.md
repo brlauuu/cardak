@@ -16,9 +16,22 @@ Linux and WezTerm only. Developed on Kubuntu 24.04 (KDE Plasma, X11).
 ## Install
 
 ```sh
-uv tool install git+https://github.com/brlauuu/cardak
+uv tool install 'cardak[all] @ git+https://github.com/brlauuu/cardak'
 cardak
 ```
+
+`[all]` brings every optional part. Without it (`uv tool install
+git+https://github.com/brlauuu/cardak`) you get the deck, agent status, themes, resources, the
+phone view and the PM view, and add what you want:
+
+| Extra | Adds | Size |
+|---|---|---|
+| `background` | the project background's ASCII art (Pillow, pyfiglet, resvg-py) | ~33 MB |
+| `anthropic` | waiting summaries by Anthropic's API (the SDK); Ollama, Fireworks, OpenAI and Codex need nothing | ~37 MB |
+
+A feature whose extra is missing says so where it's used, with the command that adds it. To add
+one later, install again with it, e.g. `uv tool install --reinstall 'cardak[all] @ git+…'`.
+From a clone: `uv tool install --editable '.[all]'`.
 
 The deck lists every WezTerm pane grouped by project. Projects come from
 `~/.config/cardak/projects.toml`; repos you haven't configured are grouped by their git root,

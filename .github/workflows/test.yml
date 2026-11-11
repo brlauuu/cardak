@@ -15,7 +15,7 @@ jobs:
         with:
           enable-cache: true
 
-      - run: uv sync --locked
+      - run: uv sync --locked --all-extras
 
       - name: Lint
         run: uv run ruff check
@@ -28,3 +28,21 @@ jobs:
 
       - name: Test with coverage
         run: uv run pytest --cov=cardak --cov-branch --cov-fail-under=80
+
+  # #131: the slim install, no extras; tests needing one skip themselves
+  base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - run: uv sync --locked
+
+      - name: No extra is installed
+        run: uv run python -c "import importlib.util as u; assert not any(u.find_spec(m) for m in ('PIL', 'pyfiglet', 'resvg_py', 'anthropic'))"
+
+      - name: Test
+        run: uv run pytest -q

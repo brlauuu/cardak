@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -470,6 +471,20 @@ def test_summary_ready(tmp_path: Path) -> None:
     assert ready(fw)
     assert not ready(fw.replace("[summary]\n", "[summary]\nmonthly_limit_usd = 0\n"))
     assert not ready('[summary]\nprovider = "gpt"\n')
+
+
+def test_summary_ready_needs_the_anthropic_extra(
+    tmp_path: Path, block_extra: Callable[[str], None]
+) -> None:
+    keys = tmp_path / "cfg"
+    keys.mkdir()
+    (keys / "anthropic_key").write_text("k")
+    anthropic = _summary_cfg(tmp_path, "").summary
+    assert summary_ready(anthropic, keys)
+    block_extra("anthropic")
+    assert not summary_ready(anthropic, keys)  # the hook spawns no summarize that would fail
+    ollama = '[summary]\nprovider = "ollama"\n[summary.ollama]\nmodel = "m"\n'
+    assert summary_ready(_summary_cfg(tmp_path, ollama).summary, keys)
 
 
 def test_resources_default_to_derived(tmp_path: Path) -> None:

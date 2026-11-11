@@ -154,6 +154,7 @@ def _one_project(xdg: Path) -> Path:
 
 
 def test_themes_apply_makes_art_and_lists_the_image(xdg: Path) -> None:
+    pytest.importorskip("PIL")  # the background extra (#131)
     art = _one_project(xdg)
     assert main(["themes", "apply"]) == 0
     assert "\\" in art.read_text()  # figlet letters
@@ -161,7 +162,21 @@ def test_themes_apply_makes_art_and_lists_the_image(xdg: Path) -> None:
     assert "background = { file = [[" in lua and str(xdg / "cache/cardak/backgrounds") in lua
 
 
+def test_themes_apply_without_the_background_extra_says_how_to_add_it(
+    xdg: Path, capsys: pytest.CaptureFixture[str], block_extra: Callable[[str], None]
+) -> None:
+    from cardak.shared import extras
+
+    block_extra("background")
+    art = _one_project(xdg)
+    assert main(["themes", "apply"]) == 0  # the scheme files are still written
+    assert not art.exists()
+    hint = extras.needs("background", "the project background")
+    assert f"warning: {hint}" in capsys.readouterr().err
+
+
 def test_themes_apply_twice_does_not_remake_deleted_art(xdg: Path) -> None:
+    pytest.importorskip("PIL")  # the background extra (#131)
     art = _one_project(xdg)
     assert main(["themes", "apply"]) == 0
     art.unlink()
@@ -191,6 +206,7 @@ def test_themes_zsh(xdg: Path, capsys: pytest.CaptureFixture[str]) -> None:
 def test_themes_zsh_draws_art_in_the_probed_scheme(
     xdg: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    pytest.importorskip("PIL")  # the background extra (#131)
     from PIL import Image as PilImage
 
     from cardak.core.themes import Scheme
@@ -326,6 +342,7 @@ def test_statusline_imports_only_what_it_needs(tmp_path: Path) -> None:
 
 
 def test_summarize_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("anthropic")  # the anthropic extra (#131)
     from cardak.core import summarize
     from cardak.llm.anthropic import AnthropicSummarizer
 
@@ -339,6 +356,7 @@ def test_summarize_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_make_summarizer_per_provider() -> None:
+    pytest.importorskip("anthropic")  # the anthropic extra (#131)
     from cardak.cli import _make_summarizer
     from cardak.llm.anthropic import AnthropicSummarizer
     from cardak.llm.codex import CodexSummarizer
@@ -378,10 +396,11 @@ def test_pinging_hook_imports_no_summarizer(tmp_path: Path) -> None:
         "assert any('summarize' in argv for argv in spawned), spawned\n"
     )
     config = tmp_path / "p.toml"
-    config.write_text('[notify]\ndesktop = false\nsound = "off"\n')
-    key = tmp_path / "config" / "cardak" / "anthropic_key"
-    key.parent.mkdir(parents=True)
-    key.write_text("k")
+    # ollama: the SDK is an extra, and this checks the ping path, not a provider (#131)
+    config.write_text(
+        '[notify]\ndesktop = false\nsound = "off"\n'
+        '[summary]\nprovider = "ollama"\n[summary.ollama]\nmodel = "m"\n'
+    )
     env = os.environ | {
         "XDG_STATE_HOME": str(tmp_path),
         "XDG_CONFIG_HOME": str(tmp_path / "config"),

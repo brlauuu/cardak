@@ -22,6 +22,7 @@ from cardak.collectors.logos import readme_images
 from cardak.core.ascii_art import ArtError, load_image, logo_art, name_art
 from cardak.core.config import Config, Project, cache_dir, config_dir, real_path, state_dir
 from cardak.core.themes import Scheme
+from cardak.shared import extras
 from cardak.shared.files import write_atomic
 
 if TYPE_CHECKING:
@@ -36,6 +37,7 @@ SKIP_PARTS = {"screens", "screenshots", "design", "node_modules", "test", "tests
 RECORD_VERSION = 2
 MAX_TRIES = 8  # logo candidates tried before the name is used
 PRUNE_AFTER_S = 3600  # an unused PNG is removed once nothing has drawn or shown it for this long
+MISSING = extras.needs("background", "the project background")  # #131
 
 
 @dataclass(frozen=True)
@@ -224,6 +226,8 @@ def ensure_art(
     wanted = _wanted(config)
     if not wanted:
         return []
+    if extras.missing("background"):
+        return [MISSING]
     lock_file = paths.record.with_suffix(".lock")
     try:
         lock_file.parent.mkdir(parents=True, exist_ok=True)
@@ -338,6 +342,8 @@ def images(
     wanted = _wanted(config)
     if not wanted:
         return {}, []
+    if extras.missing("background"):
+        return {}, [MISSING]
     problems = ensure_art(config, paths)
     files = art_files(_first_per_path(config.projects), paths.art_dir, record_names(paths.record))
     found: dict[Path, Image] = {}
@@ -403,9 +409,11 @@ class Tools:
         names = record_names(self._paths.record)
         return project, art_files(projects, self._paths.art_dir, names)[project.path]
 
-    def enabled(self) -> bool:
-        """Whether any project shows its art: [background] enabled."""
-        return self._config().background.enabled
+    def off_reason(self) -> str | None:
+        """Why no project shows its art, for the picker; None when they can."""
+        if not self._config().background.enabled:
+            return "background off for every project: [background] enabled = false"
+        return MISSING if extras.missing("background") else None
 
     def art_file(self, project_path: Path) -> Path | None:
         """The project's art file; None before it was ever made (that waits for its background

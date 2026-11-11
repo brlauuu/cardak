@@ -1,6 +1,15 @@
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
+from cardak.shared import extras
+
+# Every test in these needs the background extra's libraries; the base CI job (#131) has none.
+# What happens without them is in test_backgrounds_without_extra.py.
+collect_ignore = (
+    ["test_ascii_art.py", "test_backgrounds.py"] if extras.missing("background") else []
+)
 
 
 @pytest.fixture(autouse=True)
@@ -43,3 +52,23 @@ def packs_dir(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.Monk
     root = tmp_path_factory.mktemp("packs")
     monkeypatch.setattr(alerts, "pack_root", lambda: root)
     return root
+
+
+@pytest.fixture(autouse=True)
+def anthropic_counts_as_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Summary tests fake the summarizer, so the SDK being an extra doesn't matter to them; the
+    ones about it missing use block_extra, and the ones that build the real client skip (#131)."""
+    from cardak.shared import extras
+
+    monkeypatch.setitem(extras._found, "anthropic", True)
+
+
+@pytest.fixture
+def block_extra(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:
+    """block_extra("background") makes that extra look uninstalled for this test (#131)."""
+    from cardak.shared import extras
+
+    def block(name: str) -> None:
+        monkeypatch.setitem(extras._found, name, False)
+
+    return block

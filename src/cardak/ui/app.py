@@ -864,6 +864,6 @@ class DeckApp(App[None]):
             background=background,
             art_file=tools.art_file(path) if tools else None,
             preview_image=(lambda scheme: tools.preview_image(path, scheme)) if tools else None,
-            backgrounds_on=tools.enabled() if tools else True,
+            backgrounds_off=tools.off_reason() if tools else None,
         )
         self.push_screen(picker, done)

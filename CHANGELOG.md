@@ -12,6 +12,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 ### Added
 - You can place a project's background art yourself: `position = [columns, rows]` under `[background]`, counted from the window's top-right corner, or `background_position` on one project. Without either it stays in the bottom-right corner; run `cardak wezterm install` again to use it (#132).
 
+### Changed
+- **Install with `[all]` to keep everything.** The project background's art and Anthropic summaries are now optional extras, so a plain install is about 70 MB lighter. If you use either, reinstall with `uv tool install --reinstall 'cardak[all] @ git+https://github.com/brlauuu/cardak'` (or `[background]` / `[anthropic]` alone); until then the picker, `cardak themes apply` and the Summaries screen say what's missing and how to add it (#131).
+
 ### Fixed
 - The PM view's board, the price list, plan limits, summary and web keys and the scheme cache are now written through a symlink, as the theme files and `projects.toml` already were, instead of replacing the link with a plain file; a failed write of the scheme cache no longer leaves a temporary file behind (#137).
 - The deck no longer stops responding for a moment when you add a project or change its look: the project's background art is made in the background, and its theme follows a moment later (#129).

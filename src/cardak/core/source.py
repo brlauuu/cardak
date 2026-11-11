@@ -45,6 +45,7 @@ from cardak.core.store import StoreError
 from cardak.core.summary import SummaryInfo, key_warning, month_start, write_key
 from cardak.core.themes import Scheme, project_accent
 from cardak.core.trends import GroupedTrends, UsageTrends, group_trends
+from cardak.shared import extras
 
 ListPanes = Callable[[Mapping[str, str]], list[wezterm.Pane]]
 Sample = Callable[[Iterable[str]], dict[str, PaneProcs]]
@@ -392,6 +393,15 @@ class LiveSource:
             except StoreError:
                 return None
 
+    def _missing_sdk(self) -> str | None:
+        """Anthropic summaries set up (its key is there) but its SDK not installed (#131)."""
+        summary = self._config.summary
+        if not summary.enabled or summary.provider != "anthropic" or self._keys_dir is None:
+            return None
+        if not key_file(self._keys_dir, "anthropic").exists() or not extras.missing("anthropic"):
+            return None
+        return extras.needs("anthropic", "waiting summaries with Anthropic")
+
     def _warnings_now(self, spend: MonthSpend | None = None) -> tuple[str, ...]:
         extra = (self._store_warning,) if self._store_warning else ()
         key = None
@@ -401,6 +411,8 @@ class LiveSource:
         summary = (self._summary_warning,) if self._summary_warning else ()
         if self._keys_dir is not None and broken:
             summary = (f"waiting summaries off: {broken}", *summary)
+        if missing := self._missing_sdk():
+            summary = (missing, *summary)
         unpriced = (
             (f"no API price for {', '.join(spend.unpriced)}; left out of this month's figure",)
             if spend is not None and spend.unpriced
