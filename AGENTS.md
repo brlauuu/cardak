@@ -195,8 +195,12 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   alone whose `background` override it didn't set. The first layer's color is the scheme's from the
   user's `color_schemes` (read at each sync, so ones set after `apply` count), else the built-in
   list, else the window's effective config, which still has the previous scheme during the sync
-  that switches it (#128, module 6). With `[background] enabled = false` the picker's switch is disabled and
-  its previews carry no art; the art line names a file only once its art was made (#126).
+  that switches it (#128, module 6). A position (a project's `background_position`, else
+  `[background] position`; columns left and rows down from the top-right) aligns the image
+  `Right`/`Top` with offsets `-<cols>cell` / `<rows>cell`; without one it is `Right`/`Bottom` at
+  `-1cell`. Measured on 20240203 (`spikes/08_background_position.py`): a positive horizontal
+  offset pushes it past the right edge, and art outside the window is clipped (#132, module 7).
+  With `[background] enabled = false` the picker's switch is disabled and its previews carry no art; the art line names a file only once its art was made (#126).
   Logos: README images first, then tracked files named logo / mark / icon (`git ls-files`),
   skipping wordmarks (art under 8 rows) and
   broken files; an opaque tile (an app icon) is read by the mark inside it. Measured on the
@@ -838,3 +842,6 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.
+- **#132 (art position)** adds `config._position` and one more field to `config.load` (fan-out
+  14, the hotspot accepted under #9), and a performance note on the spike's per-case loop (one
+  WezTerm window per case). Nothing split.

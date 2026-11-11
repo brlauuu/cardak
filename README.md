@@ -60,9 +60,12 @@ means no background for that project.
 
 In the theme picker (`t`), `ctrl+b` turns a project's background off or on, previewed live, and
 the picker shows where its file is. In `projects.toml`, `[background]` takes `enabled = false`
-(every project) and `opacity` (default `0.06`). A background set in your `wezterm.lua` before
-`require('cardak').apply(config)` wins; `apply(config, { background = false })` turns cardak's
-off. The background covers the zsh tint. After upgrading, run `cardak wezterm install` again
+(every project) and `opacity` (default `0.06`). The art sits in the bottom-right corner;
+`position = [columns, rows]` under `[background]` places it that many cells left of the window's
+right edge and down from its top instead, and a project's own `background_position` wins over
+that. Art that doesn't fit a small window is cut off. A background set in your `wezterm.lua`
+before `require('cardak').apply(config)` wins; `apply(config, { background = false })` turns
+cardak's off. The background covers the zsh tint. After upgrading, run `cardak wezterm install` again
 (the deck reminds you).
 
 ## Claude Code status

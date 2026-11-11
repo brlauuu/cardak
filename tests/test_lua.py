@@ -10,7 +10,7 @@ import pytest
 from lupa.lua54 import LuaRuntime
 
 from cardak.core.backgrounds import Image
-from cardak.core.config import Config, Project
+from cardak.core.config import BackgroundSettings, Config, Project
 from cardak.wezterm.generate import render_projects_lua
 
 MODULE = files("cardak.wezterm").joinpath("cardak.lua").read_text()
@@ -110,10 +110,15 @@ def _plain(table: Any) -> Any:
 
 
 def data(
-    *projects: Project, default: str | None = None, images: dict[Path, Image] | None = None
+    *projects: Project,
+    default: str | None = None,
+    images: dict[Path, Image] | None = None,
+    position: tuple[int, int] | None = None,
 ) -> str:
     defaults: dict[str, object] = {"theme": default} if default else {}
-    return render_projects_lua(Config(projects=projects, defaults=defaults), None, images)[0]
+    background = BackgroundSettings(position=position)
+    config = Config(projects=projects, defaults=defaults, background=background)
+    return render_projects_lua(config, None, images)[0]
 
 
 WEB = Project(name="web", path=Path("/r/web"), theme="Nord")
@@ -262,8 +267,8 @@ def test_focus_is_harmless_without_a_state_dir(
     assert not (tmp_path / "missing").exists()
 
 
-def test_module_version_5() -> None:
-    assert MODULE.splitlines()[1] == "-- cardak-module: 6"
+def test_module_version_7() -> None:
+    assert MODULE.splitlines()[1] == "-- cardak-module: 7"
 
 
 def record_opens(wez: Wez) -> Any:
@@ -532,6 +537,75 @@ def test_a_background_preview_for_a_project_without_one() -> None:
     w = wez.window(1, "/r/new")
     wez.preview(w, "/r/new", "Nord", OTHER_ART)
     assert _image_layer(wez.background(w))["source"] == {"File": "/c/bg/preview.png"}
+
+
+def _placed(layers: list[dict[str, Any]] | None) -> tuple[str, str, str, str]:
+    image = _image_layer(layers)
+    return (
+        image["horizontal_align"],
+        image["vertical_align"],
+        image["horizontal_offset"],
+        image["vertical_offset"],
+    )
+
+
+def test_a_projects_position_places_its_art_from_the_top_right() -> None:
+    web = Project(name="web", path=Path("/r/web"), theme="Nord", background_position=(10, 4))
+    wez = Wez(data(web, images={web.path: ART}, position=(2, 1)))
+    w = wez.window(1, "/r/web/src")
+    wez.status(w)
+    # measured on 20240203: Right/Top, a negative offset moves left, a positive one down (#132)
+    assert _placed(wez.background(w)) == ("Right", "Top", "-10cell", "4cell")
+
+
+def test_the_global_position_places_art_without_its_own() -> None:
+    api = Project(name="api", path=Path("/r/web/api"))  # nested: the outer's position isn't its
+    web = Project(name="web", path=Path("/r/web"), theme="Nord", background_position=(10, 4))
+    wez = Wez(data(web, api, images={api.path: ART}, position=(2, 1)))
+    w = wez.window(1, "/r/web/api")
+    wez.status(w)
+    assert _placed(wez.background(w)) == ("Right", "Top", "-2cell", "1cell")
+
+
+def test_without_a_position_art_stays_bottom_right() -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    assert _placed(wez.background(w)) == ("Right", "Bottom", "-1cell", "-1cell")
+
+
+def test_a_preview_is_placed_where_the_art_will_be() -> None:
+    wez = Wez(data(position=(3, 0)))
+    w = wez.window(1, "/r/new")
+    wez.preview(w, "/r/new", "Nord", OTHER_ART)
+    assert _placed(wez.background(w)) == ("Right", "Top", "-3cell", "0cell")
+
+
+def test_a_moved_position_moves_the_art_after_a_reload() -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}, position=(2, 1)))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    wez.g.DATA = data(WEB, images={WEB.path: ART}, position=(5, 2))
+    wez.lua.execute("package.loaded.cardak_projects = nil")  # a reload is a fresh Lua state
+    wez.reload()
+    wez.status(w)
+    assert _placed(wez.background(w)) == ("Right", "Top", "-5cell", "2cell")
+    wez.g.DATA = data(WEB, images={WEB.path: ART})
+    wez.lua.execute("package.loaded.cardak_projects = nil")
+    wez.reload()
+    wez.status(w)
+    assert _placed(wez.background(w)) == ("Right", "Bottom", "-1cell", "-1cell")
+
+
+@pytest.mark.parametrize("bad", ["{ 1 }", "{ -1, 0 }", "{ 'a', 1 }", "{ 1.5, 2 }", "'x'"])
+def test_a_malformed_position_is_ignored(bad: str) -> None:
+    wez = Wez(
+        f"return {{ background_position = {bad}, projects = {{ {{ path = '/r/a', scheme = 'Nord',"
+        f" position = {bad}, background = {{ file = '/c/a.png', cols = 4, rows = 2 }} }} }} }}"
+    )
+    w = wez.window(1, "/r/a")
+    wez.status(w)
+    assert _placed(wez.background(w)) == ("Right", "Bottom", "-1cell", "-1cell")
 
 
 def test_a_background_set_by_someone_else_is_left_alone() -> None:
