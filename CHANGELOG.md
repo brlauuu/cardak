@@ -9,12 +9,14 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.19.0 — 2026-11-11
+
 ### Added
 - In the PM view, `w` on a todo issue opens a new tab in its project and starts Claude on it with `/issue-to-pr <number>`, after asking; `[pm] issue_command` in `projects.toml` sets a different prompt (#120).
 
 ### Changed
-- In the deck, ← and → fold and unfold a project (← works from any line inside it), and Enter on a project jumps to its first Claude Code session, or its first pane, instead of folding it; space still folds (#123).
 - The deck's top bar names the cardak version you're running, and the 5-hour and weekly plan limits moved into it, filling up with what you've used and showing how long until each resets as well as when; in a narrow window they take a second line. The phone page shows the same (#121).
+- In the deck, ← and → fold and unfold a project (← works from any line inside it), and Enter on a project jumps to its first Claude Code session, or its first pane, instead of folding it; space still folds (#123).
 
 ## 0.18.0 — 2026-11-11
 
