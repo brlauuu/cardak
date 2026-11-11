@@ -1295,11 +1295,11 @@ async def test_deck_saves_background_off() -> None:
 
 
 class FakeArt:
-    def __init__(self, enabled: bool = True) -> None:
-        self._enabled = enabled
+    def __init__(self, off: str | None = None) -> None:
+        self._off = off
 
-    def enabled(self) -> bool:
-        return self._enabled
+    def off_reason(self) -> str | None:
+        return self._off
 
     def art_file(self, project_path: Path) -> Path | None:
         return Path("/art/cardak.txt")
@@ -1327,7 +1327,10 @@ async def test_picker_opens_with_the_saved_switch_and_art_path() -> None:
 
 async def test_picker_knows_backgrounds_are_off() -> None:
     app = DeckApp(
-        StubSource(SNAP), interval=3600, schemes=SchemeStore(THEMES), backgrounds=FakeArt(False)
+        StubSource(SNAP),
+        interval=3600,
+        schemes=SchemeStore(THEMES),
+        backgrounds=FakeArt("no extra"),
     )
     async with app.run_test() as pilot:
         await settle(app, pilot)
@@ -1337,6 +1340,7 @@ async def test_picker_knows_backgrounds_are_off() -> None:
         screen = app.screen
         assert isinstance(screen, ThemePickerScreen)
         assert screen.query_one(Checkbox).disabled
+        assert str(screen.query_one("#art-path", Static).render()) == "no extra"
 
 
 async def test_picker_load_regenerates() -> None:

@@ -247,7 +247,8 @@ def test_http_errors_are_readable(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_llm_imports_nothing_from_cardak() -> None:
     root = Path(__file__).parent.parent / "src" / "cardak" / "llm"
     for source in root.glob("*.py"):
-        found = re.search(r"^\s*(from|import) cardak\b", source.read_text(), re.MULTILINE)
+        # cardak.shared is stdlib helpers every layer may use (#137, #131)
+        found = re.search(r"^\s*(from|import) cardak\b(?!\.shared)", source.read_text(), re.M)
         assert found is None, source.name
 
 

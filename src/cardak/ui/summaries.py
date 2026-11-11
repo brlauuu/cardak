@@ -32,6 +32,7 @@ from cardak.core.summary import (
     cost_note,
     validate,
 )
+from cardak.shared import extras
 from cardak.ui.confirm import ConfirmScreen
 
 KINDS = {
@@ -87,6 +88,13 @@ class TestResult:
     ok: bool
     seconds: float
     text: str
+
+
+def _uninstalled(name: str) -> str | None:
+    """The hint when a provider's library is an extra that isn't installed (#131)."""
+    if name == "anthropic" and extras.missing("anthropic"):
+        return extras.needs("anthropic", "Anthropic summaries")
+    return None
 
 
 class SummariesScreen(ModalScreen[None]):
@@ -184,12 +192,13 @@ class SummariesScreen(ModalScreen[None]):
         return PROVIDERS[index or 0]
 
     def _row(self, name: str, summary: SummarySettings) -> Text:
+        absent = " · not installed" if _uninstalled(name) else ""
         if name == summary.provider:
             ready = not KEYED.get(name) or self._control.has_key(name)
-            return Text(f"● {name:<11} in use" + ("" if ready else " · no key"))
+            return Text(f"● {name:<11} in use" + ("" if ready else " · no key") + absent)
         if self._control.is_set_up(name):
-            return Text(f"○ {name:<11} set up")
-        return Text(f"· {name:<11} —")
+            return Text(f"○ {name:<11} set up{absent}")
+        return Text(f"· {name:<11} —{absent}")
 
     def _refresh(self) -> None:
         summary = self._control.summary_settings()
@@ -217,19 +226,23 @@ class SummariesScreen(ModalScreen[None]):
         text = Text()
         text.append(name, style="bold")
         text.append(f"  ({KINDS[name]})\n")
-        settings = self._shown(name)
         if not set_up:
             text.append("  not set up · n to set it up\n")
         else:
-            if settings.url and name != "fireworks":
-                text.append(f"  url    {settings.url}\n")
-            model = settings.model or (MODEL if name == "anthropic" else None)
-            text.append(f"  model  {model or 'codex default'}\n")
-            text.append(f"  cost   {cost_note(name, settings, self._tools.prices())}\n")
+            self._append_settings(text, name, self._shown(name))
         if name == "codex":
             text.append(f"  found  {self._codex or 'codex is not on PATH'}\n")
+        if missing := _uninstalled(name):
+            text.append(f"\n  {missing}\n")
         self._append_test(text, self._tests.get(name, False))
         self.query_one("#detail", Static).update(text)
+
+    def _append_settings(self, text: Text, name: str, settings: ProviderSettings) -> None:
+        if settings.url and name != "fireworks":
+            text.append(f"  url    {settings.url}\n")
+        model = settings.model or (MODEL if name == "anthropic" else None)
+        text.append(f"  model  {model or 'codex default'}\n")
+        text.append(f"  cost   {cost_note(name, settings, self._tools.prices())}\n")
 
     def _append_test(self, text: Text, result: TestResult | None | bool) -> None:
         if result is None:
@@ -279,6 +292,9 @@ class SummariesScreen(ModalScreen[None]):
 
     def action_test(self) -> None:
         name = self._highlighted
+        if missing := _uninstalled(name):
+            self._say(missing)
+            return
         if self._form_for != name and not self._control.is_set_up(name):
             self._say(f"{name} isn't set up: press n to set it up")
             return

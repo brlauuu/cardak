@@ -263,6 +263,9 @@ async def test_escape_discards_the_switch() -> None:
         assert rec.calls[-1] == (PATH, "")
 
 
+OFF_REASON = "background off for every project: [background] enabled = false"
+
+
 async def test_with_backgrounds_off_the_picker_says_so_and_previews_none() -> None:
     asked: list[str] = []
 
@@ -270,12 +273,14 @@ async def test_with_backgrounds_off_the_picker_says_so_and_previews_none() -> No
         asked.append(scheme)
         return ART
 
-    host, rec = picker(preview_image=image, art_file=Path("/art/web.txt"), backgrounds_on=False)
+    host, rec = picker(
+        preview_image=image, art_file=Path("/art/web.txt"), backgrounds_off=OFF_REASON
+    )
     async with host.run_test() as pilot:
         await ready(host, pilot)
         box = host.picker.query_one(Checkbox)
         assert box.disabled
-        assert "enabled = false" in str(host.picker.query_one("#art-path", Static).render())
+        assert str(host.picker.query_one("#art-path", Static).render()) == OFF_REASON
         await pilot.press("ctrl+b")
         await pilot.pause()
         assert box.value is True and rec.calls == []  # ctrl+b does nothing

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -217,6 +218,26 @@ async def test_test_of_unset_provider_is_refused() -> None:
         await pilot.press("t")
         await pilot.pause()
         assert fake.made == [] and "isn't set up" in text_of(app, "#message")
+
+
+async def test_anthropic_without_its_extra_says_how_to_add_it(
+    block_extra: Callable[[str], None],
+) -> None:
+    from cardak.shared import extras
+
+    block_extra("anthropic")
+    hint = extras.needs("anthropic", "Anthropic summaries")
+    fake = FakeTools()
+    app = Host(two_set_up(), fake.tools())
+    async with app.run_test(size=(110, 30)) as pilot:
+        await pilot.pause()
+        assert rows(app)[0].endswith("not installed")
+        assert "not installed" not in rows(app)[1]
+        await move_to(app, pilot, "anthropic")
+        assert hint in text_of(app, "#detail").replace("\n", "")
+        await pilot.press("t")
+        await pilot.pause()
+        assert fake.made == [] and text_of(app, "#message") == hint
 
 
 async def test_setup_ollama_lists_models() -> None:

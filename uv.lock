@@ -48,15 +48,27 @@ name = "cardak"
 version = "0.17.2"
 source = { editable = "." }
 dependencies = [
-    { name = "anthropic" },
-    { name = "pillow" },
     { name = "psutil" },
-    { name = "pyfiglet" },
-    { name = "resvg-py" },
     { name = "segno" },
     { name = "textual" },
     { name = "tomli-w" },
     { name = "tomlkit" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "anthropic" },
+    { name = "pillow" },
+    { name = "pyfiglet" },
+    { name = "resvg-py" },
+]
+anthropic = [
+    { name = "anthropic" },
+]
+background = [
+    { name = "pillow" },
+    { name = "pyfiglet" },
+    { name = "resvg-py" },
 ]
 
 [package.dev-dependencies]
@@ -71,16 +83,18 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=2.0.0" },
-    { name = "pillow", specifier = ">=12" },
+    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=2.0.0" },
+    { name = "cardak", extras = ["background", "anthropic"], marker = "extra == 'all'" },
+    { name = "pillow", marker = "extra == 'background'", specifier = ">=12" },
     { name = "psutil", specifier = ">=7.2.2" },
-    { name = "pyfiglet", specifier = ">=1.0.4" },
-    { name = "resvg-py", specifier = ">=0.5.0" },
+    { name = "pyfiglet", marker = "extra == 'background'", specifier = ">=1.0.4" },
+    { name = "resvg-py", marker = "extra == 'background'", specifier = ">=0.5.0" },
     { name = "segno", specifier = ">=1.6.6" },
     { name = "textual", specifier = ">=8.2.8" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "tomlkit", specifier = ">=0.15.2" },
 ]
+provides-extras = ["background", "anthropic", "all"]
 
 [package.metadata.requires-dev]
 dev = [

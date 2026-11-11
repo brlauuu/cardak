@@ -10,6 +10,15 @@ agent status (working / waiting / idle), and attributes CPU/RAM to the pane that
 - **Textual** for the TUI, served in a browser via `textual-serve`.
 - **Pillow**, **pyfiglet** and **resvg-py** for the project background's art (#9), imported only
   where art is made.
+- **Extras (#131):** `background` (Pillow, pyfiglet, resvg-py) and `anthropic` (the SDK) are
+  optional dependencies, `all` both; the base install has neither. An extra's library is imported
+  only inside the code that needs it, after `cardak.shared.extras.missing(<extra>)` said it is
+  there; a missing one is a hint naming `extras.INSTALL`, never an ImportError. Develop with
+  `uv sync --all-extras` (uv has no default extras). CI's `test` job has every extra; `base` has
+  none and runs the suite (`tests/conftest.py` leaves out `test_ascii_art` and `test_backgrounds`
+  there; other tests needing one `importorskip`). Tests count the anthropic extra as installed
+  (their summarizers are fakes); `block_extra(<name>)` makes one missing. Measured 2026-11-11:
+  `shared.extras` adds ~0.3 ms to the hook's imports and its lookup 0.14 ms to a ping.
 - **psutil** for processes, **SQLite** for storage, TOML config at `~/.config/cardak/projects.toml`:
   read with `tomllib`, new projects appended with `tomli-w`, existing keys edited in place with
   **`tomlkit`** (keeps comments and layout).
@@ -845,3 +854,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - **#132 (art position)** adds `config._position` and one more field to `config.load` (fan-out
   14, the hotspot accepted under #9), and a performance note on the spike's per-case loop (one
   WezTerm window per case). Nothing split.
+- **#131 (install extras)** split `SummariesScreen._show_detail` (11: `_append_settings`). Accepted:
+  `shared.extras.missing` at fan-in 8 (every place an extra's feature starts asks it: one check,
+  by design) and `config.key_file` at 11 (the deck's missing-SDK warning reads the key's path),
+  and one more dead-code candidate (`Tools.off_reason`, called through the picker's protocol).

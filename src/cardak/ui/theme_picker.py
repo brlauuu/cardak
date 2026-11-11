@@ -35,7 +35,7 @@ class ThemePreviewer(Protocol):
 class Backgrounds(Protocol):
     """What the picker needs to show a project's art (#9)."""
 
-    def enabled(self) -> bool: ...
+    def off_reason(self) -> str | None: ...
 
     def art_file(self, project_path: Path) -> Path | None: ...
 
@@ -90,7 +90,7 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         background: bool = True,
         art_file: Path | None = None,
         preview_image: Callable[[str], Image | None] | None = None,
-        backgrounds_on: bool = True,
+        backgrounds_off: str | None = None,
     ) -> None:
         super().__init__()
         self._name = project_name
@@ -105,7 +105,8 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         self._background = background
         self._art_file = art_file
         self._preview_image = preview_image
-        self._backgrounds_on = backgrounds_on  # [background] enabled: off, nothing shows (#126)
+        # why no project shows art ([background] enabled = false, #126; no extra, #131)
+        self._backgrounds_off = backgrounds_off
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker"):
@@ -120,13 +121,13 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
                 "Background: the project's ASCII art (ctrl+b)",
                 self._background,
                 id="background",
-                disabled=not self._backgrounds_on,
+                disabled=self._backgrounds_off is not None,
             )
             yield Static(escape(self._art_line(self._background)), id="art-path")
 
     def _art_line(self, on: bool) -> str:
-        if not self._backgrounds_on:
-            return "background off for every project: [background] enabled = false"
+        if self._backgrounds_off is not None:
+            return self._backgrounds_off
         if self._art_file:
             return f"art: {_tilde(self._art_file)}; replace its text to change it"
         return "art: made when you save" if on else "art: made when the background is turned on"
@@ -194,7 +195,7 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
     def _background_arg(self, name: str) -> Image | bool | None:
         """Off → False; on → the art in that scheme's color, None (the saved one) without it.
         With backgrounds off for every project, None: the scheme alone, as before #9."""
-        if not self._backgrounds_on:
+        if self._backgrounds_off is not None:
             return None
         if not self.query_one("#background", Checkbox).value:
             return False

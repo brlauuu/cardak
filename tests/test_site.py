@@ -94,7 +94,8 @@ def test_video_placeholder_says_how_to_swap() -> None:
 
 
 def test_it_tells_how_to_install() -> None:
-    assert f"uv tool install git+{REPO}" in PAGE.read_text()
+    # with every extra (#131): the art and Anthropic summaries are optional since 0.18
+    assert f"uv tool install 'cardak[all] @ git+{REPO}'" in PAGE.read_text()
 
 
 def test_sections_in_order() -> None:

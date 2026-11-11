@@ -1,7 +1,7 @@
 import os
 import threading
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -479,6 +479,21 @@ def test_source_key_warning_names_active_key(tmp_path: Path) -> None:
         in snap.config_warnings
     )
     assert not any(w.startswith("anthropic_key") for w in snap.config_warnings)
+
+
+def test_source_names_the_missing_anthropic_extra_once_a_key_is_there(
+    tmp_path: Path, block_extra: Callable[[str], None]
+) -> None:
+    from cardak.shared import extras
+
+    block_extra("anthropic")
+    hint = extras.needs("anthropic", "waiting summaries with Anthropic")
+    store = FakeStore(WAITING, summaries={("w", 100.0): "S"})
+    no_key = agent_source(tmp_path, store, keys_dir=tmp_path / "none").poll()
+    assert hint not in no_key.config_warnings
+    snap = agent_source(tmp_path, store, keys_dir=key(tmp_path)).poll()
+    assert snap.config_warnings.count(hint) == 1
+    assert snap.groups[0].panes[0].agent.summary is None  # type: ignore[union-attr]
 
 
 def test_source_warns_on_summary_error(tmp_path: Path) -> None:

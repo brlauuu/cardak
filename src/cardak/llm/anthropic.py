@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from cardak.shared import extras
+
 MAX_TOKENS = 256
 TIMEOUT = 20.0
 MAX_RETRIES = 2
@@ -20,7 +22,10 @@ class Reply:
 class AnthropicSummarizer:
     def __init__(self, api_key: str, model: str, client: Any = None) -> None:
         if client is None:
-            import anthropic  # slow to import; only the background job gets here
+            try:
+                import anthropic  # slow to import; only the background job gets here
+            except ImportError:  # an extra since #131
+                raise RuntimeError(extras.needs("anthropic", "Anthropic summaries")) from None
 
             # api_key given explicitly, so ANTHROPIC_API_KEY or an `ant` profile can't take over
             client = anthropic.Anthropic(api_key=api_key, timeout=TIMEOUT, max_retries=MAX_RETRIES)
