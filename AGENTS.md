@@ -671,8 +671,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `fix(ui): ...`, `docs: ...`, `ci: ...`, `chore: ...`, `release: cut X.Y.Z`. End the subject
   with the issue number when there is one: `(#12)`.
 - Work on a branch and open a PR; `main` only moves through merged PRs. `main` is
-  protected: the `test` check must pass on an up-to-date branch, no force pushes or
-  deletion, and the rule binds admins.
+  protected: the `test` and `base` checks (#131) must pass on an up-to-date branch, no force
+  pushes or deletion, and the rule binds admins.
 
 ## Versioning and releases
 - **The version lives in `pyproject.toml` only.** Nothing else quotes it.
