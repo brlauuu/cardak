@@ -15,7 +15,7 @@ from textual.containers import Vertical
 from textual.content import Content
 from textual.markup import escape
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Header, Input, Label, Static, Tree
+from textual.widgets import Footer, Input, Label, Static, Tree
 from textual.widgets.tree import TreeNode
 from textual.worker import Worker
 
@@ -30,6 +30,7 @@ from cardak.core.snapshot import DeckSnapshot, DockerLine, Group, PaneRow
 from cardak.core.store import DayPeak, ResourceEvent, StoreError
 from cardak.core.summary import ProviderTools, SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
+from cardak.shared.meta import version
 from cardak.ui.confirm import ConfirmScreen
 from cardak.ui.detail import DetailScreen
 from cardak.ui.events import EventLogScreen
@@ -38,6 +39,7 @@ from cardak.ui.pm import PmScreen, PmView
 from cardak.ui.recap import RecapScreen
 from cardak.ui.summaries import SummariesScreen, SummaryControl
 from cardak.ui.theme_picker import Backgrounds, ThemeChoice, ThemePickerScreen, ThemePreviewer
+from cardak.ui.topbar import TopBar
 from cardak.ui.widgets import (
     docker_label,
     fmt_usd,
@@ -206,11 +208,14 @@ def _resource_lines(group: Group, total: int | None) -> list[tuple[Text, Node]]:
 
 
 def _spend_part(snap: DeckSnapshot) -> str:
-    """ " · $412 this month at API prices"; "" until the first count is in (#29)."""
+    """ " · $412 this month" (at API prices); "" until the first count is in (#29, #121)."""
     if snap.month_spend is None:
         return ""
     more = "+" if snap.spend_unpriced else ""
-    return f" · {fmt_usd(snap.month_spend)}{more} this month at API prices"
+    return f" · {fmt_usd(snap.month_spend)}{more} this month"
+
+
+TOP_EVERY_S = 30.0  # how often the top bar's time to each reset is redrawn
 
 
 class DeckApp(App[None]):
@@ -223,7 +228,6 @@ class DeckApp(App[None]):
     #banner { display: none; background: $error; color: $text; padding: 0 1; }
     #crash { display: none; background: $error-darken-1; color: $text; padding: 0 1; }
     #machine { display: none; padding: 0 1; }
-    #limits { display: none; padding: 0 1; height: 1; }
     """
     BINDINGS = [
         Binding("a", "add_project", "Add as project"),
@@ -284,6 +288,7 @@ class DeckApp(App[None]):
         backgrounds: Backgrounds | None = None,
     ) -> None:
         super().__init__()
+        self.title = f"cardak {version()}"  # the top bar, and every screen's header (#121)
         self.backgrounds = backgrounds  # each project's art: its file, and previews of it (#9)
         self.source = source
         self.navigator = navigator
@@ -314,9 +319,8 @@ class DeckApp(App[None]):
         self._scheme_lock = threading.Lock()  # one probe at a time
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield TopBar(id="top")
         yield Static("", id="machine")
-        yield Static("", id="limits")
         yield Static("", id="banner")
         yield Static("", id="crash")
         yield Input(placeholder="find: project, process, title or path", id="find")
@@ -333,6 +337,7 @@ class DeckApp(App[None]):
         self.deck_tree.focus()
         self.action_refresh()
         self.set_interval(self.interval, self.action_refresh)
+        self.set_interval(TOP_EVERY_S, self._tick_top)  # the limits' time left counts down
         for status in (self.hooks_status, self.resources_status):
             if status is not None and (hint := status()):
                 self.notify(escape(hint), severity="warning")
@@ -408,10 +413,6 @@ class DeckApp(App[None]):
         if snap.machine_view is not None:
             machine.update(machine_label(snap.machine_view))
         machine.display = snap.machine_view is not None
-        limits = self.query_one("#limits", Static)
-        if snap.plan_limits is not None:
-            limits.update(limits_label(snap.plan_limits, time.time()))
-        limits.display = snap.plan_limits is not None
         banner = self.query_one("#banner", Static)
         if snap.config_error:
             banner.update(escape(snap.config_error))  # ConfigError names the file itself
@@ -432,6 +433,18 @@ class DeckApp(App[None]):
             )
         self._render(follow_best=False)
 
+    def _tick_top(self) -> None:
+        if self.raw is not None:
+            self._show_top(self.raw)
+
+    def _show_top(self, raw: DeckSnapshot) -> None:
+        """The top bar: what the header said, then the plan limits (#121)."""
+        left = Text.assemble((self.title, "bold"))  # bold the name only, not a base style
+        if self.sub_title:
+            left.append(" · ", style="dim").append(self.sub_title)
+        limits = None if raw.plan_limits is None else limits_label(raw.plan_limits, time.time())
+        self.query_one("#top", TopBar).show(left, limits)
+
     def _render(self, follow_best: bool) -> None:
         raw = self.raw
         if raw is None:
@@ -451,6 +464,7 @@ class DeckApp(App[None]):
         if raw.n_waiting:
             self.sub_title += f" · {raw.n_waiting} waiting"
         self.sub_title += _spend_part(raw)
+        self._show_top(raw)
         self._rebuild(
             result.snapshot,
             focus_pane=result.best_pane_id if follow_best else None,

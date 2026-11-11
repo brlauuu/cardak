@@ -625,9 +625,9 @@ async def test_header_counts_waiting() -> None:
 
 async def test_header_spend() -> None:
     for spent, unpriced, ending in (
-        (412.0, (), " · $412 this month at API prices"),
-        (412.0, ("claude-x",), " · $412+ this month at API prices"),
-        (0.0, (), " · $0 this month at API prices"),
+        (412.0, (), " · $412 this month"),
+        (412.0, ("claude-x",), " · $412+ this month"),
+        (0.0, (), " · $0 this month"),
     ):
         snap = replace(SNAP, month_spend=spent, spend_unpriced=unpriced)
         app = DeckApp(StubSource(snap), interval=3600)
@@ -645,7 +645,7 @@ async def test_header_spend_while_filtering() -> None:
     async with app.run_test() as pilot:
         await settle(app, pilot)
         await open_find(app, pilot, "w", "e", "b")
-        assert app.sub_title == '1 of 4 panes match "web" · $37 this month at API prices'
+        assert app.sub_title == '1 of 4 panes match "web" · $37 this month'
 
 
 async def test_jump_marks_seen() -> None:
@@ -1488,19 +1488,38 @@ async def test_x_send_error_still_takes_you_to_the_tab() -> None:
         assert jumps.jumps == [50]
 
 
-async def test_deck_shows_limits_row() -> None:
+def _top(app: DeckApp) -> str:
+    return str(app.query_one("#top", Static).render())
+
+
+async def test_top_bar_names_the_version_and_the_counts() -> None:
+    from importlib.metadata import version
+
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await settle(app, pilot)
+        assert _top(app) == f"cardak {version('cardak')} · 2 projects · 4 panes"  # #121
+        assert not app.query("Header")  # the bar replaces Textual's header on the deck
+
+
+async def test_top_bar_puts_the_limits_on_the_right_and_wraps_when_narrow() -> None:
     from cardak.core.limits import LimitsView, LimitView
 
     view = LimitsView(LimitView(27, 2e9, "ok"), LimitView(61, 2.1e9, "ok"), 0.0)
     app = DeckApp(StubSource(SNAP, replace(SNAP, plan_limits=view)), interval=3600)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(200, 30)) as pilot:
         await settle(app, pilot)
-        row = app.query_one("#limits", Static)
-        assert not row.display
+        assert "5h" not in _top(app)  # no reading yet: no limits
         app.action_refresh()
         await settle(app, pilot)
-        assert row.display and "27% left" in str(row.render()) and "61% left" in str(row.render())
-        assert "\n" not in str(row.render())
+        wide = _top(app)
+        assert "\n" not in wide and wide.startswith("cardak ") and wide.rstrip().endswith(")")
+        assert "5h ██" in wide and "27% ·" in wide and "61% ·" in wide
+        assert len(wide) == 200 - 2  # the limits pushed to the right edge, inside the padding
+        await pilot.resize_terminal(90, 30)
+        await settle(app, pilot)
+        narrow = _top(app).split("\n")
+        assert len(narrow) == 2 and narrow[0].endswith("4 panes") and narrow[1].startswith("5h ")
 
 
 async def test_s_without_tools_notifies() -> None:

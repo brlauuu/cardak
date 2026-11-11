@@ -35,6 +35,7 @@ from cardak.core.trends import (
     usage_rows,
     window_start,
 )
+from cardak.shared.meta import version
 
 Json = dict[str, Any]  # JSON-shaped; Any so callers can index nested values
 GITHUB = "https://github.com/"
@@ -129,7 +130,7 @@ def _machine(snap: DeckSnapshot) -> Json | None:
 
 
 def _limit(v: LimitView) -> Json:
-    return {"left": v.left, "resets_at": v.resets_at, "level": v.level}
+    return {"used": v.used, "resets_at": v.resets_at, "level": v.level}
 
 
 def _limits(snap: DeckSnapshot) -> Json | None:
@@ -143,6 +144,7 @@ def snapshot_json(snap: DeckSnapshot, ts: float, now: float) -> Json:
     waiting = [w for g in snap.groups if g.kind == "waiting" for r in g.panes if (w := _waiting(r))]
     warnings = ([snap.config_error] if snap.config_error else []) + list(snap.config_warnings)
     return {
+        "version": version(),  # the daemon's, shown next to the page's name (#121)
         "ts": ts,
         "now": now,
         "error": snap.error,

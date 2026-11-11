@@ -544,10 +544,13 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   an older, lower use. Per window, a later `resets_at` replaces, the same one keeps the higher use,
   an earlier one is ignored; `read_at` moves only for a reading at least as new as the stored one.
   The file is written when a window changed, else at most once a minute.
-- Shown as one row (`ui/widgets.limits_label`, the page's `limitParts`, kept equal by a node test):
-  bars of what's left, yellow below 20%, red below 10%, "—" past `resets_at`, "read N min ago" past
-  15 minutes. The percent left is rounded once, in `core/limits` (Python's `round`, so 27.5 → 28
-  and 26.5 → 26), and both sides get that integer; the bar's cells and the minutes are rounded
+- Shown in the deck's top bar (`ui/topbar.TopBar`, #121: version, counts and spend on the left,
+  the limits on the right, or on a second line when they don't fit; redrawn every 30 s for the
+  countdown) and on the page (`ui/widgets.limits_label`, the page's `limitParts`, kept equal by a
+  node test): bars filling with what's used, the time left (`widgets.until` / `limitUntil`, rounded
+  down) and the reset's clock time, yellow from 80% used, red from 90%, "—" past `resets_at`,
+  "read N min ago" past 15 minutes. The percent left is rounded once, in `core/limits` (Python's
+  `round`, so 27.5 → 28 and 26.5 → 26), and both sides get 100 minus that integer as `used`; the bar's cells and the minutes are rounded
   half up on both (`int(x + 0.5)` against `Math.round`, equal for the positive values there). No refresh action: cardak can't ask for
   new numbers. Only `~/.claude/settings.json` is wrapped; a project's or managed `statusLine`
   overrides it and those sessions report nothing.
@@ -858,3 +861,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `shared.extras.missing` at fan-in 8 (every place an extra's feature starts asks it: one check,
   by design) and `config.key_file` at 11 (the deck's missing-SDK warning reads the key's path),
   and one more dead-code candidate (`Tools.off_reason`, called through the picker's protocol).
+- **#121 (top bar)** adds `ui/topbar.TopBar` and `shared/meta.version`. Accepted: `DeckApp._render`
+  as a hotspot at fan-out 6 (one more step: `_show_top`), and three more dead-code candidates
+  (`TopBar.on_resize`, `DeckApp._tick_top`, `TopBar._lay_out` through them: Textual calls the
+  handler and the interval, which enola doesn't see).
