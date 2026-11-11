@@ -300,13 +300,25 @@ def test_limits_label() -> None:
     week = datetime(2026, 11, 2, 9, 0).timestamp()
     view = LimitsView(LimitView(27, five, "ok"), LimitView(61, week, "ok"), 30.0)
     text = limits_label(view, now)
-    assert text.plain == (
-        "5h ████░░░░░░░░░░░ 27% left · 16:40   week █████████░░░░░░ 61% left · Mon 09:00"
-    )
-    low_view = LimitsView(LimitView(15, five, "low"), LimitView(5, week, "critical"), 0)
+    # used, filling up, then the time to the reset and its clock time (#121)
+    assert text.plain == "5h ██░░░░░░ 27% · 4h40m (16:40)   week █████░░░ 61% · 2d21h (Mon 09:00)"
+    low_view = LimitsView(LimitView(85, five, "low"), LimitView(95, week, "critical"), 0)
     low = limits_label(low_view, now)
     styles = {str(s.style) for s in low.spans}
     assert "yellow" in styles and "bold red" in styles
+
+
+def test_until() -> None:
+    from cardak.ui.widgets import until
+
+    assert [until(s) for s in (5, 60, 59 * 60 + 59, 3600, 2 * 3600 + 10 * 60 + 30)] == [
+        "<1m",
+        "1m",
+        "59m",
+        "1h",
+        "2h10m",
+    ]
+    assert [until(s) for s in (86_400, 2 * 86_400 + 21 * 3600 + 59 * 60)] == ["1d", "2d21h"]
 
 
 def test_limits_label_unknown_and_stale() -> None:

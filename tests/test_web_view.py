@@ -7,6 +7,7 @@ from cardak.core.agents import SessionState
 from cardak.core.context import GroupedContext, ProjectContext, SessionLine, day_context
 from cardak.core.snapshot import AgentView, DeckSnapshot, DockerLine, Group, MachineView, PaneRow
 from cardak.core.trends import DAYS, DayUsage, GroupedTrends, ProjectTrend
+from cardak.shared.meta import version
 from cardak.web.view import (
     MAX_POINTS,
     context_json,
@@ -75,6 +76,7 @@ def snap() -> DeckSnapshot:
 
 def test_snapshot_json_shape() -> None:
     out = snapshot_json(snap(), 100.0, 112.0)
+    assert out["version"] == version()  # #121
     assert out["ts"] == 100.0 and out["now"] == 112.0 and out["error"] is None
     assert out["warnings"] == ["duplicate path"]
     w = out["waiting"][0]
@@ -294,8 +296,8 @@ def test_snapshot_json_limits() -> None:
     view = LimitsView(LimitView(27, 1000.0, "ok"), LimitView(None, None, "unknown"), 42.0)
     out = snapshot_json(replace(snap(), plan_limits=view), 1.0, 2.0)
     assert out["plan_limits"] == {
-        "five_hour": {"left": 27, "resets_at": 1000.0, "level": "ok"},
-        "seven_day": {"left": None, "resets_at": None, "level": "unknown"},
+        "five_hour": {"used": 27, "resets_at": 1000.0, "level": "ok"},
+        "seven_day": {"used": None, "resets_at": None, "level": "unknown"},
         "age_s": 42.0,
     }
     assert snapshot_json(snap(), 1.0, 2.0)["plan_limits"] is None

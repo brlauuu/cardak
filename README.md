@@ -132,15 +132,16 @@ of builds. Random then plays the packs' "input required" clips when a session wa
 
 ### Plan limits
 
-On a Pro or Max plan, the deck and the phone page can show how much of your 5-hour and weekly
-limits is left, and when each resets:
+On a Pro or Max plan, the deck's top bar and the phone page show how much of your 5-hour and
+weekly limits you've used, how long until each resets and when:
 
 ```
-5h ████░░░░░░░░░░░ 27% left · 16:40   week █████████░░░░░░ 61% left · Mon 09:00
+cardak 0.18.0 · 4 projects · 12 panes · $412 this month   5h ██░░░░░░ 27% · 4h40m (16:40)   week █████░░░ 61% · 2d21h (Mon 09:00)
 ```
 
-A bar turns yellow below 20% left and red below 10%. Once a reading is more than 15 minutes old the
-row says so ("read 25 min ago"); a limit whose reset time has passed shows "—" until the next reply.
+The limits sit on the right of the bar, or on a line of their own under it when the window is too
+narrow. A bar turns yellow from 80% used and red from 90%. Once a reading is more than 15 minutes old
+it says so ("read 25 min ago"); a limit whose reset time has passed shows "—" until the next reply.
 
 ```sh
 cardak statusline install

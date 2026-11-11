@@ -90,7 +90,7 @@ def test_written_file_is_private(tmp_path: Path) -> None:
 def test_window_past_reset_is_unknown() -> None:
     view = limits_view(OLD, 1000.0)
     assert view.five_hour == LimitView(None, None, "unknown")
-    assert view.seven_day == LimitView(61, 5000.0, "ok")
+    assert view.seven_day == LimitView(39, 5000.0, "ok")  # used, filling up (#121)
     assert view.age_s == 900.0
     assert limits_view(Stored(1.0, None, None), 2.0).five_hour.level == "unknown"
 

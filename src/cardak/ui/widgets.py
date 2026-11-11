@@ -110,29 +110,44 @@ def machine_label(v: MachineView) -> Text:
     return text
 
 
-LIMIT_BAR = 15  # cells per limit's bar
+LIMIT_BAR = 8  # cells per limit's bar: both share the top bar with the counts (#121)
 LIMIT_STYLE = {"ok": "cyan", "low": "yellow", "critical": OVER, "unknown": "dim"}
 
 
+def until(seconds: float) -> str:
+    """Time left, rounded down: <1m, 59m, 2h10m, 2d21h (the page's limitUntil, #121)."""
+    s = int(seconds)
+    if s < 60:
+        return "<1m"
+    if s < 3600:
+        return f"{s // 60}m"
+    if s < 86_400:
+        h, m = divmod(s // 60, 60)
+        return f"{h}h{m}m" if m else f"{h}h"
+    d, h = divmod(s // 3600, 24)
+    return f"{d}d{h}h" if h else f"{d}d"
+
+
 def _reset_text(resets_at: float, now: float) -> str:
-    """16:40 within a day, Mon 09:00 further out (local time)."""
+    """4h40m (16:40) within a day, 2d21h (Mon 09:00) further out (local time)."""
     when = datetime.fromtimestamp(resets_at)
-    return f"{when:%H:%M}" if resets_at - now < 86_400 else f"{when:%a %H:%M}"
+    clock = f"{when:%H:%M}" if resets_at - now < 86_400 else f"{when:%a %H:%M}"
+    return f"{until(resets_at - now)} ({clock})"
 
 
 def _limit_part(name: str, v: LimitView, now: float) -> Text:
-    if v.left is None or v.resets_at is None:
+    if v.used is None or v.resets_at is None:
         return Text(f"{name} —", style=LIMIT_STYLE["unknown"])
-    full = int(v.left * LIMIT_BAR / 100 + 0.5)  # halves up, as the page's Math.round
+    full = int(v.used * LIMIT_BAR / 100 + 0.5)  # halves up, as the page's Math.round
     style = LIMIT_STYLE[v.level]
     text = Text(f"{name} ")
     text.append("█" * full + "░" * (LIMIT_BAR - full), style=style)
-    text.append(f" {v.left}% left", style=style if v.level != "ok" else "")
+    text.append(f" {v.used}%", style=style if v.level != "ok" else "")
     return text.append(f" · {_reset_text(v.resets_at, now)}")
 
 
 def limits_label(v: LimitsView, now: float) -> Text:
-    """ "5h ████░░ 27% left · 16:40   week █████░ 61% left · Mon 09:00": both limits, one row."""
+    """ "5h ██░░ 27% · 4h40m (16:40)   week █████░ 61% · 2d21h (Mon 09:00)": both, filling up."""
     text = (
         _limit_part("5h", v.five_hour, now)
         .append("   ")

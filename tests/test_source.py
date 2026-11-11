@@ -896,10 +896,10 @@ def test_source_reads_limits_when_changed(tmp_path: Path) -> None:
     future = time.time() + 3600
     record(path, Reading(Window(73.0, future), None), time.time())
     view = source.poll().plan_limits
-    assert view is not None and view.five_hour.left == 27 and view.seven_day.left is None
+    assert view is not None and view.five_hour.used == 73 and view.seven_day.used is None
     record(path, Reading(Window(95.0, future), None), time.time())
     view = source.poll().plan_limits
-    assert view is not None and view.five_hour.left == 5 and view.five_hour.level == "critical"
+    assert view is not None and view.five_hour.used == 95 and view.five_hour.level == "critical"
     path.unlink()
     assert source.poll().plan_limits is None
 

@@ -119,9 +119,14 @@ def test_usd_matches_the_deck() -> None:
     assert json.loads(out.stdout) == [fmt_usd(v) for v in values]
 
 
+def test_page_names_the_daemons_version() -> None:
+    assert '<h1 id="name">cardak</h1>' in PAGE
+    assert '$("name").textContent = snap.version ? "cardak " + snap.version : "cardak";' in PAGE
+
+
 def test_page_shows_spend() -> None:
     assert '<span id="spend"></span>' in PAGE
-    assert '" this month at API prices"' in PAGE
+    assert '" this month"' in PAGE  # as the deck's top bar says it (#121)
     assert "g.spend_usd" in PAGE
 
 
@@ -196,16 +201,16 @@ def test_limits_text_matches_the_deck() -> None:
     five = datetime(2026, 10, 30, 16, 40).timestamp()
     view = LimitsView(LimitView(27, five, "ok"), LimitView(None, None, "unknown"), 1500.0)
     limits = {
-        "five_hour": {"left": 27, "resets_at": five, "level": "ok"},
-        "seven_day": {"left": None, "resets_at": None, "level": "unknown"},
+        "five_hour": {"used": 27, "resets_at": five, "level": "ok"},
+        "seven_day": {"used": None, "resets_at": None, "level": "unknown"},
         "age_s": 1500.0,
     }
     consts = re.search(r"^const LIMIT_BAR = .*$", PAGE, re.MULTILINE)
     assert consts is not None
     script = consts.group(0) + "\n"
-    script += "".join(_js_function(f) for f in ("limitBar", "limitReset", "limitParts")) + (
-        f"console.log(limitParts({json.dumps(limits)}, {now}).map(p => p[0]).join(''));"
-    )
+    script += "".join(
+        _js_function(f) for f in ("limitBar", "limitUntil", "limitReset", "limitParts")
+    ) + (f"console.log(limitParts({json.dumps(limits)}, {now}).map(p => p[0]).join(''));")
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == limits_label(view, now).plain
 

@@ -113,7 +113,7 @@ def record(path: Path, reading: Reading, now: float) -> None:
 
 @dataclass(frozen=True)
 class LimitView:
-    left: int | None  # percent left; None: unknown (no reading, or the window has reset)
+    used: int | None  # percent used; None: unknown (no reading, or the window has reset)
     resets_at: float | None
     level: Level
 
@@ -128,9 +128,9 @@ class LimitsView:
 def _view(w: Window | None, now: float) -> LimitView:
     if w is None or w.resets_at <= now:
         return LimitView(None, None, "unknown")
-    left = round(100 - w.used)
+    left = round(100 - w.used)  # rounded once, here, so the deck and the page agree (#70)
     level: Level = "critical" if left < CRITICAL_LEFT else "low" if left < LOW_LEFT else "ok"
-    return LimitView(left, w.resets_at, level)
+    return LimitView(100 - left, w.resets_at, level)  # shown filling up (#121)
 
 
 def limits_view(stored: Stored, now: float) -> LimitsView:
