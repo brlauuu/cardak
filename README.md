@@ -377,6 +377,16 @@ columns, each scrolling on its own:
 ↑/↓ move within a column and on to the next project, ←/→ between columns, Enter opens the
 card on GitHub, `R` reads GitHub again.
 
+`w` on an issue in **todo** opens a new WezTerm tab in that project, next to its panes, types
+`claude '/issue-to-pr 120'` into it and takes you there, after asking. It never types into a
+session that's already running, and it refuses issues already in **onit**. `/issue-to-pr` isn't
+one of cardak's skills: set the prompt in `projects.toml`, with `{number}` for the issue's:
+
+```toml
+[pm]
+issue_command = "/issue-to-pr {number}"
+```
+
 It reads GitHub with `gh`, so run `gh auth login` once; cardak handles no token. The repository
 is the project's `origin` remote, or `github = "owner/repo"` in its `[[project]]` entry. GitHub
 is read only while the deck runs: when it starts (if the last read is an hour old), every hour,

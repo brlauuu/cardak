@@ -102,10 +102,20 @@ class Host(App[None]):
         self.push_screen(self._pm)
 
 
-def screen_for(board: Board | None, project: Path | None = None, opened: list[str] | None = None):  # noqa: ANN201
+def screen_for(  # noqa: ANN201
+    board: Board | None,
+    project: Path | None = None,
+    opened: list[str] | None = None,
+    worked: list[tuple[Path, int]] | None = None,
+):
     pm = FakePm(board)
     sink = opened if opened is not None else []
-    return pm, PmScreen(pm, project, open_url=sink.append, clock=lambda: NOW)
+
+    def work(path: Path, card: Card) -> None:
+        if worked is not None:
+            worked.append((path, card.number))
+
+    return pm, PmScreen(pm, project, open_url=sink.append, clock=lambda: NOW, work=work)
 
 
 def text_of(screen: PmScreen) -> str:
@@ -270,3 +280,44 @@ async def test_project_not_in_the_board_says_so() -> None:
         await pilot.pause()
         assert "Reading GitHub…" not in text_of(screen)
         assert "isn't in projects.toml" in text_of(screen)
+
+
+async def test_w_on_a_todo_issue_starts_work_on_it() -> None:
+    worked: list[tuple[Path, int]] = []
+    _, screen = screen_for(BOARD, worked=worked)
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("down", "w")  # webshop's second todo card
+        await pilot.pause()
+        await pilot.press("down", "w")  # api-gw's todo card
+        await pilot.pause()
+        assert worked == [(WEBSHOP, 198), (API, 88)]
+
+
+async def test_w_refuses_onit_prs_and_done() -> None:
+    worked: list[tuple[Path, int]] = []
+    _, screen = screen_for(BOARD, worked=worked)
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("right", "w")  # onit: #205
+        await pilot.press("down", "w")  # onit: the PR card
+        await pilot.press("right", "w")  # done
+        await pilot.pause()
+        notes = [str(n.message) for n in screen.app._notifications]  # noqa: SLF001
+        assert notes == [
+            "#205 is already on it.",
+            "w starts work on a todo issue.",
+            "w starts work on a todo issue.",
+        ]
+        assert worked == []
+
+
+async def test_w_without_a_way_to_open_tabs_says_so() -> None:
+    pm = FakePm(BOARD)
+    screen = PmScreen(pm, None, clock=lambda: NOW)
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+        notes = [str(n.message) for n in screen.app._notifications]  # noqa: SLF001
+        assert notes == ["Starting work on an issue isn't available in this deck."]

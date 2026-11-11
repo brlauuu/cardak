@@ -19,13 +19,14 @@ from textual.widgets import Footer, Input, Label, Static, Tree
 from textual.widgets.tree import TreeNode
 from textual.worker import Worker
 
-from cardak.core import checkpoint, cleanup, recap
+from cardak.core import checkpoint, cleanup, recap, work
 from cardak.core.agents import SessionState
 from cardak.core.checkpoint import PROJECT_KINDS
 from cardak.core.config import ConfigError
 from cardak.core.eventlog import sentences
 from cardak.core.filter import filter_snapshot, waiting_only
 from cardak.core.navigate import JumpResult
+from cardak.core.pm import Card
 from cardak.core.snapshot import DeckSnapshot, DockerLine, Group, PaneRow
 from cardak.core.store import DayPeak, ResourceEvent, StoreError
 from cardak.core.summary import ProviderTools, SummaryInfo
@@ -88,6 +89,8 @@ class DeckSource(Protocol):
     ) -> None: ...
 
     def background_on(self, project_path: Path) -> bool: ...
+
+    def issue_command(self) -> str: ...
 
     def regenerate(self) -> None: ...
 
@@ -614,20 +617,52 @@ class DeckApp(App[None]):
         def done(yes: bool | None) -> None:
             if yes:
                 self.run_worker(
-                    lambda: self._start_cleanup(open_tab, send, where), thread=True,
+                    lambda: self._start_in_tab(open_tab, send, where, cleanup.COMMAND, started),
+                    thread=True,
                     group="send", exit_on_error=False,
                 )  # fmt: skip
 
+        started = "Started /repo-cleanup in pane {}."
         shown = node.data.group.path or str(where.cwd)
         question = f"Open a new tab in {shown} and run `{cleanup.COMMAND}`?"
         self.push_screen(ConfirmScreen(question, CLEANUP_NOTE, ok="open"), done)
 
-    def _start_cleanup(
+    def _work_on(self, project: Path, card: Card) -> None:
+        """`w` in the PM view (#120): a new tab in the project, starting Claude on the issue."""
+        send, open_tab = self.send, self.open_tab
+        if send is None or open_tab is None:
+            self.notify("This deck can't open tabs.", severity="warning")
+            return
+        group = next(
+            (g for g in (self.raw.groups if self.raw else ())
+             if g.kind in PROJECT_KINDS and g.key == project),
+            None,
+        )  # fmt: skip
+        found = cleanup.place(group, None) if group is not None else None
+        where = found if isinstance(found, cleanup.Place) else cleanup.Place(project, None)
+        line = work.command(self.source.issue_command(), card.number)
+        started = f"Started work on #{card.number} in pane {{}}."
+
+        def done(yes: bool | None) -> None:
+            if yes:
+                self.run_worker(
+                    lambda: self._start_in_tab(open_tab, send, where, line, started),
+                    thread=True, group="send", exit_on_error=False,
+                )  # fmt: skip
+
+        shown = (group.path if group else None) or str(project)
+        question = f"Open a new tab in {shown} and run `{line}`?"
+        self.push_screen(ConfirmScreen(question, CLEANUP_NOTE, ok="open"), done)
+
+    def _start_in_tab(
         self,
         open_tab: Callable[[Path, int | None], int],
         send: Callable[[int, str], None],
         where: cleanup.Place,
+        line: str,
+        started: str,
     ) -> None:
+        """Open a shell tab at `where`, type `line` into it, and jump there (`x`, `w`)."""
         try:
             pane_id = open_tab(where.cwd, where.near)
         except Exception as e:  # a WezTerm failure (or any bug) is a notice, not a crash
@@ -636,8 +671,8 @@ class DeckApp(App[None]):
             )
             return
         failed = f"Opened pane {pane_id} but couldn't type into it"
-        if self._type(send, pane_id, cleanup.COMMAND, failed):
-            self.call_from_thread(self.notify, f"Started /repo-cleanup in pane {pane_id}.")
+        if self._type(send, pane_id, line, failed):
+            self.call_from_thread(self.notify, started.format(pane_id))
         self.call_from_thread(self.jump, pane_id)  # the tab is open either way
 
     def action_summaries(self) -> None:
@@ -663,7 +698,7 @@ class DeckApp(App[None]):
         if self.pm is None:
             self.notify("The PM view isn't available in this deck.", severity="warning")
             return
-        self.push_screen(PmScreen(self.pm, project))
+        self.push_screen(PmScreen(self.pm, project, work=self._work_on))
 
     def action_refresh_all(self) -> None:
         self.action_refresh()

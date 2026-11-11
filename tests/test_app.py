@@ -12,6 +12,7 @@ from cardak.collectors.machine import MachineSample
 from cardak.core.agents import SessionState
 from cardak.core.config import ConfigError
 from cardak.core.navigate import JumpResult
+from cardak.core.pm import Board
 from cardak.core.resolver import Kind
 from cardak.core.snapshot import (
     WAITING_NAME,
@@ -72,6 +73,7 @@ class StubSource:
         self.can_add = can_add
         self.fail_add = fail_add
         self.added: list[tuple[str, Path]] = []
+        self.issue_template = "/issue-to-pr {number}"
         self.themes: list[tuple[Path, str, str | None]] = []
         self.looks: list[tuple[Path, str, bool, str | None]] = []
         self.backgrounds_off: set[Path] = set()
@@ -96,6 +98,9 @@ class StubSource:
 
     def background_on(self, project_path: Path) -> bool:
         return project_path not in self.backgrounds_off
+
+    def issue_command(self) -> str:
+        return self.issue_template
 
     def regenerate(self) -> None:
         self.regenerated += 1
@@ -1688,3 +1693,65 @@ async def test_picker_lists_schemes_when_the_refresh_after_the_probe_fails() -> 
     app.call_from_thread = lambda *a, **k: None  # type: ignore[method-assign]  # no running app
     assert app._schemes_for_picker() == THEMES  # noqa: SLF001
     assert store.get() == THEMES
+
+
+def work_board(path: str) -> Board:
+    from cardak.core.pm import Band, Card, Done
+
+    todo = (Card("issue", 120, "Issue to PR", (), 0.0, "https://github.com/o/r/issues/120"),)
+    return Board((Band("cardak", path, "o/r", todo, (), Done((), None), None, None),), 0.0)
+
+
+class BoardPm(PmStub):
+    def __init__(self, board: Board) -> None:
+        super().__init__()
+        self.current = board
+
+    def board(self) -> Board:  # type: ignore[override]
+        return self.current
+
+
+async def test_w_in_the_pm_view_opens_a_tab_and_starts_issue_to_pr() -> None:
+    from cardak.ui.confirm import ConfirmScreen
+    from cardak.ui.pm import PmScreen
+
+    tabs, sends, jumps = Tabs(), Sends(), StubNavigator()
+    source = StubSource(SNAP)
+    source.issue_template = "/work-on {number}"
+    pm = BoardPm(work_board("/repos/cardak"))
+    app = DeckApp(source, navigator=jumps, interval=3600, send=sends, open_tab=tabs, pm=pm)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("P")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, PmScreen)
+        await pilot.press("w")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        text = " ".join(str(s.render()) for s in app.screen.query(Static))
+        assert "Open a new tab in /repos/cardak and run `claude '/work-on 120'`?" in text
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await settle(app, pilot)
+        await app.workers.wait_for_complete()
+        assert tabs.calls == [(Path("/repos/cardak"), 2)]
+        assert sends.calls == [(50, "claude '/work-on 120'"), (50, "\r")]
+        assert jumps.jumps == [50]
+        assert "Started work on #120 in pane 50." in notices(app)
+        assert isinstance(app.screen, PmScreen)  # back where you pressed it
+
+
+async def test_w_for_a_project_without_panes_opens_in_the_decks_window() -> None:
+    tabs = Tabs()
+    pm = BoardPm(work_board("/repos/elsewhere"))
+    app = DeckApp(StubSource(SNAP), interval=3600, send=Sends(), open_tab=tabs, pm=pm)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("P")
+        await pilot.pause(0.3)
+        await pilot.press("w")
+        await pilot.pause()
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert tabs.calls == [(Path("/repos/elsewhere"), None)]

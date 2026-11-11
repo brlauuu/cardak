@@ -213,6 +213,10 @@ class LiveSource:
         project = next((p for p in self._config.projects if p.path == resolved.key), None)
         return project_accent(project, self._schemes()) if project else None
 
+    def issue_command(self) -> str:
+        """`[pm] issue_command`: the prompt `w` in the PM view starts Claude with (#120)."""
+        return self.config.pm.issue_command
+
     def background_on(self, project_path: Path) -> bool:
         """Whether the project shows its art (#9); a project not yet configured would."""
         with self._lock:

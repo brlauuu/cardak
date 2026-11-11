@@ -9,6 +9,7 @@ from cardak.core.config import (
     Config,
     ConfigError,
     NotifySettings,
+    PmSettings,
     Project,
     ProviderSettings,
     ResourceSettings,
@@ -748,6 +749,28 @@ def test_bad_project_background_position(tmp_path: Path, value: str) -> None:
     text = f'[[project]]\nname = "a"\npath = "/a"\nbackground_position = {value}\n'
     with pytest.raises(ConfigError, match="project #1: 'background_position'"):
         load(_cfg(tmp_path, text))
+
+
+def test_pm_issue_command_defaults_to_the_skill(tmp_path: Path) -> None:
+    assert load(_cfg(tmp_path, "")).pm == PmSettings("/issue-to-pr {number}")
+
+
+def test_pm_issue_command(tmp_path: Path) -> None:
+    cfg = load(_cfg(tmp_path, '[pm]\nissue_command = "/work-on {number}"\n'))
+    assert cfg.pm.issue_command == "/work-on {number}"
+
+
+@pytest.mark.parametrize(
+    "body", ['issue_command = "/work-on"', "issue_command = 3", 'issue_command = ""']
+)
+def test_bad_pm_issue_command(tmp_path: Path, body: str) -> None:
+    with pytest.raises(ConfigError, match=r"\[pm\] issue_command"):
+        load(_cfg(tmp_path, f"[pm]\n{body}\n"))
+
+
+def test_pm_must_be_a_table(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=r"\[pm\] must be a table"):
+        load(_cfg(tmp_path, 'pm = "x"\n'))
 
 
 def test_set_project_background_off_then_on_keeps_comments(tmp_path: Path, home: Path) -> None:

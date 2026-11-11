@@ -125,6 +125,16 @@ class BackgroundSettings:
     position: tuple[int, int] | None = None
 
 
+ISSUE_COMMAND = "/issue-to-pr {number}"
+
+
+@dataclass(frozen=True)
+class PmSettings:
+    """[pm]: the PM view (#68). `w` on a todo issue starts Claude with this prompt (#120)."""
+
+    issue_command: str = ISSUE_COMMAND  # {number} is the issue's
+
+
 @dataclass(frozen=True)
 class Config:
     projects: tuple[Project, ...] = ()
@@ -134,6 +144,7 @@ class Config:
     resources: ResourceSettings = ResourceSettings()
     web: WebSettings = WebSettings()
     background: BackgroundSettings = BackgroundSettings()
+    pm: PmSettings = PmSettings()
 
 
 class ConfigError(Exception):
@@ -282,6 +293,7 @@ def load(path: Path) -> Config:
         resources=_resources(path, data),
         web=_web(path, data),
         background=_background(path, data),
+        pm=_pm(path, data),
     )
 
 
@@ -401,6 +413,16 @@ def _web(path: Path, data: Mapping[str, object]) -> WebSettings:
     if not isinstance(host, str) or not host:
         raise ConfigError(path, "[web] host must be a string")
     return WebSettings(enabled, port, host)
+
+
+def _pm(path: Path, data: Mapping[str, object]) -> PmSettings:
+    raw = data.get("pm", {})
+    if not isinstance(raw, dict):
+        raise ConfigError(path, "[pm] must be a table")
+    command = raw.get("issue_command", ISSUE_COMMAND)
+    if not isinstance(command, str) or "{number}" not in command:
+        raise ConfigError(path, "[pm] issue_command must be text with {number} in it")
+    return PmSettings(command)
 
 
 def _background(path: Path, data: Mapping[str, object]) -> BackgroundSettings:
