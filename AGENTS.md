@@ -42,6 +42,7 @@ src/cardak/
   core/context.py                                      # #86: each session's context over the window
   core/{limits, statusline, hooklog}.py                # #70: plan limits, `cardak statusline`, hook.log
   core/cleanup.py                                      # #65: where `x` opens /repo-cleanup
+  core/work.py                                         # #120: what `w` in the PM view types
   core/{pm, pm_done, pm_service}.py                    # #68: the PM view's board, done column, refreshes
   core/detail.py                                       # how `i` and the web view word a session
   core/{ascii_art, backgrounds}.py                     # #9: each project's art, made once, and its image
@@ -97,12 +98,15 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   writers there are `claude/install.py` and `claude/statusline.py` (#70). Neither format is a stable API. Sound packs'
   `openpeon.json` is read only in `collectors/soundpacks.py` (#91).
 - Read-only by default: the deck observes and focuses panes; it does not launch or drive agents.
-  Two exceptions, each after the user confirms it in a dialog: `c` (M6) types `/checkpoint` into
+  Three exceptions, each after the user confirms it in a dialog: `c` (M6) types `/checkpoint` into
   an agent pane, and `x` (#65) opens a shell tab in a project (`wezterm cli spawn --cwd`, in the
   window of the project's first or selected pane, else the deck's, else a new window outside
   WezTerm; a row under "Waiting on you" counts as its project's) and types
   `claude /repo-cleanup` into it. Typing into the shell, rather than spawning `claude` directly,
   gives Claude the user's PATH and rc files and leaves the tab open when it exits.
+  A third, `w` in the PM view (#120), opens such a tab for a todo issue's project and types
+  `claude '<[pm] issue_command with {number} filled in>'` (`core/work`, shell-quoted; default
+  `/issue-to-pr {number}`, a skill cardak doesn't ship). It never types into a running session.
 - Never edit `~/.config/wezterm/wezterm.lua`, `~/.claude/settings.json` or anything else
   under `~/.config` or `~/.claude` without asking. Generated files go to a path the user
   `require`s or opts into.
@@ -865,5 +869,9 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   as a hotspot at fan-out 6 (one more step: `_show_top`), and three more dead-code candidates
   (`TopBar.on_resize`, `DeckApp._tick_top`, `TopBar._lay_out` through them: Textual calls the
   handler and the interval, which enola doesn't see).
+- **#120 (`w` in the PM view)** adds `core/work` and `[pm]`, and folds `x`'s tab opener into
+  `DeckApp._start_in_tab`, which both use. `PmScreen._fill` lost its two-column loop
+  (`_show_cards`) to a nested-loop report. Accepted: `config.load` at fan-out 15 (one more
+  table, the hotspot accepted under #9).
 - **#123 (fold keys)** adds `first_session`. Accepted: two more dead-code candidates
   (`DeckApp.action_collapse` / `action_expand`, which Textual calls through the ←/→ bindings).

@@ -2,7 +2,8 @@
 
 Each column scrolls on its own. ↑/↓ move within a column and, past its first or last line, to
 the same column of the neighbouring band; ←/→ move between columns. Enter opens the card on
-GitHub; `R` reads GitHub again for what's shown.
+GitHub; `R` reads GitHub again for what's shown; `w` on a todo issue opens a tab in its project
+and starts Claude on it (#120).
 """
 
 import re
@@ -23,6 +24,7 @@ from textual.widgets import Footer, Header, OptionList, Static
 from textual.widgets.option_list import Option
 
 from cardak.collectors.github import Label
+from cardak.core import work
 from cardak.core.agents import Status
 from cardak.core.pm import Band, Board, Card, Done
 from cardak.core.pm_service import Observed
@@ -30,6 +32,7 @@ from cardak.core.recap import ago
 from cardak.ui.widgets import IDLE, WAITING, WORKING
 
 LOADING = "Reading GitHub…"
+NO_WORK = "Starting work on an issue isn't available in this deck."
 NOT_LISTED = "{} isn't in projects.toml: press a on it in the deck to add it, then it shows here."
 REDRAW_EVERY = 30.0  # the ages ("fetched 12 minutes ago") move on without a new board
 _HEX = re.compile(r"^[0-9a-fA-F]{6}$")
@@ -97,6 +100,10 @@ def _done_options(done: Done) -> tuple[list[Option], list[str | None]]:
     return options, urls
 
 
+def _show_cards(column: "Column", cards: Sequence[Card], now: float) -> None:
+    column.show([Option(card_text(c, now)) for c in cards], [c.url for c in cards], cards)
+
+
 class Column(OptionList):
     """One column of one band; it asks the screen to move focus at its edges."""
 
@@ -114,14 +121,21 @@ class Column(OptionList):
         super().__init__(classes="col")
         self.band, self.index = band, index
         self.urls: list[str | None] = []
+        self.cards: list[Card | None] = []
 
-    def show(self, options: Sequence[Option], urls: Sequence[str | None]) -> None:
+    def show(
+        self,
+        options: Sequence[Option],
+        urls: Sequence[str | None],
+        cards: Sequence[Card | None] = (),
+    ) -> None:
         """Replace the lines, keeping the highlighted one by its URL."""
         was = self.highlighted
         keep = self.urls[was] if was is not None and was < len(self.urls) else None
         self.clear_options()
         self.add_options(list(options))
         self.urls = list(urls)
+        self.cards = list(cards) or [None] * len(self.urls)
         if keep is not None and keep in self.urls:
             self.highlighted = self.urls.index(keep)
         elif was is not None and self.option_count:
@@ -152,6 +166,7 @@ class PmScreen(Screen[None]):
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
         Binding("R", "refresh", "Refresh"),
+        Binding("w", "work", "Work"),
     ]
     CSS = """
     #loading { padding: 1 2; }
@@ -170,13 +185,16 @@ class PmScreen(Screen[None]):
         project: Path | None,
         open_url: Callable[[str], object] = webbrowser.open,
         clock: Callable[[], float] = time.time,
+        work: Callable[[Path, Card], None] | None = None,
     ) -> None:
         super().__init__(classes="one" if project is not None else "")
         self._view = view
         self._project = project
         self._open_url = open_url
         self._clock = clock
+        self._work = work  # opens a tab and starts Claude on the issue, after asking
         self._shown: Board | None = None
+        self._bands_shown: list[Band] = []
         self._filled_at = 0.0
         self._names: tuple[str, ...] | None = None
         self._grid: list[list[Column]] = []
@@ -214,6 +232,7 @@ class PmScreen(Screen[None]):
             self._names = names
             await self._build(bands)
         self._fill(bands)
+        self._bands_shown = bands
 
     async def _build(self, bands: Sequence[Band]) -> None:
         holder = self.query_one("#bands", VerticalScroll)
@@ -236,8 +255,8 @@ class PmScreen(Screen[None]):
             self._head(todo).update(f"todo ({len(band.todo)})")
             self._head(onit).update(f"onit ({len(band.onit)})")
             self._head(done).update("done · 7 days")
-            todo.show([Option(card_text(c, now)) for c in band.todo], [c.url for c in band.todo])
-            onit.show([Option(card_text(c, now)) for c in band.onit], [c.url for c in band.onit])
+            _show_cards(todo, band.todo, now)
+            _show_cards(onit, band.onit, now)
             done.show(*_done_options(band.done))
 
     def _head(self, column: Column) -> Static:
@@ -280,3 +299,17 @@ class PmScreen(Screen[None]):
     def action_refresh(self) -> None:
         self._view.refresh(self._project)
         self.notify("Reading GitHub…")
+
+    def action_work(self) -> None:
+        column = self.focused
+        if not isinstance(column, Column):
+            return
+        if self._work is None:
+            self.notify(NO_WORK, severity="warning")
+            return
+        at = column.highlighted
+        card = column.cards[at] if at is not None and at < len(column.cards) else None
+        if (reason := work.refusal(column.index, card)) is not None or card is None:
+            self.notify(reason or work.TODO_ONLY, severity="warning")
+            return
+        self._work(Path(self._bands_shown[column.band].path), card)
