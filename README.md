@@ -102,12 +102,16 @@ folder until you accept its "trust this folder" prompt.
 In the deck:
 
 - Each Claude pane has a dot: **orange** waiting on you, **green** working, **grey** idle.
-- **Waiting on you**, at the top, lists waiting sessions oldest first, with the reason:
+- **Waiting on you** lists waiting sessions oldest first, with the reason:
   *Approve a tool* (and which), *Your answer* (it asked something), or *Turn finished*.
-  Enter jumps there. Jumping to a session, or looking at its pane for a second, marks it
-  seen.
-- `w` shows only the waiting sessions. `i` on a session shows what it needs, your last
-  prompt and what this turn changed. `t` there opens the full transcript.
+  In a window at least 120 columns wide it has a pane of its own on the right, with the
+  machine's CPU and RAM under it; Tab moves between the projects and that pane, and every key
+  works on a session there as it does in the tree. In a narrower window it sits at the top of
+  the tree instead. Enter jumps there. Jumping to a session, or looking at its pane for a
+  second, marks it seen.
+- `w` shows only the waiting sessions (with the pane: the projects they're in). `i` on a
+  session shows what it needs, your last prompt and what this turn changed. `t` there opens
+  the full transcript.
 
 When a session starts waiting, you get one desktop notification and one sound, even with the
 deck closed. You get none if you're already looking at that pane. Configure it in
@@ -239,17 +243,19 @@ wait; compare a few lines with the raw reason (`i`) before you rely on them.
 
 ## Resources
 
-Every project and pane shows its RAM, a small graph of the last few minutes, and its CPU
-(100% is one core); the machine's CPU and RAM sit at the top of the deck:
+Every project and pane shows its numbers in columns on the right: a Claude session's state,
+RAM with its share of the machine and a small graph of the last few minutes, CPU (100% is one
+core), a session's context and a project's spend this month. The machine's CPU and RAM sit at
+the top of the deck, or under "Waiting on you" in a wide window:
 
 ```
-CPU 38% ▂▃▃▅▄▃   RAM 27.6 / 32.0G ▃▄▅▆▇█  ⚠ 14% free
-webshop  ~/repos/webshop  RAM 3.1G ▂▂▃▃▃  CPU 45%
-  ● claude · checkout  .  RAM 1.2G ▃▃▃▃▃  CPU 12%
-    └ MCP servers  RAM 412M  CPU 1%
-    docker: webshop-db-1  RAM 1.5G  CPU 30%
-Other  RAM 9.8G ▅▅▅▆▅  CPU 61%
-    outside WezTerm  RAM 9.5G  CPU 58%
+                                     state          RAM               CPU   ctx   month
+▾ webshop  ~/repos/webshop                    3.1G (10%) ▂▂▃▃▃         45%           $41
+  ● claude  checkout  .               work    1.2G (4%)  ▃▃▃▃▃         12%   140k
+    └ MCP servers                              412M (1%)                1%
+    docker: webshop-db-1                      1.5G (5%)                30%
+▾ Other                                       9.8G (31%) ▅▅▅▆▅         61%
+    outside WezTerm                           9.5G (30%)               58%
 ```
 
 - A project counts its panes, the MCP servers under its Claude sessions, its Docker containers

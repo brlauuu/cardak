@@ -246,6 +246,17 @@ def _spend_part(snap: DeckSnapshot) -> str:
     return f" · {fmt_usd(snap.month_spend)}{more} this month"
 
 
+def _counts(raw: DeckSnapshot, query: str, matches: int) -> str:
+    """The top bar's counts: projects and panes (or the find's matches), waits, spend."""
+    if query:
+        text = f'{matches} of {raw.n_panes} panes match "{query}"'
+    else:
+        text = f"{raw.n_projects} projects · {raw.n_panes} panes"
+    if raw.n_waiting:
+        text += f" · {raw.n_waiting} waiting"
+    return text + _spend_part(raw)
+
+
 TOP_EVERY_S = 30.0  # how often the top bar's time to each reset is redrawn
 
 
@@ -359,6 +370,7 @@ class DeckApp(App[None]):
         self._poll_worker: Worker[None] | None = None
         self._was_wide: bool | None = None
         self._resized_to: int | None = None
+        self._rebuilds = 0  # each rebuild's cursor move is dropped once a later one cleared it
         self._scheme_lock = threading.Lock()  # one probe at a time
 
     def compose(self) -> ComposeResult:
@@ -532,13 +544,7 @@ class DeckApp(App[None]):
         self.snapshot = result.snapshot
         self._best = result.best_pane_id
         query = self.find_query.strip()
-        if query:
-            self.sub_title = f'{result.n_matches} of {raw.n_panes} panes match "{query}"'
-        else:
-            self.sub_title = f"{raw.n_projects} projects · {raw.n_panes} panes"
-        if raw.n_waiting:
-            self.sub_title += f" · {raw.n_waiting} waiting"
-        self.sub_title += _spend_part(raw)
+        self.sub_title = _counts(raw, query, result.n_matches)
         self._show_top(raw)
         tree_snap, waits = (
             _split(result.snapshot, self.waiting_only) if wide else (result.snapshot, None)
@@ -617,16 +623,29 @@ class DeckApp(App[None]):
         if selected is None:
             selected = node_id(cursor.data) if cursor else None
         tree.clear()
+        self._rebuilds += 1
         self.query_one("#heading", Static).update(
             fit_line((Text(), heading()), self._line_width(0))
         )
         if (message := self._empty_label(snap, empty_query)) is not None:
             tree.root.add_leaf(message)
             return
+        nodes = self._add_groups(snap)
+        target = _cursor_target(nodes, selected, focus_pane)
+        if target is not None:
+            # New nodes get their line numbers on the next refresh; moving now lands on line 0.
+            self.call_after_refresh(self._move_cursor, target, self._rebuilds)
+        else:
+            # clear() leaves the cursor on no line, so the first key would only "find" row 0.
+            self.call_after_refresh(self._cursor_to_first_row)
+
+    def _add_groups(self, snap: DeckSnapshot) -> dict[str, TreeNode[NodeData]]:
+        """Each group and its lines, fitted to the tree's width; the nodes by their ids."""
+        tree = self.deck_tree
         now = time.time()
         total = snap.machine.mem_total if snap.machine else None
         group_width, leaf_width = self._line_width(GROUP_INDENT), self._line_width(LEAF_INDENT)
-        reasons = not self.wide
+        reasons = not self.wide  # the side pane shows them (#122)
         nodes: dict[str, TreeNode[NodeData]] = {}
         for group in snap.groups:
             data = Node(group)
@@ -637,15 +656,15 @@ class DeckApp(App[None]):
             for row, leaf_data in _leaves(group, now, total, reasons):
                 line = fit_line(row, leaf_width)
                 nodes[node_id(leaf_data) or ""] = node.add_leaf(line, data=leaf_data)
-        target = _cursor_target(nodes, selected, focus_pane)
-        if target is not None:
-            # New nodes get their line numbers on the next refresh; moving now lands on line 0.
-            self.call_after_refresh(self._move_cursor, target)
-        else:
-            # clear() leaves the cursor on no line, so the first key would only "find" row 0.
-            self.call_after_refresh(self._cursor_to_first_row)
+        return nodes
 
-    def _move_cursor(self, target: TreeNode[NodeData]) -> None:
+    def _move_cursor(self, target: TreeNode[NodeData], rebuild: int, tries: int = 3) -> None:
+        if rebuild != self._rebuilds:
+            return  # a later rebuild replaced the tree, and its own move is queued
+        if target.line < 0 and tries > 1:
+            # no line yet: a layout change (the side pane showing) can take another refresh
+            self.call_after_refresh(self._move_cursor, target, rebuild, tries - 1)
+            return
         self._follow_pending = False
         self.deck_tree.move_cursor(target)
 

@@ -9,6 +9,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Changed
+- The deck reads like a table: every project's and pane's numbers (a session's state, RAM with its graph, CPU, context and this month's spend) line up in columns on the right under a heading. In a window at least 120 columns wide, "Waiting on you" and the machine's CPU and RAM move to a pane of their own on the right: Tab moves there and every key works on a session in it, and `w` shows just the projects with a waiting session. Narrower windows keep one list (#122).
+
 ## 0.19.0 — 2026-11-11
 
 ### Added
