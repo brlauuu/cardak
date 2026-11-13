@@ -886,7 +886,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   Accepted: `DeckApp._rebuild` as a hotspot (3 × 10, the coordinator accepted since M1);
   `widgets.columns` (5 × 9: every row kind formats its numbers through it, as `usage` did, which
   it replaces); `DeckApp._cursor_node` at fan-in 10 (every key acting on a line reads it there,
-  so the side pane's rows work with all of them); and the nested-loop report on `_add_groups`
-  (groups → their lines, the loop that was in `_rebuild`).
+  so the side pane's rows work with all of them); and the nested-loop reports on `_add_groups`
+  (groups → their lines, the loop that was in `_rebuild`) and `_wait_lines` (each wait, then
+  its reason's up to three lines). The review's round split `_fill_waiting` (11: `_wait_lines`).
 - **#123 (fold keys)** adds `first_session`. Accepted: two more dead-code candidates
   (`DeckApp.action_collapse` / `action_expand`, which Textual calls through the ←/→ bindings).
