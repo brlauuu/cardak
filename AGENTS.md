@@ -155,6 +155,15 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   their own reaches; until that lookup returns, the pane is Other and nothing is asked again. A
   configured project whose path hung while its resolver was built keeps the unresolved path until
   the next config change.
+- **The deck's layout (#122):** each tree row is a `widgets.Row` (left text, fixed-width
+  columns), joined by `fit_line` to the line's width, which the deck computes from its width
+  (`DeckApp._line_width`: the tree keeps `GUTTER` cells for its scrollbar, a project line starts
+  2 cells in for its fold arrow, a pane line 4, measured on Textual 8.2.8). From `WIDE_AT` (120)
+  columns "Waiting on you" and the machine line move to `#side` (a second `Tree`, `#waiting`),
+  and every action reads its line through `_cursor_node()`. In `on_resize`, `App.size` still
+  has the old width: use the event's. A rebuild with eight projects took ~4 ms (2.2 ms before).
+  After the side pane shows or hides, new tree nodes can still have no line one refresh later,
+  so `_move_cursor` retries (up to 3 refreshes) and drops a move a later rebuild made stale.
 - `cwd` in `wezterm cli list` comes from OSC 7, so it follows the shell, not the foreground
   process. Fallback when it is missing: `/proc/<pid>/cwd`.
 
@@ -873,5 +882,12 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `DeckApp._start_in_tab`, which both use. `PmScreen._fill` lost its two-column loop
   (`_show_cards`) to a nested-loop report. Accepted: `config.load` at fan-out 15 (one more
   table, the hotspot accepted under #9).
+- **#122 (tabular deck)** split `DeckApp._render` (11: `_counts`) and `_rebuild` (`_add_groups`).
+  Accepted: `DeckApp._rebuild` as a hotspot (3 × 10, the coordinator accepted since M1);
+  `widgets.columns` (5 × 9: every row kind formats its numbers through it, as `usage` did, which
+  it replaces); `DeckApp._cursor_node` at fan-in 10 (every key acting on a line reads it there,
+  so the side pane's rows work with all of them); and the nested-loop reports on `_add_groups`
+  (groups → their lines, the loop that was in `_rebuild`) and `_wait_lines` (each wait, then
+  its reason's up to three lines). The review's round split `_fill_waiting` (11: `_wait_lines`).
 - **#123 (fold keys)** adds `first_session`. Accepted: two more dead-code candidates
   (`DeckApp.action_collapse` / `action_expand`, which Textual calls through the ←/→ bindings).
