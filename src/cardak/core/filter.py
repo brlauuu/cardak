@@ -45,3 +45,15 @@ def filter_snapshot(snap: DeckSnapshot, query: str) -> FilterResult:
 def waiting_only(snap: DeckSnapshot) -> DeckSnapshot:
     """The deck's `w` view: just the "Waiting on you" group."""
     return replace(snap, groups=tuple(g for g in snap.groups if g.kind == "waiting"))
+
+
+def waiting_projects(snap: DeckSnapshot) -> DeckSnapshot:
+    """`w` in the wide deck (#122), where "Waiting on you" has a pane of its own: each group
+    with a waiting session, with just those sessions (no Docker or outside lines)."""
+    waiting = {r.pane_id for g in snap.groups if g.kind == "waiting" for r in g.panes}
+    groups: list[Group] = []
+    for g in snap.groups:
+        kept = tuple(r for r in g.panes if r.pane_id in waiting)
+        if g.kind != "waiting" and kept:
+            groups.append(replace(g, panes=kept, docker=(), outside_rss=None))
+    return replace(snap, groups=tuple(groups))

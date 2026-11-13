@@ -1,8 +1,9 @@
+from dataclasses import replace
 from pathlib import Path
 
-from cardak.core.filter import filter_snapshot, waiting_only
+from cardak.core.filter import filter_snapshot, waiting_only, waiting_projects
 from cardak.core.resolver import Kind
-from cardak.core.snapshot import DeckSnapshot, Group, PaneRow
+from cardak.core.snapshot import DeckSnapshot, DockerLine, Group, PaneRow
 
 
 def row(pane_id: int, label: str = "zsh", cwd: str = ".", detail: str | None = None) -> PaneRow:
@@ -117,3 +118,27 @@ def test_match_count_in_waiting_only_mode() -> None:
     )  # fmt: skip
     result = filter_snapshot(waiting_only(snap), "claude")
     assert result.n_matches == 1  # the waiting row is the match in `w` mode (#40)
+
+
+def test_waiting_projects_keeps_only_waiting_sessions() -> None:
+    web = replace(group("config", "web", row(1), row(2)), docker=(DockerLine("d", 1, 1.0),),
+                  outside_rss=5)  # fmt: skip
+    snap = DeckSnapshot(groups=(waiting_group(row(2)), web), n_panes=2, n_waiting=1)
+    shown = waiting_projects(snap)
+    assert [(g.name, [r.pane_id for r in g.panes]) for g in shown.groups] == [("web", [2])]
+    assert shown.groups[0].docker == () and shown.groups[0].outside_rss is None
+    assert shown.n_waiting == 1
+
+
+def test_waiting_projects_drops_the_waiting_group_and_idle_projects() -> None:
+    snap = DeckSnapshot(
+        groups=(waiting_group(row(2)), group("config", "web", row(2)),
+                group("config", "api", row(3)), group("other", "Other", row(4))),
+        n_panes=3, n_waiting=1,
+    )  # fmt: skip
+    assert [g.name for g in waiting_projects(snap).groups] == ["web"]
+
+
+def test_waiting_projects_nothing_waiting() -> None:
+    snap = DeckSnapshot(groups=(group("config", "web", row(1)),), n_panes=1)
+    assert waiting_projects(snap).groups == ()

@@ -29,6 +29,7 @@ from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.app import AddProjectScreen, DeckApp, Node, node_id
 from cardak.ui.detail import DetailScreen, TranscriptScreen
 from cardak.ui.theme_picker import ThemePickerScreen
+from cardak.ui.widgets import nothing_waiting_label
 
 
 def row(pane_id: int, cwd: Path | None = None) -> PaneRow:
@@ -640,7 +641,7 @@ async def test_waiting_row_has_reason_line() -> None:
         ]
         assert roles == [("pane", 7), ("reason", 7), ("pane", 8), ("pane", 9)]
         assert "Your answer: Merge them?" in str(project.children[1].label)
-        assert str(app.deck_tree.root.children[0].label) == WAITING_NAME
+        assert str(app.deck_tree.root.children[0].label).rstrip() == WAITING_NAME
 
 
 async def test_w_toggles_waiting_only() -> None:
@@ -650,7 +651,7 @@ async def test_w_toggles_waiting_only() -> None:
         await settle(app, pilot)
         await pilot.press("w")
         await pilot.pause()
-        assert [str(n.label) for n in app.deck_tree.root.children] == [WAITING_NAME]
+        assert [str(n.label).rstrip() for n in app.deck_tree.root.children] == [WAITING_NAME]
         await pilot.press("w")
         await pilot.pause()
         assert len(app.deck_tree.root.children) == 2
@@ -842,7 +843,7 @@ def resource_snap(docker_rss: int = 2 * GIB) -> DeckSnapshot:
 async def test_tree_shows_mcp_docker_and_outside_lines() -> None:
     nav = StubNavigator()
     app = DeckApp(StubSource(resource_snap()), navigator=nav, interval=3600)
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(110, 24)) as pilot:  # narrow, with room for the labels
         await settle(app, pilot)
         lines = [str(n.label) for n in all_nodes(app)]
         assert any("└ MCP servers" in line for line in lines)
@@ -869,7 +870,7 @@ async def test_cursor_on_docker_line_survives_refresh() -> None:
         app.action_refresh()
         await settle(app, pilot)
         cursor = app.deck_tree.cursor_node
-        assert cursor is not None and "RAM 3.0G" in str(cursor.label)
+        assert cursor is not None and " 3.0G " in str(cursor.label)
 
 
 async def test_machine_header() -> None:
@@ -897,7 +898,7 @@ async def test_rows_show_their_share_of_the_machine() -> None:
         labels = [str(n.label) for n in all_nodes(app)]
         # project, pane, MCP, docker, Other, pane, outside WezTerm
         assert [label.count("%)") for label in labels] == [1] * 7
-        assert "RAM 8.0G (25%)" in labels[3] and "RAM 9.0G (28%)" in labels[6]
+        assert "8.0G (25%)" in labels[3] and "9.0G (28%)" in labels[6]
 
 
 async def test_waiting_pane_with_mcp_has_unique_ids() -> None:
@@ -1755,3 +1756,150 @@ async def test_w_for_a_project_without_panes_opens_in_the_decks_window() -> None
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert tabs.calls == [(Path("/repos/elsewhere"), None)]
+
+
+WIDE = (180, 30)
+
+
+def wide_snap() -> DeckSnapshot:
+    m = MachineSample(32 * GIB, 10 * GIB, 0, 0, 38.0, 16)
+    snap = waiting_snap(agent_row(7, "waiting", "finished"), others=(row(2),))
+    return replace(snap, machine_view=MachineView(m, None, "▄", "▂"), machine=m)
+
+
+def side_ids(app: DeckApp) -> list[str | None]:
+    return [node_id(n.data) for n in app.waiting_tree.root.children]
+
+
+async def test_wide_moves_waiting_to_the_side_pane() -> None:
+    app = DeckApp(StubSource(wide_snap()), interval=3600)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        assert app.query_one("#side").display
+        kinds = [n.data.group.kind for n in app.deck_tree.root.children if n.data]
+        assert "waiting" not in kinds
+        assert not any(n.data and n.data.role == "reason" for n in all_nodes(app))
+        assert side_ids(app) == ["w:7", "r:7"]
+        side_lines = [str(n.label) for n in app.waiting_tree.root.children]
+        assert side_lines[0].startswith("● webshop · claude")
+        assert side_lines[1].strip() == "Turn finished: Merge them?"
+        assert not app.query_one("#machine").display
+        assert "RAM 22.0 / 32.0G" in str(app.query_one("#side-machine", Static).render())
+
+
+async def test_narrow_keeps_one_tree() -> None:
+    app = DeckApp(StubSource(wide_snap()), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        assert not app.query_one("#side").display
+        assert str(app.deck_tree.root.children[0].label).rstrip() == WAITING_NAME
+        assert any(n.data and n.data.role == "reason" for n in all_nodes(app))
+        assert app.query_one("#machine").display
+
+
+async def test_columns_line_up() -> None:
+    app = DeckApp(StubSource(wide_snap()), interval=3600)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        tree = app.deck_tree
+        for width in (180, 130, 100):  # a resize refits every line (100: the narrow mode)
+            await pilot.resize_terminal(width, 30)
+            await settle(app, pilot)
+            heading = str(app.query_one("#heading", Static).render())
+            cpu_end = heading.rindex("CPU") + 3  # every row's CPU value ends under it
+            ram_end = heading.rindex("RAM") + 3  # and its RAM size (and share) under RAM
+            texts = [tree.render_line(y).text for y in range(len(all_nodes(app)))]
+            rows = [t for t in texts if "%" in t]
+            assert len(rows) >= 2, (width, texts)
+            for text in rows:
+                assert text[cpu_end - 1] == "%" and text[cpu_end] == " ", (width, text)
+                assert text[ram_end - 1] in "M%)" and text[ram_end] == " ", (width, text)
+
+
+async def test_tab_moves_to_the_pane_and_keys_act_there() -> None:
+    nav = StubNavigator()
+    snap = wide_snap()
+    source = StubSource(snap)
+    source.sessions["s7"] = SessionState("s7", pane_id=7, status="waiting", kind="finished")  # type: ignore[arg-type]
+    app = DeckApp(source, navigator=nav, interval=3600)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        await pilot.press("tab")
+        await pilot.pause()
+        assert app.waiting_tree.has_focus
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == [7]
+        await pilot.press("down", "i")  # on the reason line: still that wait
+        await settle(app, pilot)
+        assert isinstance(app.screen, DetailScreen)
+        await pilot.press("escape")
+        await pilot.press("shift+tab")
+        await pilot.pause()
+        assert app.deck_tree.has_focus
+
+
+async def test_c_from_the_pane_checkpoints_the_wait() -> None:
+    from cardak.ui.confirm import ConfirmScreen
+
+    source = StubSource(wide_snap())
+    source.sessions["s7"] = SessionState("s7", pane_id=7, status="waiting", kind="finished")  # type: ignore[arg-type]
+    app = DeckApp(source, interval=3600, send=Sends(), skills_status=lambda: None)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        app.waiting_tree.focus()
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        assert "pane 7" in " ".join(str(s.render()) for s in app.screen.query(Static))
+
+
+async def test_w_wide_shows_waiting_projects() -> None:
+    app = DeckApp(StubSource(wide_snap()), interval=3600)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        await pilot.press("w")
+        await settle(app, pilot)
+        assert [node_id(n.data) for n in all_nodes(app)] == ["g:config:/repos/webshop", "p:7"]
+        assert side_ids(app) == ["w:7", "r:7"]
+
+
+async def test_wide_with_nothing_waiting() -> None:
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        assert [str(n.label).strip() for n in app.waiting_tree.root.children] == [
+            "Nothing waiting on you"
+        ]
+        await pilot.press("w")
+        await settle(app, pilot)
+        assert [str(n.label) for n in app.deck_tree.root.children] == [str(nothing_waiting_label())]
+
+
+async def test_wide_error_snapshot() -> None:
+    app = DeckApp(StubSource(DeckSnapshot(error="no WezTerm GUI socket found")), interval=3600)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        assert "WezTerm not reachable" in str(app.deck_tree.root.children[0].label)
+        assert [str(n.label).strip() for n in app.waiting_tree.root.children] == [
+            "Nothing waiting on you"
+        ]
+
+
+async def test_resize_moves_between_modes_keeping_the_wait() -> None:
+    app = DeckApp(StubSource(wide_snap()), interval=3600)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        app.waiting_tree.focus()
+        app.waiting_tree.move_cursor(app.waiting_tree.root.children[1])  # the reason line
+        await pilot.pause()
+        await pilot.resize_terminal(90, 30)
+        await settle(app, pilot)
+        assert app.deck_tree.has_focus and not app.query_one("#side").display
+        cursor = app.deck_tree.cursor_node
+        assert cursor is not None and node_id(cursor.data) == "w:7"
+        await pilot.resize_terminal(*WIDE)
+        await settle(app, pilot)
+        cursor = app.deck_tree.cursor_node
+        assert app.deck_tree.has_focus and cursor is not None and node_id(cursor.data) == "p:7"

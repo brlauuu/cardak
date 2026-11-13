@@ -64,33 +64,100 @@ def share(rss: int, total: int | None) -> str:
     return " (<1%)" if 0 < pct < 0.5 else f" ({math.floor(pct + 0.5)}%)"
 
 
-def usage(
-    rss: int,
-    cpu_pct: float | None,
+Row = tuple[Text, Text]  # a line's left part and its columns (#122)
+
+# (heading, cells) per column; values are right-aligned in theirs (#122). RAM is the size and
+# its share, then the graph (`core/recent.spark`, 8 cells) left-aligned after it.
+RAM_VALUE, SPARK = 12, 8
+COLUMNS: tuple[tuple[str, int], ...] = (
+    ("state", 8),
+    ("RAM", RAM_VALUE + 1 + SPARK),
+    ("CPU", 5),
+    ("ctx", 5),
+    ("month", 7),
+)
+GAP = 2  # cells between the left part and the first column
+COLUMNS_WIDTH = GAP + sum(w for _, w in COLUMNS) + len(COLUMNS) - 1
+
+
+def _cell(text: Text, width: int) -> Text:
+    text = text.copy()
+    text.truncate(width, overflow="ellipsis")
+    return Text(" " * (width - text.cell_len)).append_text(text)
+
+
+def _join(cells: list[Text]) -> Text:
+    out = Text(" " * GAP)
+    for i, cell in enumerate(cells):
+        if i:
+            out.append(" ")
+        out.append_text(cell)
+    return out
+
+
+def columns(
+    state: Text | None,
+    rss: int | None,
+    cpu: float | None,
+    *,
+    total: int | None,
     spark: str = "",
     over: bool = False,
-    total: int | None = None,
+    ctx: int | None = None,
+    month: float | None = None,
 ) -> Text:
-    """ "RAM 13.9G (32%) ▁▂▄▆█  CPU 180%"; red when over a threshold."""
+    """A row's columns: state, RAM (with its share and graph), CPU, ctx, month. Exactly
+    COLUMNS_WIDTH cells; None leaves a column blank. Red when over a threshold."""
     style = OVER if over else ""
-    text = Text(f"RAM {fmt_rss(rss)}{share(rss, total)}", style=style)
-    if spark:
-        text.append(f" {spark}", style="cyan")
-    return text.append(f"  CPU {fmt_cpu(cpu_pct)}", style=style)
+    widths = [w for _, w in COLUMNS]
+    ram = Text() if rss is None else Text(f"{fmt_rss(rss)}{share(rss, total)}", style=style)
+    cpu_text = Text() if rss is None and cpu is None else Text(fmt_cpu(cpu), style=style)
+    graph = Text(spark[:SPARK], style="cyan")
+    graph.append(" " * (SPARK - graph.cell_len))
+    return _join([
+        _cell(state or Text(), widths[0]),
+        _cell(ram, RAM_VALUE).append(" ").append_text(graph),
+        _cell(cpu_text, widths[2]),
+        _cell(Text() if not ctx else Text(fmt_count(ctx), style="dim"), widths[3]),
+        _cell(Text() if month is None else Text(fmt_usd(month), style="dim"), widths[4]),
+    ])  # fmt: skip
 
 
-def mcp_label(r: PaneRow, total: int | None = None) -> Text:
-    text = Text("    └ MCP servers  ", style="dim")
-    return text.append_text(usage(r.mcp_rss, r.mcp_cpu_pct, total=total))
+def heading() -> Text:
+    """The columns' names, dim, laid out like `columns`."""
+    cells = [_cell(Text(name), w) for name, w in COLUMNS]
+    cells[1] = _cell(Text(COLUMNS[1][0]), RAM_VALUE).append(" " * (1 + SPARK))  # over the size
+    text = _join(cells)
+    text.stylize("dim")
+    return text
 
 
-def docker_label(line: DockerLine, total: int | None = None) -> Text:
-    return Text(f"    {line.label}  ").append_text(usage(line.rss, line.cpu_pct, total=total))
+def fit_line(row: Row, width: int) -> Text:
+    """The left part padded or cut (with …) so the columns end at `width` cells; only the
+    columns when there's no room left for it."""
+    left, right = row
+    room = width - right.cell_len
+    if room <= 0:
+        return right.copy()
+    out = left.copy()
+    out.truncate(room, overflow="ellipsis", pad=True)
+    return out.append_text(right)
 
 
-def outside_label(g: Group, total: int | None = None) -> Text:
-    text = Text("    outside WezTerm  ", style="dim")
-    return text.append_text(usage(g.outside_rss or 0, g.outside_cpu_pct, total=total))
+def mcp_row(r: PaneRow, total: int | None = None) -> Row:
+    return Text("    └ MCP servers", style="dim"), columns(
+        None, r.mcp_rss, r.mcp_cpu_pct, total=total
+    )
+
+
+def docker_row(line: DockerLine, total: int | None = None) -> Row:
+    return Text(f"    {line.label}"), columns(None, line.rss, line.cpu_pct, total=total)
+
+
+def outside_row(g: Group, total: int | None = None) -> Row:
+    return Text("    outside WezTerm", style="dim"), columns(
+        None, g.outside_rss or 0, g.outside_cpu_pct, total=total
+    )
 
 
 def machine_label(v: MachineView) -> Text:
@@ -210,10 +277,10 @@ def _why(agent: AgentView) -> Text:
     return Text(_reason(agent))
 
 
-def group_label(g: Group, total: int | None = None) -> Text:
+def group_row(g: Group, total: int | None = None) -> Row:
     text = Text()
     if g.kind == "waiting":
-        return Text(g.name, style=f"bold {WAITING}")
+        return Text(g.name, style=f"bold {WAITING}"), Text()
     if g.kind == "config":
         color = _valid_color(g.accent)
         text.append(g.name, style=f"bold {color}" if color else "bold")
@@ -224,34 +291,41 @@ def group_label(g: Group, total: int | None = None) -> Text:
         text.append(g.name, style="bold")
     if g.path:
         text.append(f"  {g.path}", style="dim")
-    text.append("  ")
-    if g.spend_usd:
-        text.append(f"{fmt_usd(g.spend_usd)} this month", style="dim").append("  ")
-    return text.append_text(usage(g.rss, g.cpu_pct, g.ram_spark, g.over, total))
+    month = g.spend_usd or None
+    right = columns(
+        None, g.rss, g.cpu_pct, total=total, spark=g.ram_spark, over=g.over, month=month
+    )
+    return text, right
 
 
-def pane_label(r: PaneRow, now: float | None = None, total: int | None = None) -> Text:
+def _state(agent: AgentView | None, now: float) -> Text | None:
+    if agent is None:
+        return None
+    if agent.status == "waiting":
+        return Text(f"wait {age(now - agent.since)}", style=WAITING)
+    if agent.status == "working":
+        return Text("work", style=WORKING)
+    return Text(f"idle {age(now - agent.since)}", style="dim")
+
+
+def pane_row(r: PaneRow, now: float | None = None, total: int | None = None) -> Row:
     now = time.time() if now is None else now
     text = Text("▲ ", style=OVER) if r.over else Text()
     text.append_text(agent_dot(r))
     text.append(r.label, style="bold")
     if r.detail:
         text.append(f"  {r.detail}")
-    text.append(f"  {r.cwd_display}  ", style="dim")
-    text.append_text(usage(r.rss, r.cpu_pct, r.ram_spark, r.over, total))
+    text.append(f"  {r.cwd_display}", style="dim")
+    agent = r.agent
+    if agent and agent.status == "working" and agent.current_tool:
+        text.append(f"  {agent.current_tool}", style="dim")
     if r.is_self:
         text.append("  (this deck)", style="italic")
-    if agent := r.agent:
-        if agent.status == "waiting":
-            text.append(f"  waiting {age(now - agent.since)}", style=WAITING)
-        elif agent.status == "working":
-            if agent.current_tool:
-                text.append(f"  {agent.current_tool}", style="dim")
-        else:
-            text.append(f"  idle {age(now - agent.since)}", style="dim")
-        if agent.context:
-            text.append(f"  ctx {fmt_count(agent.context)}", style="dim")
-    return text
+    right = columns(
+        _state(agent, now), r.rss, r.cpu_pct, total=total, spark=r.ram_spark, over=r.over,
+        ctx=agent.context if agent else None,
+    )  # fmt: skip
+    return text, right
 
 
 def reason_label(r: PaneRow) -> Text:
@@ -261,16 +335,27 @@ def reason_label(r: PaneRow) -> Text:
     return Text("    ↳ ", style=WAITING).append_text(_why(r.agent))
 
 
-def waiting_label(r: PaneRow, now: float | None = None) -> Text:
-    """A row of the "Waiting on you" group: project, how long, and why."""
+def waiting_head(r: PaneRow, now: float | None = None) -> Text:
+    """A wait's first part: its dot, project · claude, and how long."""
     now = time.time() if now is None else now
     text = agent_dot(r)
     if r.agent is None:
         return text.append(r.label, style="bold")
     text.append(f"{r.agent.project} · claude", style="bold")
-    text.append(f"  {age(now - r.agent.since)}", style=WAITING)
-    text.append("  ")
-    return text.append_text(_why(r.agent))
+    return text.append(f"  {age(now - r.agent.since)}", style=WAITING)
+
+
+def waiting_reason(r: PaneRow) -> Text:
+    """A wait's why: the tag and summary, else the kind and raw reason."""
+    return Text() if r.agent is None else _why(r.agent)
+
+
+def waiting_label(r: PaneRow, now: float | None = None) -> Text:
+    """A row of the "Waiting on you" group: project, how long, and why."""
+    text = waiting_head(r, now)
+    if r.agent is None:
+        return text
+    return text.append("  ").append_text(waiting_reason(r))
 
 
 def unreachable_label(reason: str) -> Text:
