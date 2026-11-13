@@ -1,3 +1,4 @@
+import re
 import threading
 import time
 from dataclasses import replace
@@ -1882,9 +1883,8 @@ async def test_wide_error_snapshot() -> None:
     async with app.run_test(size=WIDE) as pilot:
         await settle(app, pilot)
         assert "WezTerm not reachable" in str(app.deck_tree.root.children[0].label)
-        assert [str(n.label).strip() for n in app.waiting_tree.root.children] == [
-            "Nothing waiting on you"
-        ]
+        assert len(app.waiting_tree.root.children) == 0  # it can't know what waits
+        assert str(app.query_one("#heading", Static).render()).strip() == ""
 
 
 async def test_resize_moves_between_modes_keeping_the_wait() -> None:
@@ -1903,3 +1903,54 @@ async def test_resize_moves_between_modes_keeping_the_wait() -> None:
         await settle(app, pilot)
         cursor = app.deck_tree.cursor_node
         assert app.deck_tree.has_focus and cursor is not None and node_id(cursor.data) == "p:7"
+
+
+async def test_find_with_w_in_the_wide_mode_counts_only_what_shows() -> None:
+    nav = StubNavigator()
+    app = DeckApp(StubSource(wide_snap()), navigator=nav, interval=3600)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        await pilot.press("w", "slash", "z", "s", "h")
+        await settle(app, pilot)
+        assert 'match "zsh"' in app.sub_title and app.sub_title.startswith("0 of")
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert nav.jumps == []  # pane 2 isn't shown with `w` on
+
+
+async def test_to_wide_with_the_waits_project_folded_lands_on_the_project() -> None:
+    snap = wide_snap()
+    first = group("config", "aaa", Path("/repos/aaa"), row(5))
+    snap = replace(snap, groups=(snap.groups[0], first, *snap.groups[1:]))
+    app = DeckApp(StubSource(snap), interval=3600)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await settle(app, pilot)
+        webshop = next(n for n in app.deck_tree.root.children if "webshop" in str(n.label))
+        webshop.collapse()
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0].children[0])  # w:7
+        await pilot.pause()
+        await pilot.resize_terminal(*WIDE)
+        await settle(app, pilot)
+        cursor = app.deck_tree.cursor_node
+        assert cursor is not None and node_id(cursor.data) == "g:config:/repos/webshop"
+
+
+async def test_the_pane_wraps_a_long_reason_and_keeps_the_age() -> None:
+    long = replace(
+        agent_row(7, "waiting", "finished"),
+        agent=replace(
+            agent_row(7, "waiting", "finished").agent,  # type: ignore[arg-type]
+            reason="word " * 40,
+            project="a-really-long-project-name-for-the-pane",
+        ),
+    )
+    snap = waiting_snap(long, others=(row(2),))
+    app = DeckApp(StubSource(snap), interval=3600)
+    async with app.run_test(size=WIDE) as pilot:
+        await settle(app, pilot)
+        lines = [str(n.label).rstrip() for n in app.waiting_tree.root.children]
+        assert re.fullmatch(r"<1m|\d+[mhd]", lines[0].split()[-1])  # the age stays
+        assert "…" in lines[0]  # the project name gives way, not the age
+        reasons = [n for n in app.waiting_tree.root.children if n.data and n.data.role == "reason"]
+        assert len(reasons) == 3  # wrapped, at most three lines
+        assert all(node_id(n.data) == "r:7" for n in reasons)

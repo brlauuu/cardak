@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
+from rich.console import Console
 from rich.text import Text
 from textual import events, on
 from textual.app import App, ComposeResult
@@ -71,6 +72,9 @@ SIDE_WIDTH = 42
 GUTTER = 2  # each tree keeps room for its scrollbar, so a line's width doesn't jump
 GROUP_INDENT, LEAF_INDENT = 2, 4  # cells before a label: the fold arrow; the guides
 NOTHING_WAITING = "Nothing waiting on you"
+SIDE_LINE = SIDE_WIDTH - 1 - GUTTER  # a pane line: its border, then the scrollbar's room
+REASON_LINES = 3
+_WRAP = Console(width=SIDE_LINE)  # only to wrap the pane's reasons; never prints
 
 
 @dataclass(frozen=True)
@@ -156,7 +160,11 @@ def node_id(data: NodeData | None) -> str | None:
 def _where_it_was(nodes: dict[str, TreeNode[NodeData]], selected: str) -> TreeNode[NodeData] | None:
     if selected not in nodes and selected[:2] in ("w:", "r:"):
         selected = "p:" + selected[2:]  # it left "Waiting on you": its row in the project (#39)
-    return nodes.get(selected)
+    node = nodes.get(selected)
+    parent = node.parent if node is not None else None
+    if parent is not None and parent.data is not None and not parent.is_expanded:
+        return parent  # a line in a folded project has no line of its own: land on the project
+    return node
 
 
 def _cursor_target(
@@ -230,11 +238,38 @@ def _resource_lines(group: Group, total: int | None) -> list[tuple[Row, Node]]:
     return lines
 
 
-def _split(snap: DeckSnapshot, waiting: bool) -> tuple[DeckSnapshot, Group | None]:
-    """The wide deck's tree and its pane's waits (#122): `w` keeps the projects with a wait."""
+def _wrapped(row: PaneRow) -> list[Text]:
+    """A wait's reason under it in the side pane, two cells in, on up to REASON_LINES lines."""
+    lines = list(waiting_reason(row).wrap(_WRAP, SIDE_LINE - 2))
+    if len(lines) > REASON_LINES:
+        last = lines[REASON_LINES - 1]
+        last.truncate(SIDE_LINE - 3, overflow="ellipsis")
+        lines = [*lines[: REASON_LINES - 1], last.append("…")]
+    return [Text("  ").append_text(line) for line in lines]
+
+
+def _wait_lines(waits: Group, now: float) -> list[tuple[Text, Node]]:
+    """The side pane's lines: each wait, then its reason's lines, all carrying that wait."""
+    return [
+        line
+        for row in waits.panes
+        for line in [
+            (waiting_head(row, now, SIDE_LINE), Node(waits, row, "pane")),
+            *((text, Node(waits, row, "reason")) for text in _wrapped(row)),
+        ]
+    ]
+
+
+def _with_waits(snap: DeckSnapshot) -> DeckSnapshot:
+    """`w` in the wide deck (#122): the waits, and the projects with a wait, before the find
+    runs, so it counts and follows only what shows."""
+    waits = tuple(g for g in snap.groups if g.kind == "waiting")
+    return replace(snap, groups=waits + waiting_projects(snap).groups)
+
+
+def _split(snap: DeckSnapshot) -> tuple[DeckSnapshot, Group | None]:
+    """The wide deck's tree and its pane's waits (#122)."""
     waits = next((g for g in snap.groups if g.kind == "waiting"), None)
-    if waiting:
-        return waiting_projects(snap), waits
     return replace(snap, groups=tuple(g for g in snap.groups if g.kind != "waiting")), waits
 
 
@@ -539,18 +574,18 @@ class DeckApp(App[None]):
         wide = self.wide
         carry = self._switch_mode(wide)
         self._show_machine(raw, wide)
-        shown = waiting_only(raw) if self.waiting_only and not wide else raw
+        shown = raw
+        if self.waiting_only:
+            shown = _with_waits(raw) if wide else waiting_only(raw)
         result = filter_snapshot(shown, self.find_query)
         self.snapshot = result.snapshot
         self._best = result.best_pane_id
         query = self.find_query.strip()
         self.sub_title = _counts(raw, query, result.n_matches)
         self._show_top(raw)
-        tree_snap, waits = (
-            _split(result.snapshot, self.waiting_only) if wide else (result.snapshot, None)
-        )
+        tree_snap, waits = _split(result.snapshot) if wide else (result.snapshot, None)
         if wide:
-            self._fill_waiting(waits)
+            self._fill_waiting(waits, known=raw.error is None)
         self._rebuild(
             tree_snap,
             focus_pane=result.best_pane_id if follow_best else None,
@@ -585,27 +620,21 @@ class DeckApp(App[None]):
         tree = self._width() - (SIDE_WIDTH if self.wide else 0)
         return max(tree - GUTTER - indent, 0)
 
-    def _fill_waiting(self, waits: Group | None) -> None:
-        """The side pane's waits, oldest first: each a line and its reason, both acting on it."""
+    def _fill_waiting(self, waits: Group | None, known: bool = True) -> None:
+        """The side pane's waits, oldest first: each a line and its reason (wrapped, up to
+        REASON_LINES), all acting on it. Empty while WezTerm can't be read."""
         side = self.waiting_tree
         selected = node_id(side.cursor_node.data) if side.cursor_node else None
         side.clear()
         rows = waits.panes if waits is not None else ()
-        if not rows:
-            side.root.add_leaf(Text(NOTHING_WAITING, style="dim"))
+        if not rows or waits is None:
+            if known:
+                side.root.add_leaf(Text(NOTHING_WAITING, style="dim"))
             return
-        width = SIDE_WIDTH - 1 - GUTTER  # its border, then the scrollbar's room
-        now = time.time()
         nodes: dict[str, TreeNode[NodeData]] = {}
-        assert waits is not None
-        for row in rows:
-            for label, data in (
-                (waiting_head(row, now), Node(waits, row, "pane")),
-                (Text("  ").append_text(waiting_reason(row)), Node(waits, row, "reason")),
-            ):
-                nodes[node_id(data) or ""] = side.root.add_leaf(
-                    fit_line((label, Text()), width), data=data
-                )
+        for label, data in _wait_lines(waits, time.time()):
+            leaf = side.root.add_leaf(fit_line((label, Text()), SIDE_LINE), data=data)
+            nodes.setdefault(node_id(data) or "", leaf)
         if selected in nodes:
             self.call_after_refresh(side.move_cursor, nodes[selected])
         else:
@@ -624,10 +653,10 @@ class DeckApp(App[None]):
             selected = node_id(cursor.data) if cursor else None
         tree.clear()
         self._rebuilds += 1
-        self.query_one("#heading", Static).update(
-            fit_line((Text(), heading()), self._line_width(0))
-        )
-        if (message := self._empty_label(snap, empty_query)) is not None:
+        message = self._empty_label(snap, empty_query)
+        line = fit_line((Text(), heading()), self._line_width(0)) if message is None else ""
+        self.query_one("#heading", Static).update(line)  # no columns above a message
+        if message is not None:
             tree.root.add_leaf(message)
             return
         nodes = self._add_groups(snap)

@@ -335,14 +335,18 @@ def reason_label(r: PaneRow) -> Text:
     return Text("    ↳ ", style=WAITING).append_text(_why(r.agent))
 
 
-def waiting_head(r: PaneRow, now: float | None = None) -> Text:
-    """A wait's first part: its dot, project · claude, and how long."""
+def waiting_head(r: PaneRow, now: float | None = None, width: int | None = None) -> Text:
+    """A wait's first part: its dot, project · claude, and how long. Within `width` cells the
+    project's name is cut, never the age."""
     now = time.time() if now is None else now
     text = agent_dot(r)
     if r.agent is None:
         return text.append(r.label, style="bold")
-    text.append(f"{r.agent.project} · claude", style="bold")
-    return text.append(f"  {age(now - r.agent.since)}", style=WAITING)
+    when = Text(f"  {age(now - r.agent.since)}", style=WAITING)
+    name = Text(f"{r.agent.project} · claude", style="bold")
+    if width is not None:
+        name.truncate(max(width - text.cell_len - when.cell_len, 1), overflow="ellipsis")
+    return text.append_text(name).append_text(when)
 
 
 def waiting_reason(r: PaneRow) -> Text:
