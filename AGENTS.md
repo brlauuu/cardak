@@ -724,10 +724,17 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `brlauuu.github.io/cardak/` and proxied to `brlauuu.dev/cardak/`, which redirects the bare
   `/cardak` to the trailing slash so `assets/…` resolves. It loads nothing from elsewhere.
   `__VERSION__` is filled from `pyproject.toml` by `scripts/build_site.py` in the Pages workflow,
-  which runs on `main` when the site, `pyproject.toml`, the script or the workflow changes.
+  which runs on `main` when the site, `pyproject.toml`, `CHANGELOG.md`, the script or the workflow
+  changes. `__RELEASED__` is that version's date from its `## X.Y.Z — YYYY-MM-DD` changelog
+  heading (empty before the cut); the page's script shows the release banner for 30 days after it,
+  by the visitor's clock (#164). The changelog, not the tag: the release PR's merge deploys the
+  page before the tag is pushed, so for the minutes until it is the banner's link to
+  `releases/tag/vX.Y.Z` is a 404 (accepted). The banner and the footer ("Created by brlauuu", the version and
+  the changelog) follow the owner's other project pages.
 - The demo video: put it at `site/assets/cardak-demo.mp4` and replace the contents of the `.video`
-  div in `#demo` with the `<video>` element written in the comment above it. It sits left of the
-  install panel (`#install`), above the carousel (`#screens`); below 860 px they stack.
+  div in `#demo` with the `<video>` element written in the comment above it. It spans the page,
+  with the install card (`#install`: Full and Basic as ARIA tabs, both shown without JS) below
+  it and the carousel (`#screens`) below that.
 - **The carousel's screens (#106)** are made by `uv run scripts/make_screens.py` (headless Chrome
   and the background extra's Pillow): the real deck in `run_test` on invented projects, sessions,
   issues and costs under `/home/demo`, driven by key presses, and the real phone page served by
@@ -735,7 +742,11 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   by Chrome at 1.25× and saved as WebP (75–215 KB). Every XDG dir and `CARDAK_CONFIG` point at a
   scratch dir first; `tests/test_make_screens.py` fails on this machine's home or user name in an
   image. Re-run after a visible change to the deck. A slide whose screen is mostly empty at
-  160×40 renders shorter (`DETAIL_SIZE`, `USAGE_SIZE`) and sits letterboxed in its frame.
+  160×40 renders shorter (`DETAIL_SIZE`, `USAGE_SIZE`, …) and sits letterboxed in its frame.
+  Since #164 there is a slide per feature (18). The recap slide patches `core.recap`'s readers
+  with an invented note and commits; tab titles and sounds have no deck screen, so
+  `illustrations` draws them as HTML in the same projects' schemes. On a phone the dots give way
+  to a "3 / 18" counter.
 - The link preview, `site/assets/cardak-og.png` (1200×630: the wordmark and the tagline), comes from
   `scripts/make_brand_pngs.py` with the icons.
 - The project list on brlauuu.dev shows `cardak-mark-mono-512.png`: that list inverts logos for

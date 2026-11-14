@@ -21,7 +21,18 @@ SLIDES = {
     "usage": "cost",
     "board": "Coupon codes are lost",
     "colors": "Tokyo Night",
+    # #164: a slide per feature
+    "providers": "gemma4:e4b",  # the Summaries screen, with a local model
+    "find": "python train.py",  # `/` with a query
+    "fold": "▶ api-gateway",  # projects folded with ←
+    "add": "as a project. Name:",  # `a` on a pane in Other
+    "docker": "docker compose build",  # a project's containers and a build
+    "context": "· context ·",  # one project's sessions over a day
+    "events": "ml-pipeline grew",  # the event log
+    "recap": "Coupon codes",  # the latest handoff note
+    "cleanup": "/repo-cleanup",  # `x`'s question
 }
+ILLUSTRATIONS = {"tabs": "2: webshop · claude", "sounds": "waiting_sound"}
 
 
 @pytest.fixture(scope="module")
@@ -58,3 +69,27 @@ def test_the_phone_slide_reads_the_same_snapshot() -> None:
     snap = make_screens.demo_snapshot(1_000_000.0, summaries=True)
     assert snap.n_waiting == 3
     assert all(r.cwd and r.cwd.is_relative_to("/home/demo") for g in snap.groups for r in g.panes)
+
+
+def test_illustrations_for_what_has_no_screen(tmp_path: Path) -> None:
+    # tab titles and sounds live outside the deck: the script draws them (#164)
+    made = make_screens.illustrations(tmp_path)
+    assert set(made) == set(ILLUSTRATIONS)
+    for name, marker in ILLUSTRATIONS.items():
+        page = made[name].read_text()
+        assert marker in page, name
+        import re
+
+        assert not re.search(r'(src|href)="|url\(', page), name  # loads nothing
+        assert "/home/" not in page.replace("/home/demo", ""), name
+
+
+def test_tabs_show_only_what_cardak_names() -> None:
+    # cardak.lua returns plain tab text: the drawing adds no accent of its own (#164 review)
+    page = make_screens.illustrations(Path(make_screens.tempfile.mkdtemp()))["tabs"].read_text()
+    assert "inset 0 3px" not in page
+
+
+def test_the_context_plot_fills_its_slide() -> None:
+    # the plot takes ~18 rows: at 40 the slide was half empty (#164 review)
+    assert make_screens.CONTEXT_SIZE[1] < make_screens.SIZE[1]

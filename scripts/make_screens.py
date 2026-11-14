@@ -32,6 +32,9 @@ OUT = ROOT / "site" / "assets" / "screens"
 SIZE = (160, 40)
 DETAIL_SIZE = (120, 24)  # the details of one wait: a few lines, bigger text
 USAGE_SIZE = (160, 16)  # the cost table is short: a full-height screen would be mostly empty
+EVENTS_SIZE = (140, 20)  # the event log: a dozen lines
+RECAP_SIZE = (120, 28)  # one note and the commits since
+CONTEXT_SIZE = (120, 26)  # the plot takes ~18 rows: bigger text in the slide
 HOME = Path("/home/demo")
 CODE = HOME / "code"
 GIB = 2**30
@@ -255,15 +258,34 @@ SPEND = {
 }
 
 
-def _project(name: str, scheme: str, accent: str, rows: tuple):
-    from cardak.core.snapshot import DockerLine, Group
+def _docker(name: str, more: bool) -> tuple:
+    """A project's Docker lines: webshop's database, and with `more` its cache and a build."""
+    from cardak.core.snapshot import DockerLine
 
-    rss = sum(r.rss + r.mcp_rss for r in rows)
-    cpu = sum((r.cpu_pct or 0.0) + r.mcp_cpu_pct for r in rows)
-    docker = ()
     if name == "webshop":
-        docker = (DockerLine("docker: webshop-db-1", 410 * MIB, 1.5),)
-        rss += 410 * MIB
+        lines = [DockerLine("docker: webshop-db-1", 410 * MIB, 1.5)]
+        if more:
+            lines.append(DockerLine("docker: webshop-redis-1", 38 * MIB, 0.4))
+        return tuple(lines)
+    if name == "api-gateway" and more:
+        return (DockerLine("docker build", 2300 * MIB, 180.0, kind="build"),)
+    return ()
+
+
+def _totals(rows: tuple, docker: tuple) -> tuple[int, float]:
+    """A project's RAM and CPU: its panes, their MCP servers, and its Docker lines."""
+    rss = sum(r.rss + r.mcp_rss for r in rows) + sum(d.rss for d in docker)
+    cpu = sum((r.cpu_pct or 0.0) + r.mcp_cpu_pct for r in rows)
+    return rss, cpu + sum(d.cpu_pct or 0.0 for d in docker)
+
+
+def _project(name: str, scheme: str, accent: str, rows: tuple, more_docker: bool = False):
+    from cardak.core.snapshot import Group
+
+    if name == "api-gateway" and more_docker:  # the pane running the build's client
+        rows = (*rows, _pane(9, name, "", "docker compose build", 40, 3.0))
+    docker = _docker(name, more_docker)
+    rss, cpu = _totals(rows, docker)
     return Group(
         kind="config",
         key=CODE / name,
@@ -280,17 +302,23 @@ def _project(name: str, scheme: str, accent: str, rows: tuple):
     )
 
 
-def demo_snapshot(now: float, summaries: bool = False):
-    """A deck snapshot of six invented projects, three sessions waiting on you."""
+def demo_snapshot(now: float, summaries: bool = False, docker: bool = False):
+    """A deck snapshot of six invented projects, three sessions waiting on you; `docker` adds
+    a cache container and a running build."""
     from cardak.collectors.machine import MachineSample
     from cardak.core.limits import LimitsView, LimitView
     from cardak.core.resources import ResourceSettings, derive
     from cardak.core.snapshot import WAITING_NAME, DeckSnapshot, Group, MachineView
 
     panes = _panes(now, summaries)
-    groups = [_project(name, scheme, accent, panes[name]) for name, scheme, accent in PROJECTS]
-    other_rows = (_pane(23, "", "", "htop", 9, 1.0),)
-    other_rows = (replace(other_rows[0], cwd=HOME, cwd_display="~"),)
+    groups = [
+        _project(name, scheme, accent, panes[name], docker) for name, scheme, accent in PROJECTS
+    ]
+    htop, blog = _pane(23, "", "", "htop", 9, 1.0), _pane(24, "", "", "nvim", 60, 0.5)
+    other_rows = (
+        replace(htop, cwd=HOME, cwd_display="~"),
+        replace(blog, cwd=CODE / "blog", cwd_display="~/code/blog"),  # not a project yet: `a`
+    )
     other = Group(
         kind="other",
         key=None,
@@ -790,7 +818,7 @@ class _Log:
                 self.days.append(DayPeak(f"project:{CODE / name}", name, day, ram, 40.0 + 30 * i))
 
     def resource_events_since(self, ts):
-        return []
+        return _events(time.time())
 
     def latest_crash(self, since):
         return None
@@ -811,6 +839,167 @@ class _Log:
         return {}
 
 
+def _events(now: float) -> list:
+    """The event log: what the daemon noticed over the last two days."""
+    from cardak.core.store import ResourceEvent
+
+    def project(name: str) -> str:
+        return f"project:{CODE / name}"
+
+    return [
+        ResourceEvent(now - 30 * 3600, "daemon", "info", "daemon", "cardak daemon started.", False),
+        ResourceEvent(
+            now - 26 * 3600,
+            "busy",
+            "warning",
+            project("api-gateway"),
+            "api-gateway at 390% CPU for 2 min (cargo watch -x test).",
+            True,
+        ),
+        ResourceEvent(
+            now - 9 * 3600,
+            "big",
+            "warning",
+            project("mobile-app"),
+            "mobile-app uses 17.8 GB (gradle assembleDebug 15.2 GB).",
+            True,
+        ),
+        ResourceEvent(
+            now - 3 * 3600,
+            "growth",
+            "warning",
+            project("ml-pipeline"),
+            "ml-pipeline grew 2.1 GB in 5 min (python train.py).",
+            True,
+        ),
+        ResourceEvent(
+            now - 3 * 3600 + 40,
+            "memory",
+            "critical",
+            "machine",
+            "Memory critical: 3.1 GB available of 64 GB. Biggest: ml-pipeline 21.4 GB.",
+            True,
+        ),
+        ResourceEvent(
+            now - 3 * 3600 + 95,
+            "crash",
+            "critical",
+            "wezterm:4242",
+            "A WezTerm window closed: the kernel killed python train.py (ml-pipeline, pane 11) "
+            "for lack of memory. It had grown 6.3 GB in its last 10 minutes.",
+            True,
+        ),
+    ]
+
+
+def _context(today: date):
+    """webshop's sessions over yesterday: one compacts at ~190k, one stays small."""
+    from datetime import datetime, timedelta
+
+    from cardak.core.context import ContextSeries, SessionLine, group_context
+    from cardak.core.resolver import Resolved
+
+    day = datetime.combine(today - timedelta(days=1), datetime.min.time()).timestamp()
+
+    def at(hour: float) -> float:
+        return day + hour * 3600
+
+    def climb(start: float, end: float, low: int, high: int, n: int) -> list[tuple[float, int]]:
+        return [
+            (
+                at(start + (end - start) * i / (n - 1)),
+                int(low + (high - low) * (i / (n - 1)) ** 1.3),
+            )
+            for i in range(n)
+        ]
+
+    main = climb(9, 12.5, 18_000, 192_000, 40) + climb(12.6, 17.5, 41_000, 142_000, 45)
+    review = climb(14, 16, 12_000, 64_000, 18)
+    side = climb(10, 11, 9_000, 31_000, 10)
+    cwd = str(CODE / "webshop")
+    series = ContextSeries(
+        today,
+        day + 2 * 86_400,
+        (
+            SessionLine("s-web", cwd, tuple(main)),
+            SessionLine("s-web-side", cwd, tuple(side)),
+            SessionLine("s-web-review", cwd, tuple(review)),
+        ),
+        {},
+    )
+    grouped = group_context(series, lambda c: Resolved("config", CODE / "webshop", "webshop"))
+    return grouped.rows[0], today - timedelta(days=1)
+
+
+def _recap(now: float):
+    """The recap screen's note and git, invented: patched over `core.recap`'s readers."""
+    from datetime import datetime
+
+    from cardak.collectors.git import Commit, GitState
+    from cardak.collectors.handoff import Entry
+    from cardak.core.recap import Note
+
+    body = (
+        "**Done:** Coupon codes survive the payment step; the cart keeps them in the session "
+        "and the end-to-end suite covers it (`tests/e2e/checkout.spec.ts`).\n\n"
+        "**Open:** the e2e run needs approval for `npm run test:e2e`; Safari still drops the "
+        "code on a reload.\n\n"
+        "**Next:** fix the Safari reload, then open the PR for #225."
+    )
+    when = datetime.fromtimestamp(now - 5 * 3600).replace(second=0, microsecond=0)
+    note = Note(CODE / "webshop", Entry(when, "225-checkout-e2e", body))
+    commits = (
+        Commit("4be81f2", now - 1500, "test(e2e): checkout with a coupon code"),
+        Commit("a91c07d", now - 3 * 3600, "fix(cart): keep coupon codes across the payment step"),
+        Commit("6d2f5e0", now - 4.5 * 3600, "test(e2e): the checkout's happy path"),
+    )
+    return note, GitState("225-checkout-e2e", 3, 1, commits)
+
+
+class _Summaries:
+    """The Summaries screen's settings: a local model through Ollama."""
+
+    def summary_settings(self):
+        from cardak.core.config import ProviderSettings, SummarySettings
+
+        ollama = ProviderSettings("http://localhost:11434", "gemma4:e4b")
+        return SummarySettings(5.0, "ollama", {"ollama": ollama, "codex": ProviderSettings()})
+
+    def is_set_up(self, name: str) -> bool:
+        return name in ("anthropic", "ollama", "codex")
+
+    def has_key(self, name: str) -> bool:
+        return name == "anthropic"
+
+    def key_path(self, name: str) -> Path:
+        return HOME / ".config" / "cardak" / f"{name}_key"
+
+    def summary_spend(self) -> float:
+        return 1.84
+
+    def use_provider(self, name: str) -> None:
+        return None
+
+    def save_provider(self, name, url, model, key) -> None:
+        return None
+
+    def remove_provider(self, name: str) -> None:
+        return None
+
+
+def _providers():
+    from cardak.core.prices import BUILTIN
+    from cardak.core.summary import ProviderTools
+
+    return ProviderTools(
+        make=lambda *a: None,  # type: ignore[arg-type,return-value]
+        list_models=lambda url: ["gemma4:e4b", "qwen2.5:3b", "llama3.2:3b"],
+        codex_version=lambda: "codex-cli 0.160.0",
+        prices=lambda: BUILTIN,
+        read_key=lambda name: "k" if name == "anthropic" else None,
+    )
+
+
 def _app(snap, now: float, **kw):
     from cardak.core.themes import SchemeStore
     from cardak.ui.app import DeckApp
@@ -829,30 +1018,112 @@ def _app(snap, now: float, **kw):
     )
 
 
+def _fold(app, keep: tuple[str, ...]) -> None:
+    """Fold every project but `keep`, as ← on each would."""
+    for node in app.deck_tree.root.children:
+        data = node.data
+        if data is not None and data.group.kind == "config" and data.group.name not in keep:
+            node.collapse()
+
+
+def _cursor_to_pane(app, label: str) -> None:
+    def walk(node):
+        for child in node.children:
+            if (
+                child.data is not None
+                and child.data.row is not None
+                and child.data.row.label == label
+            ):
+                return child
+            if (found := walk(child)) is not None:
+                return found
+        return None
+
+    found = walk(app.deck_tree.root)
+    if found is None:
+        raise LookupError(f"no pane {label!r} in the deck")
+    app.deck_tree.move_cursor(found)
+
+
+def _then(*steps):
+    def run(app) -> None:
+        for step in steps:
+            step(app)
+
+    return run
+
+
 async def _deck_svgs(out: Path, size: tuple[int, int]) -> dict[str, Path]:
+    from unittest import mock
+
+    from cardak.ui.context_plot import ContextPlotScreen
+
     now = time.time()
+    today = date.fromtimestamp(now)
     plain = demo_snapshot(now)
     said = demo_snapshot(now, summaries=True)
-    with_trends = replace(plain, usage_trends=_trends(date.fromtimestamp(now)))
-    # (slide, snapshot, keys, what to do before the keys)
+    docker = demo_snapshot(now, docker=True)
+    with_trends = replace(plain, usage_trends=_trends(today))
+    row, day = _context(today)
+    note, git = _recap(now)
+    tabs = {"send": lambda *a: None, "open_tab": lambda *a: 0}
+    talk = {"summaries": _Summaries(), "providers": _providers()}
+    # (slide, snapshot, keys, what to do before the keys, size, the app's extra arguments)
     slides = (
-        ("overview", plain, (), lambda app: _cursor_to(app, "webshop")),
-        ("waiting", plain, ("tab", "i"), None, DETAIL_SIZE),
-        ("summaries", said, ("w", "tab"), None),
-        ("usage", with_trends, ("h", "c", "c"), None, USAGE_SIZE),
-        ("board", plain, ("P",), None),
-        ("colors", plain, ("t",), lambda app: _cursor_to(app, "webshop")),
+        ("overview", plain, (), lambda app: _cursor_to(app, "webshop"), size, {}),
+        ("waiting", plain, ("tab", "i"), None, DETAIL_SIZE, {}),
+        ("summaries", said, ("w", "tab"), None, size, {}),
+        ("providers", said, ("s", "down"), None, size, talk),
+        ("find", plain, ("slash", *"train"), None, size, {}),
+        (
+            "fold",
+            plain,
+            (),
+            _then(lambda app: _fold(app, ()), lambda app: _cursor_to(app, "webshop")),
+            size,
+            {},
+        ),
+        ("add", plain, ("a",), lambda app: _cursor_to_pane(app, "nvim"), size, {}),
+        (
+            "docker",
+            docker,
+            (),
+            _then(
+                lambda app: _fold(app, ("webshop", "api-gateway")),
+                lambda app: _cursor_to(app, "api-gateway"),
+            ),
+            size,
+            {},
+        ),
+        ("usage", with_trends, ("h", "c", "c"), None, USAGE_SIZE, {}),
+        (
+            "context",
+            plain,
+            (),
+            lambda app: app.push_screen(ContextPlotScreen(row, day, today)),
+            CONTEXT_SIZE,
+            {},
+        ),
+        ("events", plain, ("e",), None, EVENTS_SIZE, {}),
+        ("board", plain, ("P",), None, size, {}),
+        ("recap", plain, ("r",), lambda app: _cursor_to(app, "webshop"), RECAP_SIZE, {}),
+        ("cleanup", plain, ("x",), lambda app: _cursor_to(app, "webshop"), size, tabs),
+        ("colors", plain, ("t",), lambda app: _cursor_to(app, "webshop"), size, {}),
     )
     made = {}
-    for name, snap, keys, before, *own in slides:
-        path = out / f"{name}.svg"
-        await _shoot(_app(snap, now), keys, path, own[0] if own else size, before)
-        made[name] = path
+    with (
+        mock.patch("cardak.core.recap.notes", lambda dirs, *a: [note]),
+        mock.patch("cardak.core.recap.since", lambda n, *a: git),
+    ):
+        for name, snap, keys, before, own, kw in slides:
+            path = out / f"{name}.svg"
+            await _shoot(_app(snap, now, **kw), keys, path, own, before)
+            made[name] = path
     return made
 
 
 def deck_svgs(out: Path, size: tuple[int, int] = SIZE) -> dict[str, Path]:
-    """The six deck slides as Textual SVG screenshots, by slide name."""
+    """The deck's slides as Textual SVG screenshots, by slide name."""
     out.mkdir(parents=True, exist_ok=True)
     return asyncio.run(_deck_svgs(out, size))
 
@@ -910,6 +1181,118 @@ def to_webp(chrome: str, svg: Path, out: Path) -> None:
     png = svg.with_suffix(".png")
     _screenshot(chrome, page.as_uri(), png, width, height)
     _webp(png, out)
+
+
+ART = (1970, 1026)  # the deck slides' size in CSS pixels, so every slide renders alike
+MONO = "font-family:'DejaVu Sans Mono','Fira Code',monospace;white-space:pre"
+WINDOWS = (
+    # (project, scheme, its tabs: the active one first)
+    ("webshop", "Catppuccin Mocha", ("npm run dev", "claude", "zsh")),
+    ("api-gateway", "Tokyo Night", ("cargo watch -x test", "claude")),
+    ("ml-pipeline", "Gruvbox Dark", ("python train.py", "claude")),
+)
+BODIES = {
+    "webshop": (
+        "~/code/webshop on 225-checkout-e2e",
+        "$ npm run dev",
+        "  ready on http://localhost:5173",
+    ),
+    "api-gateway": (
+        "~/code/api-gateway on 89-retries",
+        "$ cargo watch -x test",
+        "  test result: ok. 214 passed",
+    ),
+    "ml-pipeline": (
+        "~/code/ml-pipeline on main",
+        "$ python train.py --epochs 40",
+        "  epoch 17/40  loss 0.412",
+    ),
+}
+
+
+def _window(i: int, project: str, scheme: str, titles: tuple[str, ...]) -> str:
+    """One terminal window in its project's scheme, its tabs named as cardak.lua names them
+    (plain text: cardak draws no accent of its own on a tab)."""
+    bg, fg, ansi = SCHEMES[scheme]
+    tabs = "".join(
+        '<span style="padding:9px 18px;margin-right:2px;border-radius:8px 8px 0 0;'
+        + (
+            f"background:{bg};color:{fg}"
+            if k == 0
+            else "background:rgba(255,255,255,.06);color:#9aa0a6"
+        )
+        + f'">{k + 1}: {project} · {title}</span>'
+        for k, title in enumerate(titles)
+    )
+    first, command, out = BODIES[project]
+    return (
+        f'<div style="position:absolute;left:{90 + i * 330}px;top:{90 + i * 290}px;width:1150px;'
+        "border-radius:12px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.55);"
+        f'background:#16161a;{MONO};font-size:22px">'
+        f'<div style="display:flex;padding:10px 10px 0;white-space:nowrap">{tabs}</div>'
+        f'<div style="background:{bg};color:{fg};padding:22px 26px;height:200px;line-height:1.7">'
+        f'<div style="color:{ansi[4]}">{first}</div><div>{command}</div>'
+        f'<div style="color:{ansi[2]}">{out}</div></div></div>'
+    )
+
+
+TOML = (
+    ('<span style="color:#f9e2af">[notify]</span>', ""),
+    ("desktop = <b>true</b>", "notify-send"),
+    ('waiting_sound = <i>"random"</i>', "a session waiting on you"),
+    ('memory_sound = <i>"bell"</i>', "memory alerts, and WezTerm closed"),
+    ('other_sound = <i>"chime"</i>', "every other alert"),
+    ('sounds_dir = <i>"~/sounds/cardak"</i>', "your own clips join the pool"),
+)
+
+
+def _sounds() -> str:
+    lines = "".join(
+        f'<div>{code}<span style="color:#6c7086">{"  # " + note if note else ""}</span></div>'
+        for code, note in TOML
+    )
+    note = (
+        '<div style="position:absolute;right:90px;top:330px;width:640px;background:#2b2d33;'
+        "color:#e8e8e8;border-radius:14px;padding:22px 26px;box-shadow:0 24px 60px rgba(0,0,0,.5);"
+        'font-family:system-ui,sans-serif;font-size:22px">'
+        '<div style="color:#9aa0a6;font-size:17px;margin-bottom:8px">cardak · now</div>'
+        "<b>webshop · claude</b>"
+        '<div style="margin-top:6px">'
+        "Approve a tool: Bash: npm run test:e2e -- --project=checkout</div>"
+        "</div>"
+    )
+    chips = "".join(
+        '<span style="border:1px solid #45475a;border-radius:20px;padding:6px 16px;'
+        f'margin:0 10px 10px 0;display:inline-block">♪ {name}</span>'
+        for name in ("chime", "pluck", "bell", "blip", "drop", "your sound packs")
+    )
+    return (
+        f'<div style="position:absolute;left:90px;top:250px;width:940px;background:#1e1e2e;'
+        f"color:#cdd6f4;border-radius:14px;padding:34px 40px;{MONO};font-size:24px;line-height:1.9;"
+        f'box-shadow:0 24px 60px rgba(0,0,0,.5)">{lines}'
+        '<div style="margin-top:22px;font-size:20px;color:#a6adc8;white-space:normal">'
+        f"{chips}</div></div>{note}"
+    )
+
+
+def illustrations(out: Path) -> dict[str, Path]:
+    """Tab titles and sounds live outside the deck: drawn here as HTML, in the same invented
+    projects and their schemes, at the deck slides' size."""
+    out.mkdir(parents=True, exist_ok=True)
+    page = (
+        '<!doctype html><meta charset="utf-8"><body style="margin:0;width:{w}px;height:{h}px;'
+        'background:#0c0c0c;position:relative;overflow:hidden">{body}</body>'
+    )
+    bodies = {
+        "tabs": "".join(_window(i, *w) for i, w in enumerate(WINDOWS)),
+        "sounds": _sounds(),
+    }
+    made = {}
+    for name, body in bodies.items():
+        path = out / f"{name}.html"
+        path.write_text(page.format(w=ART[0], h=ART[1], body=body))
+        made[name] = path
+    return made
 
 
 PHONE = (390, 844)
@@ -971,6 +1354,11 @@ def main() -> None:
         _scratch_env(scratch)
         for name, svg in deck_svgs(scratch / "svg").items():
             to_webp(chrome, svg, OUT / f"{name}.webp")
+            print(f"wrote {name}.webp")
+        for name, page in illustrations(scratch / "art").items():
+            png = page.with_suffix(".png")
+            _screenshot(chrome, page.as_uri(), png, *ART)
+            _webp(png, OUT / f"{name}.webp")
             print(f"wrote {name}.webp")
         phone_webp(chrome, OUT, scratch)
         print("wrote phone.webp, phone-portrait.webp")
