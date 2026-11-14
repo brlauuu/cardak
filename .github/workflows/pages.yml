@@ -1,7 +1,8 @@
 # The landing page (#66): publishes site/ to GitHub Pages, served at brlauuu.dev/cardak.
 #
 # scripts/build_site.py copies site/ to _site/ and fills in the version from
-# pyproject.toml, so the page follows every release without being edited. A version
+# pyproject.toml and its release date from CHANGELOG.md, so the page follows every
+# release without being edited. A version
 # bump reaches main through the release PR, which is why there is no tag trigger (the
 # github-pages environment takes deployments from the default branch only).
 name: Pages

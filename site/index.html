@@ -68,10 +68,10 @@
 
   header { text-align: center; }
   header picture img { display: block; width: min(420px, 100%); height: auto; margin: 0 auto; }
-  #tagline { font-size: clamp(1.25rem, .9rem + 1.5vw, 1.9rem); line-height: 1.3; font-weight: 600;
+  #tagline { font-size: clamp(1.05rem, calc((100vw - 32px) / 19), 1.6rem); line-height: 1.3; font-weight: 600;
              margin: 22px auto 0; }
   @media (min-width: 700px) {
-    #tagline { white-space: nowrap; }
+    #tagline { white-space: nowrap; font-size: min(1.9rem, calc((100vw - 56px) / 29.5)); }
   }
   .nowrap { white-space: nowrap; }
   h2 { font-size: 1.05rem; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 16px; }
@@ -131,7 +131,8 @@
   #screens { margin-top: 64px; }
   .carousel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .carousel-head h2 { margin: 0; }
-  .steps { display: flex; gap: 8px; }
+  .steps { display: flex; gap: 8px; align-items: center; }
+  .where { color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums; margin-right: 4px; }
   html:not(.js) .steps, html:not(.js) .dots { display: none; }
   .steps button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--rule);
                   background: var(--panel); font-size: 1.2rem; line-height: 1; }
@@ -154,6 +155,9 @@
   figcaption { margin: 14px auto 0; max-width: 64ch; text-align: center; }
   figcaption b { display: block; font-size: 1.1rem; }
   figcaption span { color: var(--muted); }
+  kbd { font-family: ui-monospace, "SF Mono", "DejaVu Sans Mono", monospace; font-size: .85em; padding: 1px 6px;
+        border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 5px; background: var(--panel);
+        color: var(--text); }
   .dots { display: flex; justify-content: center; gap: 0; margin-top: 8px; }
   .dots button { width: 44px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; }
   .dots button::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--rule); }
@@ -172,6 +176,7 @@
     [role="tab"] { flex: 1; }
     #screens { margin-top: 44px; }
     .shot { padding: 3%; }
+    .dots { display: none; }
     /* the phone page stands upright on a phone */
     .shot.tall { aspect-ratio: auto; padding: 16px; }
     .shot.tall img { max-height: 70vh; }
@@ -191,7 +196,7 @@
         <img src="assets/cardak-wordmark-light.svg" alt="cardak" width="460" height="100">
       </picture>
     </h1>
-    <p id="tagline">Your control deck for <span class="nowrap">multi-project</span> agentic development.</p>
+    <p id="tagline">Your control deck for <span class="nowrap">multi-project agentic development.</span></p>
   </header>
 
   <section id="demo" aria-label="Demo video">
@@ -251,60 +256,149 @@
     <div class="carousel-head">
       <h2>What it does</h2>
       <div class="steps">
+        <span class="where" aria-live="polite"></span>
         <button type="button" class="prev" aria-label="Previous screen">&#8592;</button>
         <button type="button" class="next" aria-label="Next screen">&#8594;</button>
       </div>
     </div>
     <ol class="track" tabindex="0" aria-label="Screens, scroll sideways or use the arrow keys">
-      <li class="slide" aria-roledescription="slide" aria-label="1 of 7">
+      <li class="slide" aria-roledescription="slide" aria-label="1 of 18">
         <figure>
           <a class="shot" href="assets/screens/overview.webp"><img src="assets/screens/overview.webp" width="2463" height="1283"
             alt="The deck: six projects with their panes, each with its state, RAM and a graph, CPU, context and this month's cost; three sessions waiting on the right."></a>
           <figcaption><b>Every terminal, by project</b>
-            <span>All your WezTerm panes in one tree, grouped by project, with each one's state, RAM, CPU and context. Enter jumps there and raises the window.</span></figcaption>
+            <span>All your WezTerm panes in one tree, grouped by project, with each one's state, RAM, CPU, context and this month's cost. <kbd>Enter</kbd> jumps there and raises the window.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="2 of 7">
+      <li class="slide" aria-roledescription="slide" aria-label="2 of 18">
         <figure>
           <a class="shot" href="assets/screens/waiting.webp"><img src="assets/screens/waiting.webp" width="1853" height="795" loading="lazy"
             alt="The details of a waiting session: it needs a tool approved, what you asked an hour ago, and the files it edited this turn."></a>
           <figcaption><b>What's waiting on you</b>
-            <span>Sessions that need you come first, with how long they've waited and why. One key shows what you asked and what it did, another takes you there.</span></figcaption>
+            <span>Sessions that need you come first, with how long they've waited and why. <kbd>i</kbd> shows what you asked and what this turn changed; <kbd>Enter</kbd> takes you there.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="3 of 7">
+      <li class="slide" aria-roledescription="slide" aria-label="3 of 18">
         <figure>
           <a class="shot" href="assets/screens/summaries.webp"><img src="assets/screens/summaries.webp" width="2463" height="1283" loading="lazy"
-            alt="Only the projects waiting on you, each wait with a one-line summary: review, decide, approve."></a>
+            alt="Only the projects waiting on you, each wait with a one-line summary."></a>
           <figcaption><b>Why, in one line</b>
-            <span>A one-line summary of what each waiting session needs, by a model you pick, local ones included. A notification and a sound when one starts waiting.</span></figcaption>
+            <span>A one-line summary of what each waiting session needs, so you know which to answer first. <kbd>w</kbd> shows only what's waiting.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="4 of 7">
+      <li class="slide" aria-roledescription="slide" aria-label="4 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/providers.webp"><img src="assets/screens/providers.webp" width="2463" height="1283" loading="lazy"
+            alt="The Summaries screen: five providers, Ollama in use with gemma4:e4b, and the month's cost against its cap."></a>
+          <figcaption><b>Pick the model that summarizes</b>
+            <span>Anthropic, a local model through Ollama, Fireworks, any OpenAI-compatible server or Codex, with a test run and a monthly cap.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="5 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/find.webp"><img src="assets/screens/find.webp" width="2463" height="1283" loading="lazy"
+            alt="The deck filtered by the word train: one project and its python train.py pane."></a>
+          <figcaption><b>Find any pane</b>
+            <span><kbd>/</kbd> and a few letters narrow the deck to the panes that match; <kbd>Enter</kbd> jumps to the best one.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="6 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/fold.webp"><img src="assets/screens/fold.webp" width="2463" height="1283" loading="lazy"
+            alt="Every project folded to one line with its RAM, graph, CPU and month's cost; Other unfolded."></a>
+          <figcaption><b>Fold what you don't need</b>
+            <span><kbd>←</kbd> and <kbd>→</kbd> fold and unfold projects; each folded line still shows its RAM, CPU and cost.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="7 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/add.webp"><img src="assets/screens/add.webp" width="2463" height="1283" loading="lazy"
+            alt="A dialog over the deck: add ~/code/blog as a project, its name blog."></a>
+          <figcaption><b>Add a project in one key</b>
+            <span><kbd>a</kbd> on a pane outside your projects makes its folder a project, named as you like, written to projects.toml.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="8 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/docker.webp"><img src="assets/screens/docker.webp" width="2463" height="1283" loading="lazy"
+            alt="webshop with its database and cache containers, and api-gateway with a docker compose build and its build line."></a>
+          <figcaption><b>Docker counts too</b>
+            <span>A project's containers sit under it, and a running build counts to the project whose pane started it, not to Other.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="9 of 18">
         <figure>
           <a class="shot" href="assets/screens/usage.webp"><img src="assets/screens/usage.webp" width="2463" height="550" loading="lazy"
             alt="Thirty days of cost per project: today, per day, peak and the month, with a cell per day."></a>
-          <figcaption><b>What it costs, what it uses</b>
-            <span>This month at API prices and your plan limits up top; 30 days of cost, tokens, RAM and CPU per project, with alerts before memory runs out.</span></figcaption>
+          <figcaption><b>What it costs</b>
+            <span>This month at API prices and your plan limits up top; 30 days of cost, tokens, replies and prompts per project in the history.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="5 of 7">
+      <li class="slide" aria-roledescription="slide" aria-label="10 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/context.webp"><img src="assets/screens/context.webp" width="2463" height="1283" loading="lazy"
+            alt="A plot of webshop's three sessions over a day: one climbs to 192k, drops at a compaction and climbs again."></a>
+          <figcaption><b>Context, session by session</b>
+            <span>Each session's context over a day, with every compaction where it dropped, so you see which ones ran long.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="11 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/events.webp"><img src="assets/screens/events.webp" width="2158" height="673" loading="lazy"
+            alt="The event log: a busy project, a big one, one growing fast, memory critical, and a WezTerm window closed by the kernel."></a>
+          <figcaption><b>Alerts before memory runs out</b>
+            <span>The daemon warns when memory gets tight or a project grows fast, and tells you which process the kernel killed if a window closes.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="12 of 18">
         <figure>
           <a class="shot" href="assets/screens/board.webp"><img src="assets/screens/board.webp" width="2463" height="1283" loading="lazy"
             alt="A board per project from GitHub: todo issues with labels, issues and PRs being worked on with their session's state, and what got done this week."></a>
           <figcaption><b>Your issues and PRs</b>
-            <span>A board per project from GitHub: todo, on it, and what got done this week. One key starts Claude on a todo issue in a new tab.</span></figcaption>
+            <span>A board per project from GitHub: todo, on it, and what got done this week. <kbd>w</kbd> starts Claude on a todo issue in a new tab.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="6 of 7">
+      <li class="slide" aria-roledescription="slide" aria-label="13 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/recap.webp"><img src="assets/screens/recap.webp" width="1853" height="916" loading="lazy"
+            alt="The recap of webshop: the latest checkpoint's done, open and next, and the three commits since."></a>
+          <figcaption><b>Checkpoint, then recap</b>
+            <span><kbd>c</kbd> has Claude write a handoff note; <kbd>r</kbd> shows the latest one and every commit since, so you pick up where you left off.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="14 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/cleanup.webp"><img src="assets/screens/cleanup.webp" width="2463" height="1283" loading="lazy"
+            alt="A question over the deck: open a new tab in ~/code/webshop and run claude /repo-cleanup?"></a>
+          <figcaption><b>Clean up a repo</b>
+            <span><kbd>x</kbd> opens a new tab in the project and starts Claude on /repo-cleanup: stale branches, worktrees and leftovers.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="15 of 18">
         <figure>
           <a class="shot" href="assets/screens/colors.webp"><img src="assets/screens/colors.webp" width="2463" height="1283" loading="lazy"
             alt="The theme picker over the deck: color schemes with their swatches, and a switch for the project's background art."></a>
           <figcaption><b>A color for each project</b>
-            <span>Each project gets its own color scheme, background art and tab names, previewed live, so you always know which window you're in.</span></figcaption>
+            <span>Each project gets its own color scheme and background art, previewed live, so you always know which window you're in.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="7 of 7">
+      <li class="slide" aria-roledescription="slide" aria-label="16 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/tabs.webp"><img src="assets/screens/tabs.webp" width="2463" height="1283" loading="lazy"
+            alt="Three terminal windows, each in its project's colors, with tabs named like 1: webshop · npm run dev."></a>
+          <figcaption><b>Tabs named by project</b>
+            <span>WezTerm's tabs say which project they're in and what runs there, in that project's colors.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="17 of 18">
+        <figure>
+          <a class="shot" href="assets/screens/sounds.webp"><img src="assets/screens/sounds.webp" width="2463" height="1283" loading="lazy"
+            alt="The notify settings: a sound for waiting, memory and other alerts, and a desktop notification for a waiting webshop session."></a>
+          <figcaption><b>A sound for each kind of alert</b>
+            <span>A desktop notification and a sound when a session starts waiting; other sounds for memory and other alerts, your own clips and sound packs included.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="18 of 18">
         <figure>
           <a class="shot tall" href="assets/screens/phone.webp"><picture>
             <source media="(max-width: 600px)" srcset="assets/screens/phone-portrait.webp" width="780" height="1688">
@@ -359,10 +453,13 @@ document.documentElement.classList.add("js");
   const prev = region.querySelector(".prev");
   const next = region.querySelector(".next");
   const dots = region.querySelector(".dots");
+  const where = region.querySelector(".where");
   const still = matchMedia("(prefers-reduced-motion: reduce)");
   let current = 0;
+  let target = null;  // where a smooth scroll is headed: a click meanwhile steps on from there
   const go = (i) => {
     i = Math.max(0, Math.min(slides.length - 1, i));
+    target = i;
     track.scrollTo({ left: slides[i].offsetLeft, behavior: still.matches ? "auto" : "smooth" });
   };
   slides.forEach((slide, i) => {
@@ -375,7 +472,9 @@ document.documentElement.classList.add("js");
   // the dots follow the scroll position, so a swipe moves them too
   const mark = () => {
     current = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+    if (current === target) target = null;
     [...dots.children].forEach((d, j) => d.setAttribute("aria-current", j === current ? "true" : "false"));
+    where.textContent = current + 1 + " / " + slides.length;
     // a flex row is as tall as its tallest slide (the upright phone): fit the one on screen
     track.style.height = slides[current].offsetHeight + "px";
     prev.disabled = current === 0;
@@ -385,12 +484,13 @@ document.documentElement.classList.add("js");
   track.addEventListener("scroll", () => {
     if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; mark(); }); }
   }, { passive: true });
-  prev.addEventListener("click", () => go(current - 1));
-  next.addEventListener("click", () => go(current + 1));
+  track.addEventListener("scrollend", () => { target = null; });  // a swipe cut it short
+  prev.addEventListener("click", () => go((target ?? current) - 1));
+  next.addEventListener("click", () => go((target ?? current) + 1));
   region.addEventListener("keydown", (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;  // Alt+← is the browser's back
-    if (e.key === "ArrowLeft") { go(current - 1); e.preventDefault(); }
-    if (e.key === "ArrowRight") { go(current + 1); e.preventDefault(); }
+    if (e.key === "ArrowLeft") { go((target ?? current) - 1); e.preventDefault(); }
+    if (e.key === "ArrowRight") { go((target ?? current) + 1); e.preventDefault(); }
   });
   addEventListener("resize", () => { mark(); go(current); });
   track.addEventListener("load", mark, true);  // a lazy image changes its slide's height

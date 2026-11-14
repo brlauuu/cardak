@@ -167,7 +167,26 @@ def test_preview_image_is_1200_by_630() -> None:
 TAGLINE = "Your control deck for multi-project agentic development."
 FULL = f"uv tool install 'cardak[all] @ git+{REPO}'"
 BASIC = f"uv tool install git+{REPO}"
-SLIDES = ("overview", "waiting", "summaries", "usage", "board", "colors", "phone")
+SLIDES = (
+    "overview",
+    "waiting",
+    "summaries",
+    "providers",
+    "find",
+    "fold",
+    "add",
+    "docker",
+    "usage",
+    "context",
+    "events",
+    "board",
+    "recap",
+    "cleanup",
+    "colors",
+    "tabs",
+    "sounds",
+    "phone",
+)  # a slide per feature (#164)
 
 
 def _content(tags: _Tags, **want: str) -> str:
@@ -306,6 +325,12 @@ def test_header_is_centered() -> None:
     assert "text-align: center" in _rule("header")
     # one line from tablet width up; a phone may wrap it once (#164)
     assert re.search(r"@media \(min-width: 700px\) \{\s*#tagline \{ white-space: nowrap;", _css())
+    # on a phone, two lines: "Your control deck for" / "multi-project agentic development."
+    assert '<span class="nowrap">multi-project agentic development.</span>' in PAGE.read_text()
+    assert "calc((100vw - 32px) / 19)" in _rule("#tagline")
+    # on one line it must shrink with the window, or it scrolls the page sideways at 768 px
+    one_line = r"#tagline \{ white-space: nowrap; font-size: min\(1\.9rem, calc\(\(100vw"
+    assert re.search(one_line, _css())
 
 
 def test_video_is_full_width_with_the_install_below() -> None:
@@ -349,3 +374,22 @@ def test_footer_names_the_author_and_the_changelog() -> None:
 
 def test_captions_are_centered() -> None:
     assert "text-align: center" in _rule("figcaption")
+
+
+def test_slides_are_numbered_in_order() -> None:
+    labels = [a["aria-label"] for a in _find(_page(), "li", **{"class": "slide"})]
+    assert labels == [f"{i} of {len(SLIDES)}" for i in range(1, len(SLIDES) + 1)]
+
+
+def test_eighteen_dots_leave_a_phone_alone() -> None:
+    # 18 dots of 44 px are 792 px: a phone gets a "3 / 18" counter instead (#164)
+    assert re.search(r"@media \(max-width: 600px\) \{[^@]*\.dots \{ display: none; \}", _css())
+    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+    assert "where.textContent" in script
+    assert _find(_page(), "span", **{"class": "where"})
+
+
+def test_fast_clicks_count_every_step() -> None:
+    # a click during the smooth scroll steps on from where the last click was headed (#164)
+    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+    assert "go((target ?? current) + 1)" in script and "go((target ?? current) - 1)" in script
