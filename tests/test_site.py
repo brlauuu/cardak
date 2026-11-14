@@ -143,3 +143,12 @@ def test_a_video_fits_however_it_is_swapped_in() -> None:
     assert css
     rule = re.search(r"(?m)^\s*video\s*\{([^}]*)\}", css.group(1))
     assert rule and "width: 100%" in rule.group(1) and "height: auto" in rule.group(1)
+
+
+def test_preview_image_is_1200_by_630() -> None:
+    # link previews want at least 200 px, ideally 1200×630 (#106)
+    import struct
+
+    head = (SITE / "assets" / "cardak-og.png").read_bytes()[:24]
+    assert head[:8] == b"\x89PNG\r\n\x1a\n"
+    assert struct.unpack(">II", head[16:24]) == (1200, 630)
