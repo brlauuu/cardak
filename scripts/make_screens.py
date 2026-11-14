@@ -255,41 +255,40 @@ SPEND = {
 }
 
 
+def _project(name: str, scheme: str, accent: str, rows: tuple):
+    from cardak.core.snapshot import DockerLine, Group
+
+    rss = sum(r.rss + r.mcp_rss for r in rows)
+    cpu = sum((r.cpu_pct or 0.0) + r.mcp_cpu_pct for r in rows)
+    docker = ()
+    if name == "webshop":
+        docker = (DockerLine("docker: webshop-db-1", 410 * MIB, 1.5),)
+        rss += 410 * MIB
+    return Group(
+        kind="config",
+        key=CODE / name,
+        name=name,
+        accent=accent,
+        path=f"~/code/{name}",
+        cpu_pct=cpu,
+        rss=rss,
+        panes=rows,
+        theme=scheme,
+        docker=docker,
+        ram_spark=_spark([rss * f for f in (0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1)], 8 * GIB),
+        spend_usd=SPEND[name],
+    )
+
+
 def demo_snapshot(now: float, summaries: bool = False):
     """A deck snapshot of six invented projects, three sessions waiting on you."""
     from cardak.collectors.machine import MachineSample
     from cardak.core.limits import LimitsView, LimitView
     from cardak.core.resources import ResourceSettings, derive
-    from cardak.core.snapshot import WAITING_NAME, DeckSnapshot, DockerLine, Group, MachineView
+    from cardak.core.snapshot import WAITING_NAME, DeckSnapshot, Group, MachineView
 
     panes = _panes(now, summaries)
-    groups = []
-    for name, scheme, accent in PROJECTS:
-        rows = panes[name]
-        rss = sum(r.rss + r.mcp_rss for r in rows)
-        cpu = sum((r.cpu_pct or 0.0) + r.mcp_cpu_pct for r in rows)
-        docker = ()
-        if name == "webshop":
-            docker = (DockerLine("docker: webshop-db-1", 410 * MIB, 1.5),)
-            rss += 410 * MIB
-        groups.append(
-            Group(
-                kind="config",
-                key=CODE / name,
-                name=name,
-                accent=accent,
-                path=f"~/code/{name}",
-                cpu_pct=cpu,
-                rss=rss,
-                panes=rows,
-                theme=scheme,
-                docker=docker,
-                ram_spark=_spark(
-                    [rss * f for f in (0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1)], 8 * GIB
-                ),
-                spend_usd=SPEND[name],
-            )
-        )
+    groups = [_project(name, scheme, accent, panes[name]) for name, scheme, accent in PROJECTS]
     other_rows = (_pane(23, "", "", "htop", 9, 1.0),)
     other_rows = (replace(other_rows[0], cwd=HOME, cwd_display="~"),)
     other = Group(
@@ -307,7 +306,7 @@ def demo_snapshot(now: float, summaries: bool = False):
     )
     waiting_rows = sorted(
         (r for g in groups for r in g.panes if r.agent and r.agent.status == "waiting"),
-        key=lambda r: r.agent.since,
+        key=lambda r: r.agent.since if r.agent else 0.0,
     )
     waiting = Group(
         kind="waiting",
@@ -338,6 +337,19 @@ def demo_snapshot(now: float, summaries: bool = False):
     )
 
 
+def _day_cost(today: date, d: int, i: int, base: float) -> float:
+    """Project i's cost d days into the window: a weekly rhythm, quieter weekends, each project
+    busy in its own stretch, and some use today for every one."""
+    from cardak.core.trends import DAYS
+
+    if d == DAYS - 1:
+        return round(base * (1.1 + i * 0.07), 2)
+    weekday = (today.toordinal() - (DAYS - 1 - d)) % 7
+    if (weekday in (5, 6) and (d + i) % 3) or (d * 7 + i * 5) % 13 == 0:
+        return 0.0
+    return round(base * (1 + 0.8 * ((d + 4 * i) % 11) / 10), 2)
+
+
 def _trends(today: date):
     """30 days of invented use per project, cost by day."""
     from cardak.core.trends import DAYS, DayUsage, GroupedTrends, ProjectTrend
@@ -347,15 +359,7 @@ def _trends(today: date):
     for i, (name, _, _) in enumerate(PROJECTS):
         days = []
         for d in range(DAYS):
-            # a weekly rhythm, quieter weekends, each project busy in its own stretch
-            weekday = (today.toordinal() - (DAYS - 1 - d)) % 7
-            base = SPEND[name] / 9
-            wave = 1 + 0.8 * ((d + 4 * i) % 11) / 10
-            cost = 0.0 if weekday in (5, 6) and (d + i) % 3 else round(base * wave, 2)
-            if d == DAYS - 1:
-                cost = round(base * (1.1 + i * 0.07), 2)
-            elif (d * 7 + i * 5) % 13 == 0:
-                cost = 0.0
+            cost = _day_cost(today, d, i, SPEND[name] / 9)
             every[d] += cost
             days.append(
                 DayUsage(

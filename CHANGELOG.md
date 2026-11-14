@@ -9,8 +9,12 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+- The phone page has cardak's icon, in the browser tab and on your home screen when you add it there (#106).
+
 ### Changed
 - The deck reads like a table: every project's and pane's numbers (a session's state, RAM with its graph, CPU, context and this month's spend) line up in columns on the right under a heading. In a window at least 120 columns wide, "Waiting on you" and the machine's CPU and RAM move to a pane of their own on the right: Tab moves there and every key works on a session in it, and `w` shows just the projects with a waiting session. Narrower windows keep one list (#122).
+- The landing page at brlauuu.dev/cardak leads with what cardak is for, has the install (full or lite, each with a copy button) beside the demo video, and walks through the deck's screens one at a time; link previews show a proper image. It reads well on a phone (#106).
 
 ## 0.19.0 — 2026-11-11
 
