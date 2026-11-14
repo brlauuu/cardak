@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- cardak favicon: the mark on a Danube night tile, on a paprika tile in light mode (#66) -->
+  <style>
+    .tile { fill: #0f2a44; }
+    .c { stroke: #f6efe2; }
+    .h { stroke: #c8352b; }
+    @media (prefers-color-scheme: light) {
+      .tile { fill: #c8352b; }
+      .h { stroke: #0f2a44; }
+    }
+  </style>
+  <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+    <rect width="100" height="100" fill="#fff"/>
+    <path d="M38 14 L50 33 L62 14" fill="none" stroke="#000" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </mask>
+  <rect class="tile" width="100" height="100" rx="22"/>
+  <path class="c" d="M69.8 38.2 A28 28 0 1 0 69.8 77.8" fill="none" stroke-width="12" stroke-linecap="round" mask="url(#cut)"/>
+  <path class="h" d="M38 14 L50 33 L62 14" fill="none" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

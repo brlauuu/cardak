@@ -153,3 +153,14 @@ def test_png_has_its_size(name: str, size: int) -> None:
 def test_mono_png_is_transparent() -> None:
     data = (ASSETS / "cardak-mark-mono-512.png").read_bytes()
     assert data[25] == 6  # color type RGBA
+
+
+@pytest.mark.parametrize(
+    ("bundled", "site"), [("icon.svg", "cardak-icon.svg"), ("icon-180.png", "cardak-icon-180.png")]
+)
+def test_bundled_icons_match_the_site(bundled: str, site: str) -> None:
+    # the phone page's icons (#106) are copies the daemon serves; they must not drift
+    root = Path(__file__).parent.parent
+    assert (root / "src/cardak/web" / bundled).read_bytes() == (
+        root / "site/assets" / site
+    ).read_bytes()
