@@ -12,6 +12,7 @@ on:
     paths:
       - "site/**"
       - "pyproject.toml"
+      - "CHANGELOG.md"
       - "scripts/build_site.py"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
