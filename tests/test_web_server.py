@@ -259,3 +259,24 @@ def test_a_name_with_an_ipv4_address_binds_ipv4_as_before() -> None:
 def test_unknown_host_is_an_os_error() -> None:
     with pytest.raises(OSError):
         make_server("no-such-host.invalid", 0, KEY, Latest(), session_ok)
+
+
+@pytest.mark.parametrize(
+    ("path", "kind", "name"),
+    [("/icon.svg", "image/svg+xml", "icon.svg"), ("/icon-180.png", "image/png", "icon-180.png")],
+)
+def test_icons_need_no_key(serve, path: str, kind: str, name: str) -> None:
+    from importlib.resources import files
+
+    base, _ = serve()
+    status, headers, body = get(base + path, key=None)
+    assert status == 200 and headers["Content-Type"] == kind
+    assert body == files("cardak.web").joinpath(name).read_bytes()
+    status, _, body = get(base + path, key=None, method="HEAD")
+    assert status == 200 and body == b""
+
+
+def test_other_paths_still_404(serve) -> None:
+    base, _ = serve()
+    assert get(base + "/icon.png", key=None)[0] == 404
+    assert get(base + "/favicon.ico")[0] == 404

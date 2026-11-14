@@ -27,7 +27,11 @@ def test_page_is_self_contained() -> None:
     )
     for ref in ("http://", "https://", "//cdn", "<script src"):
         assert ref not in page, ref
-    assert re.findall(r"<link[^>]*>", PAGE) == ['<link rel="icon" href="data:,">']
+    # the icons come from the daemon itself (#106), never from elsewhere
+    assert re.findall(r"<link[^>]*>", PAGE) == [
+        '<link rel="icon" type="image/svg+xml" href="/icon.svg">',
+        '<link rel="apple-touch-icon" href="/icon-180.png">',
+    ]
     assert PAGE.count("<script>") == 1 and PAGE.count("<style>") == 1
 
 

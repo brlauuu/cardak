@@ -24,6 +24,11 @@ from cardak.core.snapshot import DeckSnapshot
 from cardak.web.view import find_agent, pm_json, session_json, snapshot_json, trends_json
 
 PAGE = files("cardak.web").joinpath("page.html").read_bytes()
+# the phone page's favicon and home-screen icon (#106): copies of site/assets', no key needed
+ICONS = {
+    f"/{name}": (files("cardak.web").joinpath(name).read_bytes(), kind)
+    for name, kind in (("icon.svg", "image/svg+xml"), ("icon-180.png", "image/png"))
+}
 SESSION = re.compile(r"/api/session/([A-Za-z0-9_-]{1,128})")
 
 Session = Callable[[str], SessionState | None]
@@ -118,6 +123,8 @@ def make_server(
             path = self.path.split("?", 1)[0]
             if path == "/":
                 return self._send(200, PAGE, "text/html; charset=utf-8")
+            if path in ICONS:
+                return self._send(200, *ICONS[path])
             found = SESSION.fullmatch(path)
             if path not in ("/api/snapshot", "/api/trends", "/api/pm") and found is None:
                 return self._send(404)
