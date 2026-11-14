@@ -99,9 +99,12 @@ def test_it_tells_how_to_install() -> None:
 
 
 def test_sections_in_order() -> None:
+    # #106: the tagline, the video beside the install, then the carousel of screens
     tags = _page()
-    line = {t if t in ("picture", "footer") else a.get("id"): n for t, a, n in tags.tags}
-    order = [line["picture"], line["what"], line["features"], line["demo"], line["install"]]
+    line: dict[str | None, int] = {}
+    for t, a, n in tags.tags:  # the first of each: the wordmark's picture, not the phone slide's
+        line.setdefault(t if t in ("picture", "footer") else a.get("id"), n)
+    order = [line["picture"], line["tagline"], line["demo"], line["install"], line["screens"]]
     assert order == sorted(order)
     assert order[-1] < line["footer"]
 
@@ -113,7 +116,7 @@ def test_has_a_description_and_social_tags() -> None:
         assert _find(tags, "meta", property=prop), prop
     # crawlers need an absolute URL for the preview image; the only absolute asset URL
     image = _find(tags, "meta", property="og:image")[0]["content"]
-    assert image == "https://brlauuu.dev/cardak/assets/cardak-icon-180.png"
+    assert image == "https://brlauuu.dev/cardak/assets/cardak-og.png"
 
 
 def test_readme_shows_the_wordmark() -> None:
@@ -152,3 +155,85 @@ def test_preview_image_is_1200_by_630() -> None:
     head = (SITE / "assets" / "cardak-og.png").read_bytes()[:24]
     assert head[:8] == b"\x89PNG\r\n\x1a\n"
     assert struct.unpack(">II", head[16:24]) == (1200, 630)
+
+
+TAGLINE = "Your control deck for multi-project agentic development."
+FULL = f"uv tool install 'cardak[all] @ git+{REPO}'"
+LITE = f"uv tool install git+{REPO}"
+SLIDES = ("overview", "waiting", "summaries", "usage", "board", "colors", "phone")
+
+
+def _content(tags: _Tags, **want: str) -> str:
+    return _find(tags, "meta", **want)[0]["content"]
+
+
+def test_tagline() -> None:
+    tags = _page()
+    text = PAGE.read_text()
+    found = re.search(r'id="tagline"[^>]*>(.*?)</p>', text, flags=re.S)
+    assert found and re.sub(r"<[^>]+>", "", found.group(1)).strip() == TAGLINE
+    assert TAGLINE in re.search(r"<title>(.*?)</title>", text).group(1)  # type: ignore[union-attr]
+    assert _content(tags, name="description").startswith(TAGLINE)
+    assert _content(tags, property="og:description") == TAGLINE
+
+
+def test_link_preview() -> None:
+    tags = _page()
+    assert _content(tags, property="og:url") == "https://brlauuu.dev/cardak/"
+    assert _content(tags, property="og:image:width") == "1200"
+    assert _content(tags, property="og:image:height") == "630"
+
+
+def test_install_panel() -> None:
+    text = PAGE.read_text()
+    section = text[text.index('id="install"') : text.index('id="screens"')]
+    for command in (FULL, LITE):
+        found = re.search(r"<code[^>]*>" + re.escape(command) + r"</code>", section)
+        assert found, command
+    # each command has a copy button next to it, which works on phones too (#106)
+    assert section.count("<button") >= 2 and section.count("data-copy") >= 2
+    assert f'href="{REPO}"' in section
+    assert "cardak wezterm install" in section and "cardak hooks install" in section
+
+
+def test_carousel() -> None:
+    tags = _page()
+    region = _find(tags, "section", id="screens")
+    assert region and region[0].get("aria-roledescription") == "carousel"
+    assert region[0].get("aria-label")
+    imgs = [
+        a for t, a, _ in tags.tags if t == "img" and a.get("src", "").startswith("assets/screens/")
+    ]
+    assert [Path(a["src"]).stem for a in imgs] == list(SLIDES)
+    for i, a in enumerate(imgs):
+        assert a.get("alt") and a.get("width") and a.get("height"), a
+        assert (a.get("loading") == "lazy") == (i > 0), a
+    labels = [a.get("aria-label", "") for t, a, _ in tags.tags if t == "button"]
+    assert any("Previous" in x for x in labels) and any("Next" in x for x in labels)
+    assert "setInterval" not in PAGE.read_text()  # it moves only when the visitor moves it
+
+
+def test_slides_open_full_size() -> None:
+    # a 160-column deck is small on a phone: a tap opens the image to zoom in (#106)
+    text = PAGE.read_text()
+    for name in SLIDES:
+        assert re.search(
+            rf'<a [^>]*href="assets/screens/{name}\.webp"[^>]*>\s*(<picture>.*?)?<img',
+            text,
+            flags=re.S,
+        ), name
+
+
+def test_phone_slide_is_upright_on_phones() -> None:
+    tags = _page()
+    assert _find(tags, "source", srcset="assets/screens/phone-portrait.webp")
+
+
+def test_feature_list_is_gone() -> None:
+    assert 'class="features"' not in PAGE.read_text()
+
+
+def test_script_is_inline_and_small() -> None:
+    scripts = re.findall(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S)
+    assert len(scripts) == 1 and len(scripts[0]) < 4000
+    assert "eval(" not in scripts[0]

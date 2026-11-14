@@ -76,6 +76,6 @@ def test_workflow_triggers_and_permissions() -> None:
     for line in ("contents: read", "pages: write", "id-token: write"):
         assert line in text
     assert "scripts/build_site.py" in text
-    assert "actions/upload-pages-artifact@v3" in text
+    assert "actions/upload-pages-artifact@v5" in text
     assert "path: _site" in text
-    assert "actions/deploy-pages@v4" in text
+    assert "actions/deploy-pages@v5" in text

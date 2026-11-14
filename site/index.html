@@ -3,13 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>cardak: a deck for WezTerm panes and Claude Code sessions</title>
-<meta name="description" content="cardak groups every WezTerm pane by project, jumps to any of them, gives each project its own colors, and shows which Claude Code session is waiting on you, and why.">
+<title>cardak: Your control deck for multi-project agentic development.</title>
+<meta name="description" content="Your control deck for multi-project agentic development. cardak groups every WezTerm pane by project, shows which Claude Code session is waiting on you and why, what each project costs and uses, and its GitHub issues.">
 <meta name="color-scheme" content="light dark">
 <meta property="og:title" content="cardak">
-<meta property="og:description" content="A project-centric deck for WezTerm panes and Claude Code sessions.">
-<meta property="og:image" content="https://brlauuu.dev/cardak/assets/cardak-icon-180.png">
+<meta property="og:description" content="Your control deck for multi-project agentic development.">
+<meta property="og:url" content="https://brlauuu.dev/cardak/">
+<meta property="og:image" content="https://brlauuu.dev/cardak/assets/cardak-og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="cardak: Your control deck for multi-project agentic development.">
 <meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="assets/cardak-icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/cardak-icon-32.png">
 <link rel="apple-touch-icon" href="assets/cardak-icon-180.png">
@@ -22,8 +27,10 @@
     --text: var(--night);
     --muted: #4a5d72;
     --rule: #e4dccd;
+    --panel: #ffffff;
     --code-bg: var(--linen);
     --link: var(--paprika);
+    --frame: #0a1f33;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -31,8 +38,10 @@
       --text: var(--linen);
       --muted: #b9c3cd;
       --rule: #24405c;
+      --panel: #12304d;
       --code-bg: #0a1f33;
       --link: var(--linen);
+      --frame: #071726;
     }
   }
   * { box-sizing: border-box; }
@@ -43,30 +52,98 @@
     color: var(--text);
     font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, "Noto Sans", sans-serif;
   }
-  main { max-width: 760px; margin: 0 auto; padding: 56px 20px 24px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 56px 20px 24px; }
   header picture img { display: block; width: min(420px, 100%); height: auto; }
-  .lede { font-size: 1.25rem; line-height: 1.5; margin: 28px 0 0; }
-  h2 { font-size: 1.05rem; letter-spacing: .06em; text-transform: uppercase; margin: 56px 0 16px; }
+  #tagline { font-size: clamp(1.3rem, 1rem + 1.6vw, 1.9rem); line-height: 1.3; font-weight: 600;
+             margin: 24px 0 0; max-width: 32ch; }
+  .nowrap { white-space: nowrap; }
+  h2 { font-size: 1.05rem; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 16px; }
   h2::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 10px;
                background: var(--paprika); border-radius: 2px; vertical-align: 1px; }
   a { color: var(--link); text-underline-offset: 3px; }
-  .features { list-style: none; padding: 0; margin: 0; display: grid; gap: 18px 28px;
-              grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-  .features b { display: block; }
-  .features span { color: var(--muted); }
-  .video { aspect-ratio: 16 / 9; border-radius: 14px; background: #0a1f33; color: var(--linen);
+  code { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace; }
+  p code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-size: .9em;
+           overflow-wrap: anywhere; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* the video, with the install beside it; stacked on narrow screens */
+  .hero { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 28px;
+          margin-top: 40px; align-items: start; }
+  .video { aspect-ratio: 16 / 9; border-radius: 14px; background: var(--frame); color: var(--linen);
            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
            border: 1px solid var(--rule); text-align: center; padding: 16px; }
   .video img { width: 72px; height: 72px; opacity: .9; }
   video { display: block; width: 100%; height: auto; border-radius: 14px; }
   .video:has(video) { padding: 0; }
-  pre { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px;
-        overflow-x: auto; font-size: .92rem; line-height: 1.5; }
-  code { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace; }
-  p code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-size: .92em; }
-  .needs { color: var(--muted); }
-  footer { max-width: 760px; margin: 40px auto 0; padding: 20px 20px 40px; border-top: 1px solid var(--rule);
+
+  #install { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 20px; }
+  .repo { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px;
+          border: 1px solid var(--rule); border-radius: 10px; text-decoration: none; font-weight: 600;
+          color: var(--text); margin-bottom: 14px; }
+  .repo:hover { border-color: var(--paprika); }
+  .repo svg { flex: none; }
+  .needs { color: var(--muted); font-size: .92rem; margin: 0 0 16px; }
+  .cmd { margin: 0 0 14px; }
+  .cmd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .cmd-head b { font-size: .95rem; }
+  .cmd-head span { color: var(--muted); font-size: .88rem; flex: 1 1 12rem; line-height: 1.35; }
+  .copy { min-height: 36px; min-width: 64px; padding: 4px 12px; border-radius: 8px; font-size: .85rem;
+          background: transparent; border: 1px solid var(--rule); margin-left: auto; }
+  .copy:hover { border-color: var(--paprika); }
+  html:not(.js) .copy { display: none; }
+  pre { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px;
+        margin: 0; font-size: .82rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .then { font-size: .92rem; margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); }
+  .then ol { margin: 6px 0 8px; padding-left: 1.2em; }
+  .then li { margin: 4px 0; }
+
+  /* the carousel: one screen at a time, swiped or stepped; a scrolling strip without JS */
+  #screens { margin-top: 64px; }
+  .carousel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .carousel-head h2 { margin: 0; }
+  .steps { display: flex; gap: 8px; }
+  html:not(.js) .steps, html:not(.js) .dots { display: none; }
+  .steps button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--rule);
+                  background: var(--panel); font-size: 1.2rem; line-height: 1; }
+  .steps button:hover:not(:disabled) { border-color: var(--paprika); }
+  .steps button:disabled { opacity: .35; cursor: default; }
+  .track { list-style: none; margin: 16px 0 0; padding: 0; display: flex; overflow-x: auto;
+           scroll-snap-type: x mandatory; scrollbar-width: none; position: relative; border-radius: 14px; }
+  .track::-webkit-scrollbar { display: none; }
+  html:not(.js) .track { scrollbar-width: thin; gap: 16px; }
+  .track:focus-visible { outline: 2px solid var(--paprika); outline-offset: 4px; }
+  .slide { flex: 0 0 100%; scroll-snap-align: start; }
+  figure { margin: 0; }
+  .shot { display: flex; align-items: center; justify-content: center; aspect-ratio: 2463 / 1283;
+          background: var(--frame); border-radius: 14px; overflow: hidden; padding: 2%; }
+  .shot img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;
+              border-radius: 8px; }
+  figcaption { margin-top: 14px; max-width: 60ch; }
+  figcaption b { display: block; font-size: 1.1rem; }
+  figcaption span { color: var(--muted); }
+  .dots { display: flex; justify-content: center; gap: 2px; margin-top: 12px; }
+  .dots button { width: 32px; height: 32px; border: 0; background: transparent; display: grid; place-items: center; }
+  .dots button::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--rule); }
+  .dots button[aria-current="true"]::before { background: var(--paprika); }
+
+  footer { max-width: 1120px; margin: 56px auto 0; padding: 20px 20px 40px; border-top: 1px solid var(--rule);
            display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: .95rem; }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 600px) {
+    main { padding: 32px 16px 16px; }
+    header picture img { width: min(300px, 100%); }
+    .hero { margin-top: 28px; gap: 20px; }
+    #install { padding: 16px; }
+    #screens { margin-top: 44px; }
+    .shot { padding: 3%; }
+    /* the phone page stands upright on a phone */
+    .shot.tall { aspect-ratio: auto; padding: 16px; }
+    .shot.tall img { max-height: 70vh; }
+    footer { padding: 20px 16px 32px; }
+  }
 </style>
 </head>
 <body>
@@ -78,65 +155,188 @@
         <img src="assets/cardak-wordmark-light.svg" alt="cardak" width="460" height="100">
       </picture>
     </h1>
+    <p id="tagline">Your control deck for <span class="nowrap">multi-project</span> agentic development.</p>
   </header>
 
-  <section id="what">
-    <p class="lede">A project-centric deck for WezTerm panes and Claude Code sessions. cardak groups
-      every pane by project, takes you to any of them in one keystroke, gives each project its own
-      colors, and tells you which Claude Code session is waiting on you, and why.</p>
-  </section>
+  <div class="hero">
+    <section id="demo" aria-label="Demo video">
+      <!-- To add the video: put it at assets/cardak-demo.mp4 and replace the .video div's contents with
+           <video src="assets/cardak-demo.mp4" controls muted playsinline preload="metadata"></video> -->
+      <div class="video">
+        <img src="assets/cardak-mark-dark.svg" alt="">
+        <p style="margin:0">The video is on its way.</p>
+      </div>
+    </section>
 
-  <section id="features">
-    <h2>What it does</h2>
-    <ul class="features">
-      <li><b>Every pane, grouped by project</b>
-        <span>All your WezTerm panes in one tree, by project. Enter jumps to the pane and raises its window.</span></li>
-      <li><b>A color for each project</b>
-        <span>Each project gets its own color scheme, and its tabs are named after it, so you always know where you are.</span></li>
-      <li><b>Who is waiting on you</b>
-        <span>Every Claude Code session is working, waiting or idle. Waiting ones come first, with the reason, a notification and a sound.</span></li>
-      <li><b>Why, in one line</b>
-        <span>An optional one-line summary of what each waiting session needs, written by a model you choose, local ones included.</span></li>
-      <li><b>Which pane is eating your machine</b>
-        <span>CPU and RAM per pane and project, Docker builds included, with alerts before memory runs out and 30 days of history.</span></li>
-      <li><b>What your sessions cost</b>
-        <span>This month's Claude Code use at API prices, usage per project and day, each session's context, and your plan limits.</span></li>
-      <li><b>Pick up where you left off</b>
-        <span>A checkpoint skill writes a handoff note in the project; the recap gathers notes and recent git activity.</span></li>
-      <li><b>Your projects' issues and PRs</b>
-        <span>A board per project: open issues, the ones a branch or PR is working on, and what got done this week.</span></li>
-      <li><b>On your phone</b>
-        <span>A read-only page on your local network shows who is waiting, while you're away from the desk.</span></li>
-    </ul>
-  </section>
+    <section id="install" aria-labelledby="install-title">
+      <h2 id="install-title">Get it</h2>
+      <a class="repo" href="https://github.com/brlauuu/cardak">
+        <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        github.com/brlauuu/cardak
+      </a>
+      <p class="needs">Needs Linux, <a href="https://wezterm.org">WezTerm</a> and
+        <a href="https://docs.astral.sh/uv/">uv</a>; the agent features need
+        <a href="https://code.claude.com">Claude Code</a>. Developed on KDE Plasma under X11.</p>
 
-  <section id="demo">
-    <h2>See it in use</h2>
-    <!-- To add the video: put it at assets/cardak-demo.mp4 and replace the .video div's contents with
-         <video src="assets/cardak-demo.mp4" controls muted playsinline preload="metadata"></video> -->
-    <div class="video">
-      <img src="assets/cardak-mark-dark.svg" alt="">
-      <p style="margin:0">The video is on its way.</p>
+      <div class="cmd">
+        <div class="cmd-head"><b>Full</b><span>everything, with background art and Anthropic summaries</span>
+          <button type="button" class="copy" data-copy="cmd-full">Copy</button></div>
+        <pre><code id="cmd-full">uv tool install 'cardak[all] @ git+https://github.com/brlauuu/cardak'</code></pre>
+      </div>
+      <div class="cmd">
+        <div class="cmd-head"><b>Lite</b><span>the deck, agent status, themes, resources, the phone and PM views</span>
+          <button type="button" class="copy" data-copy="cmd-lite">Copy</button></div>
+        <pre><code id="cmd-lite">uv tool install git+https://github.com/brlauuu/cardak</code></pre>
+      </div>
+
+      <div class="then">
+        Then run <code>cardak</code>, and:
+        <ol>
+          <li><code>cardak wezterm install</code> for jumping and per-project colors; add the line it
+            prints, <code>require('cardak').apply(config)</code>, to your <code>wezterm.lua</code>.</li>
+          <li><code>cardak hooks install</code> for Claude Code status; it shows what it will add to
+            Claude Code's settings and asks first.</li>
+        </ol>
+        The <a href="https://github.com/brlauuu/cardak#install">README</a> covers the rest.
+      </div>
+    </section>
+  </div>
+
+  <section id="screens" aria-roledescription="carousel" aria-label="What cardak shows">
+    <div class="carousel-head">
+      <h2>What it does</h2>
+      <div class="steps">
+        <button type="button" class="prev" aria-label="Previous screen">&#8592;</button>
+        <button type="button" class="next" aria-label="Next screen">&#8594;</button>
+      </div>
     </div>
-  </section>
-
-  <section id="install">
-    <h2>Get it</h2>
-    <p class="needs">Needs Linux, <a href="https://wezterm.org">WezTerm</a> and
-      <a href="https://docs.astral.sh/uv/">uv</a>; the agent features need
-      <a href="https://code.claude.com">Claude Code</a>. Developed on KDE Plasma under X11.</p>
-<pre><code>uv tool install 'cardak[all] @ git+https://github.com/brlauuu/cardak'
-cardak</code></pre>
-    <p>For jumping and per-project colors, <code>cardak wezterm install</code> writes its own
-      <code>cardak.lua</code> and prints the one line to add to your <code>wezterm.lua</code>:
-      <code>require('cardak').apply(config)</code>. For Claude Code status,
-      <code>cardak hooks install</code> shows what it will add to Claude Code's settings and asks first.
-      The <a href="https://github.com/brlauuu/cardak#install">README</a> covers the rest.</p>
+    <ol class="track" tabindex="0" aria-label="Screens, scroll sideways or use the arrow keys">
+      <li class="slide" aria-roledescription="slide" aria-label="1 of 7">
+        <figure>
+          <a class="shot" href="assets/screens/overview.webp"><img src="assets/screens/overview.webp" width="2463" height="1283"
+            alt="The deck: six projects with their panes, each with its state, RAM and a graph, CPU, context and this month's cost; three sessions waiting on the right."></a>
+          <figcaption><b>Every terminal, by project</b>
+            <span>All your WezTerm panes in one tree, grouped by project, with each one's state, RAM, CPU and context. Enter jumps there and raises the window.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="2 of 7">
+        <figure>
+          <a class="shot" href="assets/screens/waiting.webp"><img src="assets/screens/waiting.webp" width="1853" height="795" loading="lazy"
+            alt="The details of a waiting session: it needs a tool approved, what you asked an hour ago, and the files it edited this turn."></a>
+          <figcaption><b>What's waiting on you</b>
+            <span>Sessions that need you come first, with how long they've waited and why. One key shows what you asked and what it did, another takes you there.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="3 of 7">
+        <figure>
+          <a class="shot" href="assets/screens/summaries.webp"><img src="assets/screens/summaries.webp" width="2463" height="1283" loading="lazy"
+            alt="Only the projects waiting on you, each wait with a one-line summary: review, decide, approve."></a>
+          <figcaption><b>Why, in one line</b>
+            <span>A one-line summary of what each waiting session needs, by a model you pick, local ones included. A notification and a sound when one starts waiting.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="4 of 7">
+        <figure>
+          <a class="shot" href="assets/screens/usage.webp"><img src="assets/screens/usage.webp" width="2463" height="550" loading="lazy"
+            alt="Thirty days of cost per project: today, per day, peak and the month, with a cell per day."></a>
+          <figcaption><b>What it costs, what it uses</b>
+            <span>This month at API prices and your plan limits up top; 30 days of cost, tokens, RAM and CPU per project, with alerts before memory runs out.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="5 of 7">
+        <figure>
+          <a class="shot" href="assets/screens/board.webp"><img src="assets/screens/board.webp" width="2463" height="1283" loading="lazy"
+            alt="A board per project from GitHub: todo issues with labels, issues and PRs being worked on with their session's state, and what got done this week."></a>
+          <figcaption><b>Your issues and PRs</b>
+            <span>A board per project from GitHub: todo, on it, and what got done this week. One key starts Claude on a todo issue in a new tab.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="6 of 7">
+        <figure>
+          <a class="shot" href="assets/screens/colors.webp"><img src="assets/screens/colors.webp" width="2463" height="1283" loading="lazy"
+            alt="The theme picker over the deck: color schemes with their swatches, and the project's background art."></a>
+          <figcaption><b>A color for each project</b>
+            <span>Each project gets its own color scheme, background art and tab names, previewed live, so you always know which window you're in.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="7 of 7">
+        <figure>
+          <a class="shot tall" href="assets/screens/phone.webp"><picture>
+            <source media="(max-width: 600px)" srcset="assets/screens/phone-portrait.webp" width="780" height="1688">
+            <img src="assets/screens/phone.webp" width="2560" height="1600" loading="lazy"
+              alt="The phone page: three sessions waiting with their summaries, then each project's RAM, cost and agents."></picture></a>
+          <figcaption><b>On your phone</b>
+            <span>A read-only page on your local network shows who's waiting, what it costs and the boards, while you're away from the desk.</span></figcaption>
+        </figure>
+      </li>
+    </ol>
+    <div class="dots" role="group" aria-label="Choose a screen"></div>
   </section>
 </main>
 <footer>
   <span>cardak v__VERSION__ · MIT</span>
   <a href="https://github.com/brlauuu/cardak">github.com/brlauuu/cardak</a>
 </footer>
+<script>
+document.documentElement.classList.add("js");
+(() => {
+  const region = document.getElementById("screens");
+  const track = region.querySelector(".track");
+  const slides = [...track.children];
+  const prev = region.querySelector(".prev");
+  const next = region.querySelector(".next");
+  const dots = region.querySelector(".dots");
+  const still = matchMedia("(prefers-reduced-motion: reduce)");
+  let current = 0;
+  const go = (i) => {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    track.scrollTo({ left: slides[i].offsetLeft, behavior: still.matches ? "auto" : "smooth" });
+  };
+  slides.forEach((slide, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("aria-label", "Screen " + (i + 1) + ": " + slide.querySelector("figcaption b").textContent);
+    b.addEventListener("click", () => go(i));
+    dots.append(b);
+  });
+  // the dots follow the scroll position, so a swipe moves them too
+  const mark = () => {
+    current = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+    [...dots.children].forEach((d, j) => d.setAttribute("aria-current", j === current ? "true" : "false"));
+    prev.disabled = current === 0;
+    next.disabled = current === slides.length - 1;
+  };
+  let queued = false;
+  track.addEventListener("scroll", () => {
+    if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; mark(); }); }
+  }, { passive: true });
+  prev.addEventListener("click", () => go(current - 1));
+  next.addEventListener("click", () => go(current + 1));
+  region.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") { go(current - 1); e.preventDefault(); }
+    if (e.key === "ArrowRight") { go(current + 1); e.preventDefault(); }
+  });
+  addEventListener("resize", () => go(current));
+  mark();
+
+  for (const button of document.querySelectorAll("button[data-copy]")) {
+    button.addEventListener("click", async () => {
+      const code = document.getElementById(button.dataset.copy);
+      try {
+        await navigator.clipboard.writeText(code.textContent);
+        button.textContent = "Copied";
+      } catch {
+        // no clipboard (an old browser, a page not over https): select it for the visitor
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        button.textContent = "Selected";
+      }
+      setTimeout(() => { button.textContent = "Copy"; }, 2000);
+    });
+  }
+})();
+</script>
 </body>
 </html>
