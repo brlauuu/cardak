@@ -49,8 +49,9 @@ the rest of #106, the small follow-ups from the page's first review.
    - `pages.yml`: `cancel-in-progress: false`.
    - Action versions: every `uses:` in `pages.yml` and `test.yml` on its current latest major
      (checked with `gh api` at build time), together.
-   - `site/assets/cardak-mark-light.svg`: dropped (nothing uses it; the placeholder and the
-     preview image are dark). *My call.*
+   - `site/assets/cardak-mark-light.svg`: **kept**. The owner's site uses it, so AGENTS.md's logo
+     section says so (as it does for `cardak-mark-mono-512.png`), and the issue's item is closed
+     with that note.
    - The phone page (`web/page.html`) gets a favicon and a home-screen icon, served by the
      daemon: unauthenticated `GET` routes for an SVG icon and the 180 px PNG, bundled in the
      package (in the wheel, not fetched), the CSP unchanged (it already allows `img-src 'self' data:`),
