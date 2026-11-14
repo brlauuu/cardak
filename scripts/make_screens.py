@@ -957,6 +957,8 @@ def _scratch_env(scratch: Path) -> None:
         (scratch / name).mkdir()
         os.environ[name] = str(scratch / name)
     os.environ["CARDAK_CONFIG"] = str(scratch / "projects.toml")
+    os.environ["TZ"] = "UTC"  # the images show clock times: not the local zone (#106 review)
+    time.tzset()
     os.environ.pop("WEZTERM_PANE", None)
     os.environ.pop("WEZTERM_UNIX_SOCKET", None)
 

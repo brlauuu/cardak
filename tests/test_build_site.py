@@ -79,3 +79,10 @@ def test_workflow_triggers_and_permissions() -> None:
     assert "actions/upload-pages-artifact@v5" in text
     assert "path: _site" in text
     assert "actions/deploy-pages@v5" in text
+
+
+def test_setup_uv_is_pinned_to_an_exact_version() -> None:
+    # since v8, setup-uv publishes no major or minor tags: `@v10` doesn't resolve (#106)
+    text = (ROOT / ".github" / "workflows" / "test.yml").read_text()
+    pins = re.findall(r"astral-sh/setup-uv@(\S+)", text)
+    assert pins and all(re.fullmatch(r"v\d+\.\d+\.\d+", p) for p in pins), pins

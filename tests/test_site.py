@@ -237,3 +237,48 @@ def test_script_is_inline_and_small() -> None:
     scripts = re.findall(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S)
     assert len(scripts) == 1 and len(scripts[0]) < 4000
     assert "eval(" not in scripts[0]
+
+
+def _css() -> str:
+    found = re.search(r"<style>(.*?)</style>", PAGE.read_text(), flags=re.S)
+    assert found
+    return found.group(1)
+
+
+def _rule(selector: str) -> str:
+    found = re.search(r"(?m)^\s*" + re.escape(selector) + r"\s*\{([^}]*)\}", _css())
+    assert found, selector
+    return found.group(1)
+
+
+def test_slides_keep_their_own_height() -> None:
+    # the upright phone slide must not stretch the others on a phone (#106 review)
+    assert "align-items: flex-start" in _rule(".track")
+
+
+def test_a_picture_fills_its_frame() -> None:
+    # the phone slide's <picture> is the frame's flex item: without this its img overflows
+    rule = _rule(".shot picture")
+    assert "display: contents" in rule
+
+
+def test_tap_targets_are_44px() -> None:
+    for selector in (".dots button", ".copy", ".steps button"):
+        rule = _rule(selector)
+        sizes = [int(v) for v in re.findall(r"(?:min-)?(?:height|width):\s*(\d+)px", rule)]
+        assert sizes and min(sizes) >= 44, (selector, rule)
+
+
+def test_arrow_keys_leave_browser_shortcuts_alone() -> None:
+    # Alt+← is "back" on Linux and Windows; the carousel only takes plain arrows
+    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+    assert "e.altKey" in script and "e.ctrlKey" in script and "e.metaKey" in script
+
+
+def test_track_takes_the_shown_slides_height() -> None:
+    # a flex row is as tall as its tallest item: the script fits it to the slide on screen,
+    # again as images load, so the dots follow the caption on a phone (#106 review)
+    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+    assert "track.style.height" in script
+    assert 'addEventListener("load"' in script
+    assert "overflow-y: hidden" in _rule(".track")

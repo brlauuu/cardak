@@ -87,7 +87,7 @@
   .cmd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
   .cmd-head b { font-size: .95rem; }
   .cmd-head span { color: var(--muted); font-size: .88rem; flex: 1 1 12rem; line-height: 1.35; }
-  .copy { min-height: 36px; min-width: 64px; padding: 4px 12px; border-radius: 8px; font-size: .85rem;
+  .copy { min-height: 44px; min-width: 64px; padding: 4px 12px; border-radius: 8px; font-size: .85rem;
           background: transparent; border: 1px solid var(--rule); margin-left: auto; }
   .copy:hover { border-color: var(--paprika); }
   html:not(.js) .copy { display: none; }
@@ -108,7 +108,9 @@
   .steps button:hover:not(:disabled) { border-color: var(--paprika); }
   .steps button:disabled { opacity: .35; cursor: default; }
   .track { list-style: none; margin: 16px 0 0; padding: 0; display: flex; overflow-x: auto;
-           scroll-snap-type: x mandatory; scrollbar-width: none; position: relative; border-radius: 14px; }
+           scroll-snap-type: x mandatory; scrollbar-width: none; position: relative; border-radius: 14px;
+           align-items: flex-start; overflow-y: hidden; transition: height .2s; }
+  @media (prefers-reduced-motion: reduce) { .track { transition: none; } }
   .track::-webkit-scrollbar { display: none; }
   html:not(.js) .track { scrollbar-width: thin; gap: 16px; }
   .track:focus-visible { outline: 2px solid var(--paprika); outline-offset: 4px; }
@@ -116,13 +118,14 @@
   figure { margin: 0; }
   .shot { display: flex; align-items: center; justify-content: center; aspect-ratio: 2463 / 1283;
           background: var(--frame); border-radius: 14px; overflow: hidden; padding: 2%; }
+  .shot picture { display: contents; }
   .shot img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;
               border-radius: 8px; }
   figcaption { margin-top: 14px; max-width: 60ch; }
   figcaption b { display: block; font-size: 1.1rem; }
   figcaption span { color: var(--muted); }
-  .dots { display: flex; justify-content: center; gap: 2px; margin-top: 12px; }
-  .dots button { width: 32px; height: 32px; border: 0; background: transparent; display: grid; place-items: center; }
+  .dots { display: flex; justify-content: center; gap: 0; margin-top: 8px; }
+  .dots button { width: 44px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; }
   .dots button::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--rule); }
   .dots button[aria-current="true"]::before { background: var(--paprika); }
 
@@ -254,7 +257,7 @@
       <li class="slide" aria-roledescription="slide" aria-label="6 of 7">
         <figure>
           <a class="shot" href="assets/screens/colors.webp"><img src="assets/screens/colors.webp" width="2463" height="1283" loading="lazy"
-            alt="The theme picker over the deck: color schemes with their swatches, and the project's background art."></a>
+            alt="The theme picker over the deck: color schemes with their swatches, and a switch for the project's background art."></a>
           <figcaption><b>A color for each project</b>
             <span>Each project gets its own color scheme, background art and tab names, previewed live, so you always know which window you're in.</span></figcaption>
         </figure>
@@ -303,6 +306,8 @@ document.documentElement.classList.add("js");
   const mark = () => {
     current = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
     [...dots.children].forEach((d, j) => d.setAttribute("aria-current", j === current ? "true" : "false"));
+    // a flex row is as tall as its tallest slide (the upright phone): fit the one on screen
+    track.style.height = slides[current].offsetHeight + "px";
     prev.disabled = current === 0;
     next.disabled = current === slides.length - 1;
   };
@@ -313,10 +318,12 @@ document.documentElement.classList.add("js");
   prev.addEventListener("click", () => go(current - 1));
   next.addEventListener("click", () => go(current + 1));
   region.addEventListener("keydown", (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;  // Alt+← is the browser's back
     if (e.key === "ArrowLeft") { go(current - 1); e.preventDefault(); }
     if (e.key === "ArrowRight") { go(current + 1); e.preventDefault(); }
   });
-  addEventListener("resize", () => go(current));
+  addEventListener("resize", () => { mark(); go(current); });
+  track.addEventListener("load", mark, true);  // a lazy image changes its slide's height
   mark();
 
   for (const button of document.querySelectorAll("button[data-copy]")) {
