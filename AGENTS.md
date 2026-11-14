@@ -728,7 +728,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   changes. `__RELEASED__` is that version's date from its `## X.Y.Z — YYYY-MM-DD` changelog
   heading (empty before the cut); the page's script shows the release banner for 30 days after it,
   by the visitor's clock (#164). The changelog, not the tag: the release PR's merge deploys the
-  page before the tag is pushed. The banner and the footer ("Created by brlauuu", the version and
+  page before the tag is pushed, so for the minutes until it is the banner's link to
+  `releases/tag/vX.Y.Z` is a 404 (accepted). The banner and the footer ("Created by brlauuu", the version and
   the changelog) follow the owner's other project pages.
 - The demo video: put it at `site/assets/cardak-demo.mp4` and replace the contents of the `.video`
   div in `#demo` with the `<video>` element written in the comment above it. It spans the page,

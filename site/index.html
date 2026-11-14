@@ -68,7 +68,7 @@
 
   header { text-align: center; }
   header picture img { display: block; width: min(420px, 100%); height: auto; margin: 0 auto; }
-  #tagline { font-size: clamp(1.05rem, calc((100vw - 32px) / 19), 1.6rem); line-height: 1.3; font-weight: 600;
+  #tagline { font-size: clamp(.95rem, calc((100vw - 32px) / 19), 1.6rem); line-height: 1.3; font-weight: 600;
              margin: 22px auto 0; }
   @media (min-width: 700px) {
     #tagline { white-space: nowrap; font-size: min(1.9rem, calc((100vw - 56px) / 29.5)); }
@@ -98,6 +98,7 @@
                   flex-wrap: wrap; margin-bottom: 10px; }
   .install-head h2 { margin: 0; }
   .repo { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px;
+          max-width: 100%; overflow-wrap: anywhere;
           border: 1px solid var(--rule); border-radius: 10px; text-decoration: none; font-weight: 600;
           color: var(--text); }
   .repo:hover { border-color: var(--paprika); }
@@ -159,7 +160,7 @@
         border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 5px; background: var(--panel);
         color: var(--text); }
   .dots { display: flex; justify-content: center; gap: 0; margin-top: 8px; }
-  .dots button { width: 44px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; }
+  .dots button { flex: none; width: 44px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; }
   .dots button::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--rule); }
   .dots button[aria-current="true"]::before { background: var(--paprika); }
 
@@ -168,6 +169,10 @@
            font-size: .92rem; display: flex; flex-direction: column; gap: 6px; }
   footer .ver { font-size: .85rem; }
 
+  /* 18 dots of 44 px need ~800 px: below that the counter alone */
+  @media (max-width: 860px) {
+    .dots { display: none; }
+  }
   @media (max-width: 600px) {
     main { padding: 32px 16px 16px; }
     header picture img { width: min(300px, 100%); }
@@ -176,7 +181,6 @@
     [role="tab"] { flex: 1; }
     #screens { margin-top: 44px; }
     .shot { padding: 3%; }
-    .dots { display: none; }
     /* the phone page stands upright on a phone */
     .shot.tall { aspect-ratio: auto; padding: 16px; }
     .shot.tall img { max-height: 70vh; }
@@ -313,7 +317,7 @@
       <li class="slide" aria-roledescription="slide" aria-label="7 of 18">
         <figure>
           <a class="shot" href="assets/screens/add.webp"><img src="assets/screens/add.webp" width="2463" height="1283" loading="lazy"
-            alt="A dialog over the deck: add ~/code/blog as a project, its name blog."></a>
+            alt="A dialog over the deck: add /home/demo/code/blog as a project, its name blog."></a>
           <figcaption><b>Add a project in one key</b>
             <span><kbd>a</kbd> on a pane outside your projects makes its folder a project, named as you like, written to projects.toml.</span></figcaption>
         </figure>
@@ -336,7 +340,7 @@
       </li>
       <li class="slide" aria-roledescription="slide" aria-label="10 of 18">
         <figure>
-          <a class="shot" href="assets/screens/context.webp"><img src="assets/screens/context.webp" width="2463" height="1283" loading="lazy"
+          <a class="shot" href="assets/screens/context.webp"><img src="assets/screens/context.webp" width="1853" height="855" loading="lazy"
             alt="A plot of webshop's three sessions over a day: one climbs to 192k, drops at a compaction and climbs again."></a>
           <figcaption><b>Context, session by session</b>
             <span>Each session's context over a day, with every compaction where it dropped, so you see which ones ran long.</span></figcaption>
@@ -387,7 +391,7 @@
           <a class="shot" href="assets/screens/tabs.webp"><img src="assets/screens/tabs.webp" width="2463" height="1283" loading="lazy"
             alt="Three terminal windows, each in its project's colors, with tabs named like 1: webshop · npm run dev."></a>
           <figcaption><b>Tabs named by project</b>
-            <span>WezTerm's tabs say which project they're in and what runs there, in that project's colors.</span></figcaption>
+            <span>WezTerm's tabs say which project they're in and what runs there, and each window wears its project's colors.</span></figcaption>
         </figure>
       </li>
       <li class="slide" aria-roledescription="slide" aria-label="17 of 18">
@@ -439,6 +443,7 @@ document.documentElement.classList.add("js");
   tabs.forEach((tab, i) => {
     tab.addEventListener("click", () => pick(tab));
     tab.addEventListener("keydown", (e) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;  // Alt+← is the browser's back
       const to = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: tabs.length - 1 }[e.key];
       if (to === undefined) return;
       const t = tabs[(to + tabs.length) % tabs.length];
@@ -459,7 +464,7 @@ document.documentElement.classList.add("js");
   let target = null;  // where a smooth scroll is headed: a click meanwhile steps on from there
   const go = (i) => {
     i = Math.max(0, Math.min(slides.length - 1, i));
-    target = i;
+    target = i === current ? null : i;  // a go that doesn't scroll would leave it stuck
     track.scrollTo({ left: slides[i].offsetLeft, behavior: still.matches ? "auto" : "smooth" });
   };
   slides.forEach((slide, i) => {
@@ -474,17 +479,22 @@ document.documentElement.classList.add("js");
     current = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
     if (current === target) target = null;
     [...dots.children].forEach((d, j) => d.setAttribute("aria-current", j === current ? "true" : "false"));
-    where.textContent = current + 1 + " / " + slides.length;
+    const text = current + 1 + " / " + slides.length;  // aria-live: once per slide
+    if (target === null && where.textContent !== text) where.textContent = text;
     // a flex row is as tall as its tallest slide (the upright phone): fit the one on screen
     track.style.height = slides[current].offsetHeight + "px";
     prev.disabled = current === 0;
     next.disabled = current === slides.length - 1;
   };
   let queued = false;
+  let idle;
   track.addEventListener("scroll", () => {
     if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; mark(); }); }
+    // Safari has no scrollend: scrolling that went quiet ended, wherever it stopped
+    clearTimeout(idle);
+    idle = setTimeout(() => { target = null; mark(); }, 150);
   }, { passive: true });
-  track.addEventListener("scrollend", () => { target = null; });  // a swipe cut it short
+  track.addEventListener("scrollend", () => { target = null; mark(); });  // a swipe cut it short
   prev.addEventListener("click", () => go((target ?? current) - 1));
   next.addEventListener("click", () => go((target ?? current) + 1));
   region.addEventListener("keydown", (e) => {
@@ -492,7 +502,7 @@ document.documentElement.classList.add("js");
     if (e.key === "ArrowLeft") { go((target ?? current) - 1); e.preventDefault(); }
     if (e.key === "ArrowRight") { go((target ?? current) + 1); e.preventDefault(); }
   });
-  addEventListener("resize", () => { mark(); go(current); });
+  addEventListener("resize", () => { track.scrollLeft = slides[current].offsetLeft; mark(); });
   track.addEventListener("load", mark, true);  // a lazy image changes its slide's height
   mark();
 

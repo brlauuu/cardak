@@ -34,6 +34,7 @@ DETAIL_SIZE = (120, 24)  # the details of one wait: a few lines, bigger text
 USAGE_SIZE = (160, 16)  # the cost table is short: a full-height screen would be mostly empty
 EVENTS_SIZE = (140, 20)  # the event log: a dozen lines
 RECAP_SIZE = (120, 28)  # one note and the commits since
+CONTEXT_SIZE = (120, 26)  # the plot takes ~18 rows: bigger text in the slide
 HOME = Path("/home/demo")
 CODE = HOME / "code"
 GIB = 2**30
@@ -1100,7 +1101,7 @@ async def _deck_svgs(out: Path, size: tuple[int, int]) -> dict[str, Path]:
             plain,
             (),
             lambda app: app.push_screen(ContextPlotScreen(row, day, today)),
-            size,
+            CONTEXT_SIZE,
             {},
         ),
         ("events", plain, ("e",), None, EVENTS_SIZE, {}),
@@ -1210,13 +1211,13 @@ BODIES = {
 
 
 def _window(i: int, project: str, scheme: str, titles: tuple[str, ...]) -> str:
-    """One terminal window in its project's scheme, its tabs named as cardak.lua names them."""
+    """One terminal window in its project's scheme, its tabs named as cardak.lua names them
+    (plain text: cardak draws no accent of its own on a tab)."""
     bg, fg, ansi = SCHEMES[scheme]
-    accent = dict((n, a) for n, _, a in PROJECTS)[project]
     tabs = "".join(
         '<span style="padding:9px 18px;margin-right:2px;border-radius:8px 8px 0 0;'
         + (
-            f"background:{bg};color:{fg};box-shadow:inset 0 3px {accent}"
+            f"background:{bg};color:{fg}"
             if k == 0
             else "background:rgba(255,255,255,.06);color:#9aa0a6"
         )

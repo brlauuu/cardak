@@ -82,3 +82,14 @@ def test_illustrations_for_what_has_no_screen(tmp_path: Path) -> None:
 
         assert not re.search(r'(src|href)="|url\(', page), name  # loads nothing
         assert "/home/" not in page.replace("/home/demo", ""), name
+
+
+def test_tabs_show_only_what_cardak_names() -> None:
+    # cardak.lua returns plain tab text: the drawing adds no accent of its own (#164 review)
+    page = make_screens.illustrations(Path(make_screens.tempfile.mkdtemp()))["tabs"].read_text()
+    assert "inset 0 3px" not in page
+
+
+def test_the_context_plot_fills_its_slide() -> None:
+    # the plot takes ~18 rows: at 40 the slide was half empty (#164 review)
+    assert make_screens.CONTEXT_SIZE[1] < make_screens.SIZE[1]

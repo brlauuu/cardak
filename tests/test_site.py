@@ -383,7 +383,6 @@ def test_slides_are_numbered_in_order() -> None:
 
 def test_eighteen_dots_leave_a_phone_alone() -> None:
     # 18 dots of 44 px are 792 px: a phone gets a "3 / 18" counter instead (#164)
-    assert re.search(r"@media \(max-width: 600px\) \{[^@]*\.dots \{ display: none; \}", _css())
     script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
     assert "where.textContent" in script
     assert _find(_page(), "span", **{"class": "where"})
@@ -393,3 +392,51 @@ def test_fast_clicks_count_every_step() -> None:
     # a click during the smooth scroll steps on from where the last click was headed (#164)
     script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
     assert "go((target ?? current) + 1)" in script and "go((target ?? current) - 1)" in script
+
+
+def _script() -> str:
+    return re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+
+
+def test_a_go_that_does_not_move_leaves_no_target() -> None:
+    # #164 review: Safari has no `scrollend`; a go() that doesn't scroll (resize, ← on the first
+    # slide, the shown slide's dot) must not leave a target that sends the next click astray
+    script = _script()
+    assert "target = i === current ? null : i;" in script
+    assert "setTimeout(() => { target = null; mark(); }, 150)" in script  # scrolling went idle
+    assert (
+        'addEventListener("resize", () => { track.scrollLeft = slides[current].offsetLeft;'
+        in script
+    )
+
+
+def test_the_counter_speaks_once_per_slide() -> None:
+    # an aria-live region rewritten on every scroll frame reads out every slide passed
+    assert (
+        "if (target === null && where.textContent !== text) where.textContent = text;" in _script()
+    )
+
+
+def test_tab_keys_leave_browser_shortcuts_alone() -> None:
+    assert _script().count("if (e.altKey || e.ctrlKey || e.metaKey) return;") == 2
+
+
+def test_dots_keep_their_size_until_the_counter_takes_over() -> None:
+    # 18 dots of 44 px need ~800 px: below 860 the counter alone (#164 review)
+    assert "flex: none" in _rule(".dots button")
+    assert re.search(r"@media \(max-width: 860px\) \{\s*\.dots \{ display: none; \}", _css())
+
+
+def test_tagline_fits_a_320px_phone() -> None:
+    assert "clamp(.95rem, calc((100vw - 32px) / 19), 1.6rem)" in _rule("#tagline")
+
+
+def test_the_repo_link_wraps_on_a_small_phone() -> None:
+    # at 320 px "github.com/brlauuu/cardak" with its icon is wider than the card (#164 review)
+    rule = _rule(".repo")
+    assert "max-width: 100%" in rule and "overflow-wrap: anywhere" in rule
+
+
+def test_alt_text_says_what_the_add_dialog_shows() -> None:
+    add = [a for a in _find(_page(), "img") if a.get("src") == "assets/screens/add.webp"][0]
+    assert "/home/demo/code/blog" in add["alt"]
