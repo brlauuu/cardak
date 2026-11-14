@@ -3,8 +3,9 @@
 The version lives in pyproject.toml only, so the page carries `__VERSION__` and this fills
 it at deploy. `__RELEASED__` is that version's date from CHANGELOG.md's `## X.Y.Z — date`
 heading (empty before it is cut); the page shows its release banner for 30 days after (#164).
-The changelog, not the tag: the release PR's merge deploys the page before the tag exists. Any other `__NAME__` left in a page means a placeholder nothing fills: the
-build fails rather than publish it. Run from the repo root: `python scripts/build_site.py`.
+The changelog, not the tag: the release PR's merge deploys the page before the tag exists.
+Any other `__NAME__` left in a page means a placeholder nothing fills: the build fails rather
+than publish it. Run from the repo root: `python scripts/build_site.py`.
 """
 
 import re

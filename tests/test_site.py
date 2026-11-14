@@ -82,9 +82,9 @@ def test_favicons_are_linked() -> None:
     assert _find(tags, "link", rel="apple-touch-icon", href="assets/cardak-icon-180.png")
 
 
-def test_version_placeholder_appears_once() -> None:
+def test_only_the_builds_placeholders() -> None:
     text = PAGE.read_text()
-    assert re.findall(r"__[A-Z_]{2,}__", text) == ["__VERSION__"]
+    assert set(re.findall(r"__[A-Z_]{2,}__", text)) == {"__VERSION__", "__RELEASED__"}
 
 
 def test_video_placeholder_says_how_to_swap() -> None:
@@ -104,7 +104,14 @@ def test_sections_in_order() -> None:
     line: dict[str | None, int] = {}
     for t, a, n in tags.tags:  # the first of each: the wordmark's picture, not the phone slide's
         line.setdefault(t if t in ("picture", "footer") else a.get("id"), n)
-    order = [line["picture"], line["tagline"], line["demo"], line["install"], line["screens"]]
+    order = [
+        line["release-banner"],
+        line["picture"],
+        line["tagline"],
+        line["demo"],
+        line["install"],
+        line["screens"],
+    ]
     assert order == sorted(order)
     assert order[-1] < line["footer"]
 
@@ -159,7 +166,7 @@ def test_preview_image_is_1200_by_630() -> None:
 
 TAGLINE = "Your control deck for multi-project agentic development."
 FULL = f"uv tool install 'cardak[all] @ git+{REPO}'"
-LITE = f"uv tool install git+{REPO}"
+BASIC = f"uv tool install git+{REPO}"
 SLIDES = ("overview", "waiting", "summaries", "usage", "board", "colors", "phone")
 
 
@@ -187,7 +194,7 @@ def test_link_preview() -> None:
 def test_install_panel() -> None:
     text = PAGE.read_text()
     section = text[text.index('id="install"') : text.index('id="screens"')]
-    for command in (FULL, LITE):
+    for command in (FULL, BASIC):
         found = re.search(r"<code[^>]*>" + re.escape(command) + r"</code>", section)
         assert found, command
     # each command has a copy button next to it, which works on phones too (#106)
@@ -235,7 +242,7 @@ def test_feature_list_is_gone() -> None:
 
 def test_script_is_inline_and_small() -> None:
     scripts = re.findall(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S)
-    assert len(scripts) == 1 and len(scripts[0]) < 4000
+    assert len(scripts) == 1 and len(scripts[0]) < 6000
     assert "eval(" not in scripts[0]
 
 
@@ -282,3 +289,63 @@ def test_track_takes_the_shown_slides_height() -> None:
     assert "track.style.height" in script
     assert 'addEventListener("load"' in script
     assert "overflow-y: hidden" in _rule(".track")
+
+
+def test_release_banner() -> None:
+    # as on the owner's other pages (#164): hidden until the script finds the release recent
+    tags = _page()
+    banner = _find(tags, "a", id="release-banner")
+    assert banner and "hidden" in banner[0]
+    assert banner[0]["href"] == f"{REPO}/releases/tag/v__VERSION__"
+    assert banner[0]["data-released"] == "__RELEASED__"
+    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+    assert "WINDOW_DAYS = 30" in script and "banner.hidden = false" in script
+
+
+def test_header_is_centered() -> None:
+    assert "text-align: center" in _rule("header")
+    # one line from tablet width up; a phone may wrap it once (#164)
+    assert re.search(r"@media \(min-width: 700px\) \{\s*#tagline \{ white-space: nowrap;", _css())
+
+
+def test_video_is_full_width_with_the_install_below() -> None:
+    text = PAGE.read_text()
+    assert 'class="hero"' not in text
+    assert text.index('id="demo"') < text.index('id="install"')
+
+
+def test_install_tabs() -> None:
+    # one card, Full and Basic as tabs, Full selected (#164)
+    tags = _page()
+    assert _find(tags, "div", role="tablist")
+    tabs = _find(tags, "button", role="tab")
+    assert [a["id"] for a in tabs] == ["tab-full", "tab-basic"]
+    assert [a["aria-selected"] for a in tabs] == ["true", "false"]
+    panels = _find(tags, "div", role="tabpanel")
+    assert [a["aria-labelledby"] for a in panels] == ["tab-full", "tab-basic"]
+    assert "hidden" not in panels[0]  # without JS both show; the script hides the other
+    text = PAGE.read_text()
+    assert ">Basic<" in text and "Lite" not in text
+    assert 'html:not(.js) [role="tablist"]' in _css()
+
+
+def test_tabs_follow_the_arrow_keys() -> None:
+    # the ARIA tabs pattern: ←/→ move between tabs, the selected one is the only one in Tab order
+    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+    assert '"aria-selected"' in script and "tabIndex" in script
+    tabs = _find(_page(), "button", role="tab")
+    assert [a.get("tabindex") for a in tabs] == [None, "-1"]
+
+
+def test_footer_names_the_author_and_the_changelog() -> None:
+    text = PAGE.read_text()
+    footer = text[text.index("<footer") : text.index("</footer>")]
+    assert 'Created by <a href="https://brlauuu.dev">brlauuu</a>' in footer
+    assert f'href="{REPO}/blob/main/CHANGELOG.md">changelog</a>' in footer
+    assert "v__VERSION__" in footer
+    assert footer.index("Created by") < footer.index("changelog")
+    assert "text-align: center" in _rule("footer")
+
+
+def test_captions_are_centered() -> None:
+    assert "text-align: center" in _rule("figcaption")

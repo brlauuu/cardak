@@ -31,6 +31,8 @@
     --code-bg: var(--linen);
     --link: var(--paprika);
     --frame: #0a1f33;
+    --banner-bg: #f9e4df;
+    --banner-rule: #efc1b8;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -42,6 +44,8 @@
       --code-bg: #0a1f33;
       --link: var(--linen);
       --frame: #071726;
+      --banner-bg: #173a5c;
+      --banner-rule: #2a5279;
     }
   }
   * { box-sizing: border-box; }
@@ -53,22 +57,34 @@
     font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, "Noto Sans", sans-serif;
   }
   main { max-width: 1120px; margin: 0 auto; padding: 56px 20px 24px; }
-  header picture img { display: block; width: min(420px, 100%); height: auto; }
-  #tagline { font-size: clamp(1.3rem, 1rem + 1.6vw, 1.9rem); line-height: 1.3; font-weight: 600;
-             margin: 24px 0 0; max-width: 32ch; }
+
+  /* the release banner: hidden until the script finds the release under 30 days old (#164) */
+  .banner { display: block; text-align: center; padding: 11px 20px; font-size: .92rem;
+            background: var(--banner-bg); border-bottom: 1px solid var(--banner-rule);
+            color: var(--text); text-decoration: none; }
+  .banner:hover { text-decoration: underline; }
+  .banner .arrow { color: var(--muted); margin-left: 6px; }
+  [hidden] { display: none !important; }
+
+  header { text-align: center; }
+  header picture img { display: block; width: min(420px, 100%); height: auto; margin: 0 auto; }
+  #tagline { font-size: clamp(1.25rem, .9rem + 1.5vw, 1.9rem); line-height: 1.3; font-weight: 600;
+             margin: 22px auto 0; }
+  @media (min-width: 700px) {
+    #tagline { white-space: nowrap; }
+  }
   .nowrap { white-space: nowrap; }
   h2 { font-size: 1.05rem; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 16px; }
   h2::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 10px;
                background: var(--paprika); border-radius: 2px; vertical-align: 1px; }
   a { color: var(--link); text-underline-offset: 3px; }
   code { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace; }
-  p code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-size: .9em;
-           overflow-wrap: anywhere; }
+  p code, li code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-size: .9em;
+                    overflow-wrap: anywhere; }
   button { font: inherit; color: inherit; cursor: pointer; }
 
-  /* the video, with the install beside it; stacked on narrow screens */
-  .hero { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 28px;
-          margin-top: 40px; align-items: start; }
+  /* the video across the page, the install card below it */
+  #demo { margin-top: 44px; }
   .video { aspect-ratio: 16 / 9; border-radius: 14px; background: var(--frame); color: var(--linen);
            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
            border: 1px solid var(--rule); text-align: center; padding: 16px; }
@@ -76,23 +92,37 @@
   video { display: block; width: 100%; height: auto; border-radius: 14px; }
   .video:has(video) { padding: 0; }
 
-  #install { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 20px; }
-  .repo { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px;
+  #install { max-width: 860px; margin: 32px auto 0; background: var(--panel); border: 1px solid var(--rule);
+             border-radius: 14px; padding: 22px; }
+  .install-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+                  flex-wrap: wrap; margin-bottom: 10px; }
+  .install-head h2 { margin: 0; }
+  .repo { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px;
           border: 1px solid var(--rule); border-radius: 10px; text-decoration: none; font-weight: 600;
-          color: var(--text); margin-bottom: 14px; }
+          color: var(--text); }
   .repo:hover { border-color: var(--paprika); }
   .repo svg { flex: none; }
   .needs { color: var(--muted); font-size: .92rem; margin: 0 0 16px; }
-  .cmd { margin: 0 0 14px; }
-  .cmd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
-  .cmd-head b { font-size: .95rem; }
-  .cmd-head span { color: var(--muted); font-size: .88rem; flex: 1 1 12rem; line-height: 1.35; }
+  [role="tablist"] { display: flex; gap: 4px; border-bottom: 1px solid var(--rule); margin-bottom: 14px; }
+  html:not(.js) [role="tablist"] { display: none; }
+  [role="tab"] { min-height: 44px; padding: 8px 18px; background: transparent; border: 0;
+                 border-bottom: 3px solid transparent; margin-bottom: -1px; font-weight: 600; color: var(--muted); }
+  [role="tab"]:hover { color: var(--text); }
+  [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--paprika); }
+  [role="tabpanel"] + [role="tabpanel"] { margin-top: 14px; }
+  html.js [role="tabpanel"] + [role="tabpanel"] { margin-top: 0; }
+  html:not(.js) [role="tabpanel"]::before { content: attr(data-name); display: block; font-weight: 600;
+                                            margin-bottom: 4px; }
+  .what { color: var(--muted); font-size: .92rem; margin: 0 0 10px; }
+  .cmd { display: flex; align-items: stretch; gap: 8px; }
+  .cmd pre { flex: 1; min-width: 0; }
   .copy { min-height: 44px; min-width: 64px; padding: 4px 12px; border-radius: 8px; font-size: .85rem;
-          background: transparent; border: 1px solid var(--rule); margin-left: auto; }
+          background: transparent; border: 1px solid var(--rule); }
   .copy:hover { border-color: var(--paprika); }
   html:not(.js) .copy { display: none; }
   pre { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px;
-        margin: 0; font-size: .82rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+        margin: 0; font-size: .85rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+        display: flex; align-items: center; }
   .then { font-size: .92rem; margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); }
   .then ol { margin: 6px 0 8px; padding-left: 1.2em; }
   .then li { margin: 4px 0; }
@@ -121,7 +151,7 @@
   .shot picture { display: contents; }
   .shot img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;
               border-radius: 8px; }
-  figcaption { margin-top: 14px; max-width: 60ch; }
+  figcaption { margin: 14px auto 0; max-width: 64ch; text-align: center; }
   figcaption b { display: block; font-size: 1.1rem; }
   figcaption span { color: var(--muted); }
   .dots { display: flex; justify-content: center; gap: 0; margin-top: 8px; }
@@ -129,27 +159,30 @@
   .dots button::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--rule); }
   .dots button[aria-current="true"]::before { background: var(--paprika); }
 
-  footer { max-width: 1120px; margin: 56px auto 0; padding: 20px 20px 40px; border-top: 1px solid var(--rule);
-           display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: .95rem; }
+  /* as on the owner's other pages: who made it, then the version and the changelog */
+  footer { margin: 48px auto 0; padding: 28px 20px 40px; text-align: center; color: var(--muted);
+           font-size: .92rem; display: flex; flex-direction: column; gap: 6px; }
+  footer .ver { font-size: .85rem; }
 
-  @media (max-width: 860px) {
-    .hero { grid-template-columns: minmax(0, 1fr); }
-  }
   @media (max-width: 600px) {
     main { padding: 32px 16px 16px; }
     header picture img { width: min(300px, 100%); }
-    .hero { margin-top: 28px; gap: 20px; }
-    #install { padding: 16px; }
+    #demo { margin-top: 28px; }
+    #install { margin-top: 20px; padding: 16px; }
+    [role="tab"] { flex: 1; }
     #screens { margin-top: 44px; }
     .shot { padding: 3%; }
     /* the phone page stands upright on a phone */
     .shot.tall { aspect-ratio: auto; padding: 16px; }
     .shot.tall img { max-height: 70vh; }
-    footer { padding: 20px 16px 32px; }
+    footer { padding: 24px 16px 32px; }
   }
 </style>
 </head>
 <body>
+<a class="banner" id="release-banner" href="https://github.com/brlauuu/cardak/releases/tag/v__VERSION__" data-released="__RELEASED__" hidden>
+  cardak <b>__VERSION__</b> has been released<span class="arrow">&rarr;</span>
+</a>
 <main>
   <header>
     <h1 style="margin:0">
@@ -161,49 +194,58 @@
     <p id="tagline">Your control deck for <span class="nowrap">multi-project</span> agentic development.</p>
   </header>
 
-  <div class="hero">
-    <section id="demo" aria-label="Demo video">
-      <!-- To add the video: put it at assets/cardak-demo.mp4 and replace the .video div's contents with
-           <video src="assets/cardak-demo.mp4" controls muted playsinline preload="metadata"></video> -->
-      <div class="video">
-        <img src="assets/cardak-mark-dark.svg" alt="">
-        <p style="margin:0">The video is on its way.</p>
-      </div>
-    </section>
+  <section id="demo" aria-label="Demo video">
+    <!-- To add the video: put it at assets/cardak-demo.mp4 and replace the .video div's contents with
+         <video src="assets/cardak-demo.mp4" controls muted playsinline preload="metadata"></video> -->
+    <div class="video">
+      <img src="assets/cardak-mark-dark.svg" alt="">
+      <p style="margin:0">The video is on its way.</p>
+    </div>
+  </section>
 
-    <section id="install" aria-labelledby="install-title">
+  <section id="install" aria-labelledby="install-title">
+    <div class="install-head">
       <h2 id="install-title">Get it</h2>
       <a class="repo" href="https://github.com/brlauuu/cardak">
         <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
         github.com/brlauuu/cardak
       </a>
-      <p class="needs">Needs Linux, <a href="https://wezterm.org">WezTerm</a> and
-        <a href="https://docs.astral.sh/uv/">uv</a>; the agent features need
-        <a href="https://code.claude.com">Claude Code</a>. Developed on KDE Plasma under X11.</p>
+    </div>
+    <p class="needs">Needs Linux, <a href="https://wezterm.org">WezTerm</a> and
+      <a href="https://docs.astral.sh/uv/">uv</a>; the agent features need
+      <a href="https://code.claude.com">Claude Code</a>. Developed on KDE Plasma under X11.</p>
 
+    <div role="tablist" aria-label="Install">
+      <button type="button" role="tab" id="tab-full" aria-controls="panel-full" aria-selected="true">Full</button>
+      <button type="button" role="tab" id="tab-basic" aria-controls="panel-basic" aria-selected="false" tabindex="-1">Basic</button>
+    </div>
+    <div role="tabpanel" id="panel-full" aria-labelledby="tab-full" data-name="Full">
+      <p class="what">Everything, with each project's background art and Anthropic summaries.</p>
       <div class="cmd">
-        <div class="cmd-head"><b>Full</b><span>everything, with background art and Anthropic summaries</span>
-          <button type="button" class="copy" data-copy="cmd-full">Copy</button></div>
         <pre><code id="cmd-full">uv tool install 'cardak[all] @ git+https://github.com/brlauuu/cardak'</code></pre>
+        <button type="button" class="copy" data-copy="cmd-full">Copy</button>
       </div>
+    </div>
+    <div role="tabpanel" id="panel-basic" aria-labelledby="tab-basic" data-name="Basic">
+      <p class="what">The deck, agent status, themes, resources, the phone and PM views; summaries
+        from a local model, Codex or an OpenAI-compatible server.</p>
       <div class="cmd">
-        <div class="cmd-head"><b>Lite</b><span>the deck, agent status, themes, resources, the phone and PM views</span>
-          <button type="button" class="copy" data-copy="cmd-lite">Copy</button></div>
-        <pre><code id="cmd-lite">uv tool install git+https://github.com/brlauuu/cardak</code></pre>
+        <pre><code id="cmd-basic">uv tool install git+https://github.com/brlauuu/cardak</code></pre>
+        <button type="button" class="copy" data-copy="cmd-basic">Copy</button>
       </div>
+    </div>
 
-      <div class="then">
-        Then run <code>cardak</code>, and:
-        <ol>
-          <li><code>cardak wezterm install</code> for jumping and per-project colors; add the line it
-            prints, <code>require('cardak').apply(config)</code>, to your <code>wezterm.lua</code>.</li>
-          <li><code>cardak hooks install</code> for Claude Code status; it shows what it will add to
-            Claude Code's settings and asks first.</li>
-        </ol>
-        The <a href="https://github.com/brlauuu/cardak#install">README</a> covers the rest.
-      </div>
-    </section>
-  </div>
+    <div class="then">
+      Then run <code>cardak</code>, and:
+      <ol>
+        <li><code>cardak wezterm install</code> for jumping and per-project colors; add the line it
+          prints, <code>require('cardak').apply(config)</code>, to your <code>wezterm.lua</code>.</li>
+        <li><code>cardak hooks install</code> for Claude Code status; it shows what it will add to
+          Claude Code's settings and asks first.</li>
+      </ol>
+      The <a href="https://github.com/brlauuu/cardak#install">README</a> covers the rest.
+    </div>
+  </section>
 
   <section id="screens" aria-roledescription="carousel" aria-label="What cardak shows">
     <div class="carousel-head">
@@ -277,12 +319,40 @@
   </section>
 </main>
 <footer>
-  <span>cardak v__VERSION__ · MIT</span>
-  <a href="https://github.com/brlauuu/cardak">github.com/brlauuu/cardak</a>
+  <span>Created by <a href="https://brlauuu.dev">brlauuu</a></span>
+  <span class="ver">v__VERSION__ &middot; <a href="https://github.com/brlauuu/cardak/blob/main/CHANGELOG.md">changelog</a></span>
 </footer>
 <script>
 document.documentElement.classList.add("js");
 (() => {
+  // the banner: the build bakes the release date, the visitor's clock decides (#164). It starts
+  // hidden, so a page nobody rebuilt never keeps calling an old release new.
+  const WINDOW_DAYS = 30;
+  const banner = document.getElementById("release-banner");
+  const age = Date.now() - Date.parse(banner.dataset.released);
+  if (age >= 0 && age < WINDOW_DAYS * 864e5) banner.hidden = false;
+
+  // the install's tabs: the ARIA pattern, ←/→ between them, only the selected one in Tab order
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  const pick = (tab) => {
+    for (const t of tabs) {
+      const on = t === tab;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    }
+  };
+  tabs.forEach((tab, i) => {
+    tab.addEventListener("click", () => pick(tab));
+    tab.addEventListener("keydown", (e) => {
+      const to = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: tabs.length - 1 }[e.key];
+      if (to === undefined) return;
+      const t = tabs[(to + tabs.length) % tabs.length];
+      pick(t); t.focus(); e.preventDefault();
+    });
+  });
+  pick(tabs[0]);
+
   const region = document.getElementById("screens");
   const track = region.querySelector(".track");
   const slides = [...track.children];
