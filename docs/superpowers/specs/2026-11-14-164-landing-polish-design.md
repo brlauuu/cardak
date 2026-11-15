@@ -76,3 +76,12 @@ Supersedes goals 2 and 3 where they differ.
 5. **A slide for the ASCII logo** behind each project's windows, drawn by `illustrations` with
    cardak's own `name_art`, and the `[background]` settings beside it (19 slides).
 6. Named positions for the logo (`top`, `center`, …) are a separate issue, not this page.
+
+## Round 3
+
+1. Basic reads "Full minus the ASCII logo and AI summaries." (the owner's wording; Ollama, Codex
+   and OpenAI-compatible servers still summarize without the extra).
+2. The needs line is two lines: "Needs Linux, WezTerm and uv." and "The agent features need
+   Claude Code."
+3. The video takes two thirds of the width and the install card one third, from 1120 px; in the
+   card the commands wrap at a space instead of scrolling sideways.

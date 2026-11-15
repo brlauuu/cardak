@@ -263,9 +263,15 @@ def test_basic_says_what_full_has_that_it_lacks() -> None:
     pattern = r'id="panel-basic".*?<div class="what"><span>(.*?)</span>'
     found = re.search(pattern, PAGE.read_text(), flags=re.S)
     assert found
-    what = " ".join(found.group(1).split())
-    assert what.startswith("Full minus ")
-    assert "ASCII logo" in what and "Anthropic" in what
+    assert " ".join(found.group(1).split()) == "Full minus the ASCII logo and AI summaries."
+
+
+def test_needs_is_two_lines() -> None:
+    # what cardak runs on, then what the agent features need (#164)
+    found = re.search(r'<p class="needs">(.*?)</p>', PAGE.read_text(), flags=re.S)
+    assert found
+    lines = [" ".join(re.sub(r"<[^>]+>", "", x).split()) for x in found.group(1).split("<br>")]
+    assert lines == ["Needs Linux, WezTerm and uv.", "The agent features need Claude Code."]
 
 
 def test_carousel() -> None:
@@ -386,7 +392,8 @@ def test_video_beside_the_install() -> None:
     assert pair.index('id="demo"') < pair.index('id="install"')
     found = re.search(r"@media \(min-width: 1120px\) \{\s*\.pair \{([^}]*)\}", _css())
     assert found and "display: grid" in found.group(1)
-    assert "grid-template-columns" in found.group(1)
+    # the video two thirds, the install a third
+    assert "grid-template-columns: minmax(0, 2fr) minmax(0, 1fr)" in found.group(1)
 
 
 def test_tagline_is_not_bold() -> None:

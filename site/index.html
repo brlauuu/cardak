@@ -86,7 +86,9 @@
   /* the video and the install side by side on a wide screen, one above the other below (#164) */
   .pair { margin-top: 44px; display: flex; flex-direction: column; gap: 24px; }
   @media (min-width: 1120px) {
-    .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); align-items: center; gap: 28px; }
+    .pair { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: center; gap: 28px; }
+    /* a third of the page is too narrow for the install line: it wraps at a space */
+    .pair pre { white-space: pre-wrap; overflow-wrap: break-word; }
   }
   .video { aspect-ratio: 16 / 9; border-radius: 14px; background: var(--frame); color: var(--linen);
            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
@@ -227,7 +229,7 @@
       </div>
     </div>
     <p class="needs">Needs Linux, <a href="https://wezterm.org">WezTerm</a> and
-      <a href="https://docs.astral.sh/uv/">uv</a>; the agent features need
+      <a href="https://docs.astral.sh/uv/">uv</a>.<br>The agent features need
       <a href="https://code.claude.com">Claude Code</a>.</p>
 
     <div role="tablist" aria-label="Install">
@@ -250,8 +252,7 @@ cardak</code></pre>
       </div>
     </div>
     <div role="tabpanel" id="panel-basic" aria-labelledby="tab-basic" data-name="Basic, ~14 MB">
-      <div class="what"><span>Full minus the ASCII logo behind each project's windows and summaries by
-        Anthropic's API; Ollama, Codex and OpenAI-compatible servers still summarize.</span>
+      <div class="what"><span>Full minus the ASCII logo and AI summaries.</span>
         <button type="button" class="copy" data-copy="cmd-basic" aria-label="Copy the commands">Copy</button></div>
       <div class="cmd">
         <pre><code id="cmd-basic"><span class="c"># install cardak, without the extras</span>

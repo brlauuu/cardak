@@ -733,8 +733,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   the changelog) follow the owner's other project pages.
 - The demo video: put it at `site/assets/cardak-demo.mp4` and replace the contents of the `.video`
   div in `#demo` with the `<video>` element written in the comment above it. It sits left of the
-  install card (`#install`: Full and Basic as ARIA tabs, both shown without JS) from 1120 px, the
-  narrowest width where the Full command fits on one line in the card; below that they stack. Each
+  install card (`#install`: Full and Basic as ARIA tabs, both shown without JS) from 1120 px, two
+  thirds to one, the commands wrapping at a space in the card; below that they stack. Each
   tab has one code box with every command under a shell comment; Copy leaves the comment lines out
   (zsh without `interactivecomments` runs `#` as a command). The tabs' sizes are a `uv tool install`
   into a scratch `UV_TOOL_DIR`, measured 2026-11-15 (0.19.0): Basic 14 MB, Full 72 MB.
