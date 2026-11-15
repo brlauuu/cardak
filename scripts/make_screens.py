@@ -1275,9 +1275,59 @@ def _sounds() -> str:
     )
 
 
+LOGO_TOML = (
+    ('<span style="color:#f9e2af">[background]</span>', ""),
+    ("enabled = <b>true</b>", "every project's logo, or its name"),
+    ("opacity = <b>0.15</b>", "how faint it is"),
+    ('<span style="color:#6c7086"># position = [4, 2]</span>', "else from the top-right"),
+)
+
+
+def _art_window(left: int, top: int, project: str, scheme: str, title: str) -> str:
+    """A window with its project's ASCII art in the bottom-right, as cardak.lua lays it out;
+    the art is cardak's own for a project with no logo: its name in figlet letters."""
+    from html import escape
+
+    from cardak.core.ascii_art import name_art
+
+    bg, fg, ansi = SCHEMES[scheme]
+    first, command, out = BODIES[project]
+    return (
+        f'<div style="position:absolute;left:{left}px;top:{top}px;width:1180px;'
+        "border-radius:12px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.55);"
+        f'background:#16161a;{MONO};font-size:22px">'
+        '<div style="display:flex;padding:10px 10px 0;white-space:nowrap">'
+        '<span style="padding:9px 18px;border-radius:8px 8px 0 0;'
+        f'background:{bg};color:{fg}">1: {project} · {title}</span></div>'
+        f'<div style="background:{bg};color:{fg};padding:22px 26px;height:330px;'
+        'line-height:1.7;position:relative">'
+        f'<div style="color:{ansi[4]}">{first}</div><div>{command}</div>'
+        f'<div style="color:{ansi[2]}">{out}</div>'
+        f'<div style="position:absolute;right:30px;bottom:22px;color:{fg};opacity:.15;'
+        f'font-size:24px;line-height:1.15">{escape(name_art(project))}</div>'
+        "</div></div>"
+    )
+
+
+def _logo() -> str:
+    lines = "".join(
+        f'<div>{code}<span style="color:#6c7086">{"  # " + note if note else ""}</span></div>'
+        for code, note in LOGO_TOML
+    )
+    return (
+        _art_window(70, 50, "webshop", "Catppuccin Mocha", "npm run dev")
+        + _art_window(720, 540, "ml-pipeline", "Gruvbox Dark", "python train.py")
+        + '<div style="position:absolute;left:1270px;top:110px;width:600px;background:#1e1e2e;'
+        f"color:#cdd6f4;border-radius:14px;padding:26px 30px;{MONO};font-size:20px;"
+        f'line-height:1.8;box-shadow:0 24px 60px rgba(0,0,0,.5)">{lines}'
+        '<div style="margin-top:14px;color:#a6adc8;font-size:18px">'
+        "~/.config/cardak/logos/webshop.txt</div></div>"
+    )
+
+
 def illustrations(out: Path) -> dict[str, Path]:
-    """Tab titles and sounds live outside the deck: drawn here as HTML, in the same invented
-    projects and their schemes, at the deck slides' size."""
+    """Tab titles, sounds and the logo behind each window live outside the deck: drawn here as
+    HTML, in the same invented projects and their schemes, at the deck slides' size."""
     out.mkdir(parents=True, exist_ok=True)
     page = (
         '<!doctype html><meta charset="utf-8"><body style="margin:0;width:{w}px;height:{h}px;'
@@ -1286,6 +1336,7 @@ def illustrations(out: Path) -> dict[str, Path]:
     bodies = {
         "tabs": "".join(_window(i, *w) for i, w in enumerate(WINDOWS)),
         "sounds": _sounds(),
+        "logo": _logo(),
     }
     made = {}
     for name, body in bodies.items():

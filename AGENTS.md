@@ -732,9 +732,12 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `releases/tag/vX.Y.Z` is a 404 (accepted). The banner and the footer ("Created by brlauuu", the version and
   the changelog) follow the owner's other project pages.
 - The demo video: put it at `site/assets/cardak-demo.mp4` and replace the contents of the `.video`
-  div in `#demo` with the `<video>` element written in the comment above it. It spans the page,
-  with the install card (`#install`: Full and Basic as ARIA tabs, both shown without JS) below
-  it and the carousel (`#screens`) below that.
+  div in `#demo` with the `<video>` element written in the comment above it. It sits left of the
+  install card (`#install`: Full and Basic as ARIA tabs, both shown without JS) from 1120 px, the
+  narrowest width where the Full command fits on one line in the card; below that they stack. Each
+  tab has one code box with every command under a shell comment; Copy leaves the comment lines out
+  (zsh without `interactivecomments` runs `#` as a command). The tabs' sizes are a `uv tool install`
+  into a scratch `UV_TOOL_DIR`, measured 2026-11-15 (0.19.0): Basic 14 MB, Full 72 MB.
 - **The carousel's screens (#106)** are made by `uv run scripts/make_screens.py` (headless Chrome
   and the background extra's Pillow): the real deck in `run_test` on invented projects, sessions,
   issues and costs under `/home/demo`, driven by key presses, and the real phone page served by
@@ -743,10 +746,11 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   scratch dir first; `tests/test_make_screens.py` fails on this machine's home or user name in an
   image. Re-run after a visible change to the deck. A slide whose screen is mostly empty at
   160×40 renders shorter (`DETAIL_SIZE`, `USAGE_SIZE`, …) and sits letterboxed in its frame.
-  Since #164 there is a slide per feature (18). The recap slide patches `core.recap`'s readers
-  with an invented note and commits; tab titles and sounds have no deck screen, so
-  `illustrations` draws them as HTML in the same projects' schemes. On a phone the dots give way
-  to a "3 / 18" counter.
+  Since #164 there is a slide per feature (19). The recap slide patches `core.recap`'s readers
+  with an invented note and commits; tab titles, sounds and the ASCII logo behind each window
+  have no deck screen, so `illustrations` draws them as HTML in the same projects' schemes (the
+  logo slide with `ascii_art.name_art`, the art cardak makes for a project with no logo). On a phone the dots give way
+  to a "3 / 19" counter.
 - The link preview, `site/assets/cardak-og.png` (1200×630: the wordmark and the tagline), comes from
   `scripts/make_brand_pngs.py` with the icons.
 - The project list on brlauuu.dev shows `cardak-mark-mono-512.png`: that list inverts logos for

@@ -32,7 +32,11 @@ SLIDES = {
     "recap": "Coupon codes",  # the latest handoff note
     "cleanup": "/repo-cleanup",  # `x`'s question
 }
-ILLUSTRATIONS = {"tabs": "2: webshop · claude", "sounds": "waiting_sound"}
+ILLUSTRATIONS = {
+    "tabs": "2: webshop · claude",
+    "sounds": "waiting_sound",
+    "logo": "[background]",  # each project's ASCII logo behind its windows
+}
 
 
 @pytest.fixture(scope="module")
@@ -93,3 +97,15 @@ def test_tabs_show_only_what_cardak_names() -> None:
 def test_the_context_plot_fills_its_slide() -> None:
     # the plot takes ~18 rows: at 40 the slide was half empty (#164 review)
     assert make_screens.CONTEXT_SIZE[1] < make_screens.SIZE[1]
+
+
+def test_the_logo_slide_draws_cardaks_own_art() -> None:
+    # the art is what cardak makes for a project without a logo: its name in figlet letters
+    import html
+
+    from cardak.core.ascii_art import name_art
+
+    page = make_screens.illustrations(Path(make_screens.tempfile.mkdtemp()))["logo"].read_text()
+    for project in ("webshop", "ml-pipeline"):
+        for line in name_art(project).splitlines():
+            assert html.escape(line.rstrip()) in page, (project, line)

@@ -57,3 +57,22 @@ below it in one tabbed card, and every feature of the deck shown, not seven.
 ## Non-goals
 
 - The video itself (#105). Star and fork counts (podlog has them; not asked).
+
+## Round 2 (the owner's review of the local preview)
+
+Supersedes goals 2 and 3 where they differ.
+
+1. **Video beside the install** on a wide screen, stacked on a phone. Side by side from 1120 px,
+   the narrowest width where the Full command fits on one line in the card (my call).
+2. **A shorter card**: the docs (README) and GitHub links are icon buttons in its head, as on the
+   owner's other pages; the needs line; the tabs; one code box per tab with every command under a
+   shell comment saying what it does (install, `cardak wezterm install` and the `wezterm.lua`
+   line, `cardak hooks install`, `cardak`). Copy leaves the comment lines out, since zsh without
+   `interactivecomments` would run `#` (my call).
+3. **Sizes on the tabs**: Full ~72 MB, Basic ~14 MB (`uv tool install` into a scratch tool dir,
+   0.19.0). Basic reads "Full minus the ASCII logo behind each project's windows and summaries by
+   Anthropic's API": the two features the `background` and `anthropic` extras carry.
+4. **The tagline in normal weight.**
+5. **A slide for the ASCII logo** behind each project's windows, drawn by `illustrations` with
+   cardak's own `name_art`, and the `[background]` settings beside it (19 slides).
+6. Named positions for the logo (`top`, `center`, …) are a separate issue, not this page.

@@ -56,7 +56,7 @@
     color: var(--text);
     font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, "Noto Sans", sans-serif;
   }
-  main { max-width: 1120px; margin: 0 auto; padding: 56px 20px 24px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 56px 20px 24px; }
 
   /* the release banner: hidden until the script finds the release under 30 days old (#164) */
   .banner { display: block; text-align: center; padding: 11px 20px; font-size: .92rem;
@@ -68,7 +68,7 @@
 
   header { text-align: center; }
   header picture img { display: block; width: min(420px, 100%); height: auto; margin: 0 auto; }
-  #tagline { font-size: clamp(.95rem, calc((100vw - 32px) / 19), 1.6rem); line-height: 1.3; font-weight: 600;
+  #tagline { font-size: clamp(.95rem, calc((100vw - 32px) / 19), 1.6rem); line-height: 1.3; font-weight: 400;
              margin: 22px auto 0; }
   @media (min-width: 700px) {
     #tagline { white-space: nowrap; font-size: min(1.9rem, calc((100vw - 56px) / 29.5)); }
@@ -83,8 +83,11 @@
                     overflow-wrap: anywhere; }
   button { font: inherit; color: inherit; cursor: pointer; }
 
-  /* the video across the page, the install card below it */
-  #demo { margin-top: 44px; }
+  /* the video and the install side by side on a wide screen, one above the other below (#164) */
+  .pair { margin-top: 44px; display: flex; flex-direction: column; gap: 24px; }
+  @media (min-width: 1120px) {
+    .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); align-items: center; gap: 28px; }
+  }
   .video { aspect-ratio: 16 / 9; border-radius: 14px; background: var(--frame); color: var(--linen);
            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
            border: 1px solid var(--rule); text-align: center; padding: 16px; }
@@ -92,41 +95,39 @@
   video { display: block; width: 100%; height: auto; border-radius: 14px; }
   .video:has(video) { padding: 0; }
 
-  #install { max-width: 860px; margin: 32px auto 0; background: var(--panel); border: 1px solid var(--rule);
-             border-radius: 14px; padding: 22px; }
+  #install { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 22px; }
   .install-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-                  flex-wrap: wrap; margin-bottom: 10px; }
+                  margin-bottom: 6px; }
   .install-head h2 { margin: 0; }
-  .repo { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px;
-          max-width: 100%; overflow-wrap: anywhere;
-          border: 1px solid var(--rule); border-radius: 10px; text-decoration: none; font-weight: 600;
-          color: var(--text); }
-  .repo:hover { border-color: var(--paprika); }
-  .repo svg { flex: none; }
-  .needs { color: var(--muted); font-size: .92rem; margin: 0 0 16px; }
-  [role="tablist"] { display: flex; gap: 4px; border-bottom: 1px solid var(--rule); margin-bottom: 14px; }
+  .icons { display: flex; gap: 10px; }
+  /* icon buttons as on the owner's other pages: the name in aria-label and title */
+  .icon { display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px;
+          border: 1px solid var(--rule); border-radius: 10px; color: var(--text); }
+  .icon:hover { border-color: var(--paprika); }
+  .icon svg { width: 20px; height: 20px; }
+  .needs { color: var(--muted); font-size: .9rem; margin: 0 0 12px; }
+  [role="tablist"] { display: flex; gap: 4px; border-bottom: 1px solid var(--rule); margin-bottom: 12px; }
   html:not(.js) [role="tablist"] { display: none; }
   [role="tab"] { min-height: 44px; padding: 8px 18px; background: transparent; border: 0;
                  border-bottom: 3px solid transparent; margin-bottom: -1px; font-weight: 600; color: var(--muted); }
   [role="tab"]:hover { color: var(--text); }
   [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--paprika); }
+  [role="tab"] .size { font-weight: 400; font-size: .85em; margin-left: 4px; color: var(--muted); }
   [role="tabpanel"] + [role="tabpanel"] { margin-top: 14px; }
   html.js [role="tabpanel"] + [role="tabpanel"] { margin-top: 0; }
   html:not(.js) [role="tabpanel"]::before { content: attr(data-name); display: block; font-weight: 600;
                                             margin-bottom: 4px; }
-  .what { color: var(--muted); font-size: .92rem; margin: 0 0 10px; }
-  .cmd { display: flex; align-items: stretch; gap: 8px; }
-  .cmd pre { flex: 1; min-width: 0; }
-  .copy { min-height: 44px; min-width: 64px; padding: 4px 12px; border-radius: 8px; font-size: .85rem;
-          background: transparent; border: 1px solid var(--rule); }
+  .what { color: var(--muted); font-size: .9rem; margin: 0 0 10px; }
+  .what { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .copy { flex: none; min-height: 44px; min-width: 64px; padding: 4px 12px;
+          border-radius: 8px; font-size: .85rem; background: transparent; border: 1px solid var(--rule); }
   .copy:hover { border-color: var(--paprika); }
   html:not(.js) .copy { display: none; }
-  pre { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px;
-        margin: 0; font-size: .85rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
-        display: flex; align-items: center; }
-  .then { font-size: .92rem; margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); }
-  .then ol { margin: 6px 0 8px; padding-left: 1.2em; }
-  .then li { margin: 4px 0; }
+  pre { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 10px; padding: 12px;
+        margin: 0; font-size: .78rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre .c { color: var(--muted); }
+  /* a command on one line where there's room; a phone wraps it rather than scroll */
+  @media (min-width: 601px) { pre { white-space: pre; overflow-x: auto; } }
 
   /* the carousel: one screen at a time, swiped or stepped; a scrolling strip without JS */
   #screens { margin-top: 64px; }
@@ -169,15 +170,15 @@
            font-size: .92rem; display: flex; flex-direction: column; gap: 6px; }
   footer .ver { font-size: .85rem; }
 
-  /* 18 dots of 44 px need ~800 px: below that the counter alone */
+  /* 19 dots of 44 px need 836 px: below that the counter alone */
   @media (max-width: 860px) {
     .dots { display: none; }
   }
   @media (max-width: 600px) {
     main { padding: 32px 16px 16px; }
     header picture img { width: min(300px, 100%); }
-    #demo { margin-top: 28px; }
-    #install { margin-top: 20px; padding: 16px; }
+    .pair { margin-top: 28px; gap: 20px; }
+    #install { padding: 16px; }
     [role="tab"] { flex: 1; }
     #screens { margin-top: 44px; }
     .shot { padding: 3%; }
@@ -203,6 +204,7 @@
     <p id="tagline">Your control deck for <span class="nowrap">multi-project agentic development.</span></p>
   </header>
 
+  <div class="pair">
   <section id="demo" aria-label="Demo video">
     <!-- To add the video: put it at assets/cardak-demo.mp4 and replace the .video div's contents with
          <video src="assets/cardak-demo.mp4" controls muted playsinline preload="metadata"></video> -->
@@ -215,46 +217,56 @@
   <section id="install" aria-labelledby="install-title">
     <div class="install-head">
       <h2 id="install-title">Get it</h2>
-      <a class="repo" href="https://github.com/brlauuu/cardak">
-        <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        github.com/brlauuu/cardak
-      </a>
+      <div class="icons">
+        <a class="icon" href="https://github.com/brlauuu/cardak#readme" aria-label="Docs" title="Docs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
+        </a>
+        <a class="icon" href="https://github.com/brlauuu/cardak" aria-label="Source on GitHub" title="Source on GitHub">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+        </a>
+      </div>
     </div>
     <p class="needs">Needs Linux, <a href="https://wezterm.org">WezTerm</a> and
       <a href="https://docs.astral.sh/uv/">uv</a>; the agent features need
-      <a href="https://code.claude.com">Claude Code</a>. Developed on KDE Plasma under X11.</p>
+      <a href="https://code.claude.com">Claude Code</a>.</p>
 
     <div role="tablist" aria-label="Install">
-      <button type="button" role="tab" id="tab-full" aria-controls="panel-full" aria-selected="true">Full</button>
-      <button type="button" role="tab" id="tab-basic" aria-controls="panel-basic" aria-selected="false" tabindex="-1">Basic</button>
+      <button type="button" role="tab" id="tab-full" aria-controls="panel-full" aria-selected="true">Full <span class="size">~72 MB</span></button>
+      <button type="button" role="tab" id="tab-basic" aria-controls="panel-basic" aria-selected="false" tabindex="-1">Basic <span class="size">~14 MB</span></button>
     </div>
-    <div role="tabpanel" id="panel-full" aria-labelledby="tab-full" data-name="Full">
-      <p class="what">Everything, with each project's background art and Anthropic summaries.</p>
+    <div role="tabpanel" id="panel-full" aria-labelledby="tab-full" data-name="Full, ~72 MB">
+      <div class="what"><span>Everything cardak does.</span>
+        <button type="button" class="copy" data-copy="cmd-full" aria-label="Copy the commands">Copy</button></div>
       <div class="cmd">
-        <pre><code id="cmd-full">uv tool install 'cardak[all] @ git+https://github.com/brlauuu/cardak'</code></pre>
-        <button type="button" class="copy" data-copy="cmd-full">Copy</button>
+        <pre><code id="cmd-full"><span class="c"># install cardak, with every extra</span>
+uv tool install 'cardak[all] @ git+https://github.com/brlauuu/cardak'
+<span class="c"># jumping, colors, tab names and ASCII logos per project</span>
+cardak wezterm install
+<span class="c"># and add require('cardak').apply(config) to wezterm.lua</span>
+<span class="c"># Claude Code status; shows what it adds, asks first</span>
+cardak hooks install
+<span class="c"># open the deck</span>
+cardak</code></pre>
       </div>
     </div>
-    <div role="tabpanel" id="panel-basic" aria-labelledby="tab-basic" data-name="Basic">
-      <p class="what">The deck, agent status, themes, resources, the phone and PM views; summaries
-        from a local model, Codex or an OpenAI-compatible server.</p>
+    <div role="tabpanel" id="panel-basic" aria-labelledby="tab-basic" data-name="Basic, ~14 MB">
+      <div class="what"><span>Full minus the ASCII logo behind each project's windows and summaries by
+        Anthropic's API; Ollama, Codex and OpenAI-compatible servers still summarize.</span>
+        <button type="button" class="copy" data-copy="cmd-basic" aria-label="Copy the commands">Copy</button></div>
       <div class="cmd">
-        <pre><code id="cmd-basic">uv tool install git+https://github.com/brlauuu/cardak</code></pre>
-        <button type="button" class="copy" data-copy="cmd-basic">Copy</button>
+        <pre><code id="cmd-basic"><span class="c"># install cardak, without the extras</span>
+uv tool install git+https://github.com/brlauuu/cardak
+<span class="c"># jumping, colors and tab names per project</span>
+cardak wezterm install
+<span class="c"># and add require('cardak').apply(config) to wezterm.lua</span>
+<span class="c"># Claude Code status; shows what it adds, asks first</span>
+cardak hooks install
+<span class="c"># open the deck</span>
+cardak</code></pre>
       </div>
-    </div>
-
-    <div class="then">
-      Then run <code>cardak</code>, and:
-      <ol>
-        <li><code>cardak wezterm install</code> for jumping and per-project colors; add the line it
-          prints, <code>require('cardak').apply(config)</code>, to your <code>wezterm.lua</code>.</li>
-        <li><code>cardak hooks install</code> for Claude Code status; it shows what it will add to
-          Claude Code's settings and asks first.</li>
-      </ol>
-      The <a href="https://github.com/brlauuu/cardak#install">README</a> covers the rest.
     </div>
   </section>
+  </div>
 
   <section id="screens" aria-roledescription="carousel" aria-label="What cardak shows">
     <div class="carousel-head">
@@ -266,7 +278,7 @@
       </div>
     </div>
     <ol class="track" tabindex="0" aria-label="Screens, scroll sideways or use the arrow keys">
-      <li class="slide" aria-roledescription="slide" aria-label="1 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="1 of 19">
         <figure>
           <a class="shot" href="assets/screens/overview.webp"><img src="assets/screens/overview.webp" width="2463" height="1283"
             alt="The deck: six projects with their panes, each with its state, RAM and a graph, CPU, context and this month's cost; three sessions waiting on the right."></a>
@@ -274,7 +286,7 @@
             <span>All your WezTerm panes in one tree, grouped by project, with each one's state, RAM, CPU, context and this month's cost. <kbd>Enter</kbd> jumps there and raises the window.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="2 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="2 of 19">
         <figure>
           <a class="shot" href="assets/screens/waiting.webp"><img src="assets/screens/waiting.webp" width="1853" height="795" loading="lazy"
             alt="The details of a waiting session: it needs a tool approved, what you asked an hour ago, and the files it edited this turn."></a>
@@ -282,7 +294,7 @@
             <span>Sessions that need you come first, with how long they've waited and why. <kbd>i</kbd> shows what you asked and what this turn changed; <kbd>Enter</kbd> takes you there.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="3 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="3 of 19">
         <figure>
           <a class="shot" href="assets/screens/summaries.webp"><img src="assets/screens/summaries.webp" width="2463" height="1283" loading="lazy"
             alt="Only the projects waiting on you, each wait with a one-line summary."></a>
@@ -290,7 +302,7 @@
             <span>A one-line summary of what each waiting session needs, so you know which to answer first. <kbd>w</kbd> shows only what's waiting.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="4 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="4 of 19">
         <figure>
           <a class="shot" href="assets/screens/providers.webp"><img src="assets/screens/providers.webp" width="2463" height="1283" loading="lazy"
             alt="The Summaries screen: five providers, Ollama in use with gemma4:e4b, and the month's cost against its cap."></a>
@@ -298,7 +310,7 @@
             <span>Anthropic, a local model through Ollama, Fireworks, any OpenAI-compatible server or Codex, with a test run and a monthly cap.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="5 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="5 of 19">
         <figure>
           <a class="shot" href="assets/screens/find.webp"><img src="assets/screens/find.webp" width="2463" height="1283" loading="lazy"
             alt="The deck filtered by the word train: one project and its python train.py pane."></a>
@@ -306,7 +318,7 @@
             <span><kbd>/</kbd> and a few letters narrow the deck to the panes that match; <kbd>Enter</kbd> jumps to the best one.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="6 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="6 of 19">
         <figure>
           <a class="shot" href="assets/screens/fold.webp"><img src="assets/screens/fold.webp" width="2463" height="1283" loading="lazy"
             alt="Every project folded to one line with its RAM, graph, CPU and month's cost; Other unfolded."></a>
@@ -314,7 +326,7 @@
             <span><kbd>←</kbd> and <kbd>→</kbd> fold and unfold projects; each folded line still shows its RAM, CPU and cost.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="7 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="7 of 19">
         <figure>
           <a class="shot" href="assets/screens/add.webp"><img src="assets/screens/add.webp" width="2463" height="1283" loading="lazy"
             alt="A dialog over the deck: add /home/demo/code/blog as a project, its name blog."></a>
@@ -322,7 +334,7 @@
             <span><kbd>a</kbd> on a pane outside your projects makes its folder a project, named as you like, written to projects.toml.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="8 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="8 of 19">
         <figure>
           <a class="shot" href="assets/screens/docker.webp"><img src="assets/screens/docker.webp" width="2463" height="1283" loading="lazy"
             alt="webshop with its database and cache containers, and api-gateway with a docker compose build and its build line."></a>
@@ -330,7 +342,7 @@
             <span>A project's containers sit under it, and a running build counts to the project whose pane started it, not to Other.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="9 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="9 of 19">
         <figure>
           <a class="shot" href="assets/screens/usage.webp"><img src="assets/screens/usage.webp" width="2463" height="550" loading="lazy"
             alt="Thirty days of cost per project: today, per day, peak and the month, with a cell per day."></a>
@@ -338,7 +350,7 @@
             <span>This month at API prices and your plan limits up top; 30 days of cost, tokens, replies and prompts per project in the history.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="10 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="10 of 19">
         <figure>
           <a class="shot" href="assets/screens/context.webp"><img src="assets/screens/context.webp" width="1853" height="855" loading="lazy"
             alt="A plot of webshop's three sessions over a day: one climbs to 192k, drops at a compaction and climbs again."></a>
@@ -346,7 +358,7 @@
             <span>Each session's context over a day, with every compaction where it dropped, so you see which ones ran long.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="11 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="11 of 19">
         <figure>
           <a class="shot" href="assets/screens/events.webp"><img src="assets/screens/events.webp" width="2158" height="673" loading="lazy"
             alt="The event log: a busy project, a big one, one growing fast, memory critical, and a WezTerm window closed by the kernel."></a>
@@ -354,7 +366,7 @@
             <span>The daemon warns when memory gets tight or a project grows fast, and tells you which process the kernel killed if a window closes.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="12 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="12 of 19">
         <figure>
           <a class="shot" href="assets/screens/board.webp"><img src="assets/screens/board.webp" width="2463" height="1283" loading="lazy"
             alt="A board per project from GitHub: todo issues with labels, issues and PRs being worked on with their session's state, and what got done this week."></a>
@@ -362,7 +374,7 @@
             <span>A board per project from GitHub: todo, on it, and what got done this week. <kbd>w</kbd> starts Claude on a todo issue in a new tab.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="13 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="13 of 19">
         <figure>
           <a class="shot" href="assets/screens/recap.webp"><img src="assets/screens/recap.webp" width="1853" height="916" loading="lazy"
             alt="The recap of webshop: the latest checkpoint's done, open and next, and the three commits since."></a>
@@ -370,7 +382,7 @@
             <span><kbd>c</kbd> has Claude write a handoff note; <kbd>r</kbd> shows the latest one and every commit since, so you pick up where you left off.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="14 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="14 of 19">
         <figure>
           <a class="shot" href="assets/screens/cleanup.webp"><img src="assets/screens/cleanup.webp" width="2463" height="1283" loading="lazy"
             alt="A question over the deck: open a new tab in ~/code/webshop and run claude /repo-cleanup?"></a>
@@ -378,7 +390,7 @@
             <span><kbd>x</kbd> opens a new tab in the project and starts Claude on /repo-cleanup: stale branches, worktrees and leftovers.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="15 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="15 of 19">
         <figure>
           <a class="shot" href="assets/screens/colors.webp"><img src="assets/screens/colors.webp" width="2463" height="1283" loading="lazy"
             alt="The theme picker over the deck: color schemes with their swatches, and a switch for the project's background art."></a>
@@ -386,7 +398,15 @@
             <span>Each project gets its own color scheme and background art, previewed live, so you always know which window you're in.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="16 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="16 of 19">
+        <figure>
+          <a class="shot" href="assets/screens/logo.webp"><img src="assets/screens/logo.webp" width="2463" height="1283" loading="lazy"
+            alt="Two terminal windows, each with its project's name drawn faintly in ASCII letters in the bottom-right, and the background settings."></a>
+          <figcaption><b>Its logo behind every window</b>
+            <span>Each project's windows show its logo, or its name, as faint ASCII art. It's a text file you can replace with any art; place it with <code>position</code>, or turn it off per project with <kbd>ctrl+b</kbd> in the theme picker.</span></figcaption>
+        </figure>
+      </li>
+      <li class="slide" aria-roledescription="slide" aria-label="17 of 19">
         <figure>
           <a class="shot" href="assets/screens/tabs.webp"><img src="assets/screens/tabs.webp" width="2463" height="1283" loading="lazy"
             alt="Three terminal windows, each in its project's colors, with tabs named like 1: webshop · npm run dev."></a>
@@ -394,7 +414,7 @@
             <span>WezTerm's tabs say which project they're in and what runs there, and each window wears its project's colors.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="17 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="18 of 19">
         <figure>
           <a class="shot" href="assets/screens/sounds.webp"><img src="assets/screens/sounds.webp" width="2463" height="1283" loading="lazy"
             alt="The notify settings: a sound for waiting, memory and other alerts, and a desktop notification for a waiting webshop session."></a>
@@ -402,7 +422,7 @@
             <span>A desktop notification and a sound when a session starts waiting; other sounds for memory and other alerts, your own clips and sound packs included.</span></figcaption>
         </figure>
       </li>
-      <li class="slide" aria-roledescription="slide" aria-label="18 of 18">
+      <li class="slide" aria-roledescription="slide" aria-label="19 of 19">
         <figure>
           <a class="shot tall" href="assets/screens/phone.webp"><picture>
             <source media="(max-width: 600px)" srcset="assets/screens/phone-portrait.webp" width="780" height="1688">
@@ -510,7 +530,8 @@ document.documentElement.classList.add("js");
     button.addEventListener("click", async () => {
       const code = document.getElementById(button.dataset.copy);
       try {
-        await navigator.clipboard.writeText(code.textContent);
+        await navigator.clipboard.writeText(
+          code.textContent.split("\n").filter((l) => l && !l.startsWith("#")).join("\n"));
         button.textContent = "Copied";
       } catch {
         // no clipboard (an old browser, a page not over https): select it for the visitor

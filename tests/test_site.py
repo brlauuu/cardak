@@ -1,3 +1,4 @@
+import html
 import re
 from html.parser import HTMLParser
 from pathlib import Path
@@ -183,6 +184,7 @@ SLIDES = (
     "recap",
     "cleanup",
     "colors",
+    "logo",
     "tabs",
     "sounds",
     "phone",
@@ -210,16 +212,60 @@ def test_link_preview() -> None:
     assert _content(tags, property="og:image:height") == "630"
 
 
+def _code(code_id: str) -> list[str]:
+    text = PAGE.read_text()
+    found = re.search(rf'<code id="{code_id}">(.*?)</code>', text, flags=re.S)
+    assert found, code_id
+    return [html.unescape(re.sub(r"<[^>]+>", "", x)) for x in found.group(1).splitlines()]
+
+
 def test_install_panel() -> None:
+    # one box per tab: every command to run, each under a shell comment saying what it does
     text = PAGE.read_text()
     section = text[text.index('id="install"') : text.index('id="screens"')]
-    for command in (FULL, BASIC):
-        found = re.search(r"<code[^>]*>" + re.escape(command) + r"</code>", section)
-        assert found, command
-    # each command has a copy button next to it, which works on phones too (#106)
-    assert section.count("<button") >= 2 and section.count("data-copy") >= 2
-    assert f'href="{REPO}"' in section
-    assert "cardak wezterm install" in section and "cardak hooks install" in section
+    for code_id, install in (("cmd-full", FULL), ("cmd-basic", BASIC)):
+        lines = _code(code_id)
+        commands = [x for x in lines if x and not x.startswith("#")]
+        assert commands == [install, "cardak wezterm install", "cardak hooks install", "cardak"]
+        for command in commands:  # a comment above each one
+            assert lines[lines.index(command) - 1].startswith("# "), command
+        assert any("require('cardak').apply(config)" in x for x in lines if x.startswith("#"))
+    assert section.count("data-copy") == 2
+
+
+def test_copy_leaves_the_comments_out() -> None:
+    # zsh without interactivecomments runs "#" as a command: copy only the commands
+    assert '.filter((l) => l && !l.startsWith("#"))' in _script()
+
+
+def test_docs_and_github_are_icons_in_the_install_card() -> None:
+    # as on the owner's other pages: icon buttons, the name in aria-label and title (#164)
+    text = PAGE.read_text()
+    card = text[text.index('<section id="install"') : text.index('<div role="tablist"')]
+    for label, href in (("Docs", f"{REPO}#readme"), ("Source on GitHub", REPO)):
+        found = re.search(
+            rf'<a class="icon" href="{re.escape(href)}" aria-label="{label}" title="{label}">'
+            r"\s*<svg",
+            card,
+        )
+        assert found, label
+    assert "github.com/brlauuu/cardak</a>" not in text  # no spelled-out repo link any more
+
+
+def test_each_install_says_its_size() -> None:
+    # the reason there are two: Basic is a fifth of Full (#164)
+    tabs = re.findall(r'<button[^>]*role="tab"[^>]*>(.*?)</button>', PAGE.read_text(), flags=re.S)
+    sizes = [re.sub(r"<[^>]+>", " ", x).split() for x in tabs]
+    assert sizes == [["Full", "~72", "MB"], ["Basic", "~14", "MB"]]
+
+
+def test_basic_says_what_full_has_that_it_lacks() -> None:
+    pattern = r'id="panel-basic".*?<div class="what"><span>(.*?)</span>'
+    found = re.search(pattern, PAGE.read_text(), flags=re.S)
+    assert found
+    what = " ".join(found.group(1).split())
+    assert what.startswith("Full minus ")
+    assert "ASCII logo" in what and "Anthropic" in what
 
 
 def test_carousel() -> None:
@@ -333,10 +379,18 @@ def test_header_is_centered() -> None:
     assert re.search(one_line, _css())
 
 
-def test_video_is_full_width_with_the_install_below() -> None:
+def test_video_beside_the_install() -> None:
+    # side by side on a wide screen, the video above the install below it (#164)
     text = PAGE.read_text()
-    assert 'class="hero"' not in text
-    assert text.index('id="demo"') < text.index('id="install"')
+    pair = text[text.index('<div class="pair">') : text.index('id="screens"')]
+    assert pair.index('id="demo"') < pair.index('id="install"')
+    found = re.search(r"@media \(min-width: 1120px\) \{\s*\.pair \{([^}]*)\}", _css())
+    assert found and "display: grid" in found.group(1)
+    assert "grid-template-columns" in found.group(1)
+
+
+def test_tagline_is_not_bold() -> None:
+    assert "font-weight: 400" in _rule("#tagline")
 
 
 def test_install_tabs() -> None:
@@ -350,7 +404,7 @@ def test_install_tabs() -> None:
     assert [a["aria-labelledby"] for a in panels] == ["tab-full", "tab-basic"]
     assert "hidden" not in panels[0]  # without JS both show; the script hides the other
     text = PAGE.read_text()
-    assert ">Basic<" in text and "Lite" not in text
+    assert ">Basic <" in text and "Lite" not in text
     assert 'html:not(.js) [role="tablist"]' in _css()
 
 
@@ -381,8 +435,8 @@ def test_slides_are_numbered_in_order() -> None:
     assert labels == [f"{i} of {len(SLIDES)}" for i in range(1, len(SLIDES) + 1)]
 
 
-def test_eighteen_dots_leave_a_phone_alone() -> None:
-    # 18 dots of 44 px are 792 px: a phone gets a "3 / 18" counter instead (#164)
+def test_the_dots_leave_a_phone_alone() -> None:
+    # 19 dots of 44 px are 836 px: a phone gets a "3 / 19" counter instead (#164)
     script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
     assert "where.textContent" in script
     assert _find(_page(), "span", **{"class": "where"})
@@ -422,19 +476,13 @@ def test_tab_keys_leave_browser_shortcuts_alone() -> None:
 
 
 def test_dots_keep_their_size_until_the_counter_takes_over() -> None:
-    # 18 dots of 44 px need ~800 px: below 860 the counter alone (#164 review)
+    # 19 dots of 44 px need 836 px: below 860 the counter alone (#164 review)
     assert "flex: none" in _rule(".dots button")
     assert re.search(r"@media \(max-width: 860px\) \{\s*\.dots \{ display: none; \}", _css())
 
 
 def test_tagline_fits_a_320px_phone() -> None:
     assert "clamp(.95rem, calc((100vw - 32px) / 19), 1.6rem)" in _rule("#tagline")
-
-
-def test_the_repo_link_wraps_on_a_small_phone() -> None:
-    # at 320 px "github.com/brlauuu/cardak" with its icon is wider than the card (#164 review)
-    rule = _rule(".repo")
-    assert "max-width: 100%" in rule and "overflow-wrap: anywhere" in rule
 
 
 def test_alt_text_says_what_the_add_dialog_shows() -> None:
