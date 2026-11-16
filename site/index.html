@@ -86,7 +86,7 @@
   /* the video and the install side by side on a wide screen, one above the other below (#164) */
   .pair { margin-top: 44px; display: flex; flex-direction: column; gap: 24px; }
   @media (min-width: 1120px) {
-    .pair { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: center; gap: 28px; }
+    .pair { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: stretch; gap: 28px; }
     /* a third of the page is too narrow for the install line: it wraps at a space */
     .pair pre { white-space: pre-wrap; overflow-wrap: break-word; }
   }
@@ -97,6 +97,9 @@
   video { display: block; width: 100%; height: auto; border-radius: 14px; }
   .video:has(video) { padding: 0; }
 
+  /* the video in a card of its own, as tall as the install card beside it */
+  #demo { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 22px;
+          display: flex; flex-direction: column; justify-content: center; }
   #install { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 22px; }
   .install-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
                   margin-bottom: 6px; }
@@ -163,19 +166,14 @@
   kbd { font-family: ui-monospace, "SF Mono", "DejaVu Sans Mono", monospace; font-size: .85em; padding: 1px 6px;
         border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 5px; background: var(--panel);
         color: var(--text); }
-  /* the dots are the mark's háček: a row under the slides, a column right of them from 1000 px */
-  .dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 0; margin-top: 8px; }
+  /* the dots are the mark's háček, a row above the slides (wrapping on a phone) */
+  .dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 0; margin-bottom: 8px; }
   .dots button { flex: none; width: 24px; height: 44px; padding: 0; border: 0; background: transparent;
                  display: grid; place-items: center; }
   .dots button::before { content: ""; width: 16px; height: 12px; background: var(--rule);
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='33 9 34 29'%3E%3Cpath d='M38 14 L50 33 L62 14' fill='none' stroke='black' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; }
   .dots button:hover::before { background: var(--muted); }
   .dots button[aria-current="true"]::before { background: var(--paprika); }
-  @media (min-width: 1000px) {
-    #screens { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
-    .dots { flex-direction: column; flex-wrap: nowrap; margin-top: 0; }
-    .dots button { width: 44px; height: 28px; }
-  }
 
   /* as on the owner's other pages: who made it, then the version and the changelog */
   footer { margin: 48px auto 0; padding: 28px 20px 40px; text-align: center; color: var(--muted);
@@ -186,7 +184,7 @@
     main { padding: 32px 16px 16px; }
     header picture img { width: min(300px, 100%); }
     .pair { margin-top: 28px; gap: 20px; }
-    #install { padding: 16px; }
+    #demo, #install { padding: 16px; }
     [role="tab"] { flex: 1; }
     #screens { margin-top: 44px; }
     .shot { padding: 3%; }
@@ -279,6 +277,7 @@ cardak</code></pre>
   </div>
 
   <section id="screens" aria-roledescription="carousel" aria-label="What cardak shows">
+    <div class="dots" role="group" aria-label="Choose a screen"></div>
     <ol class="track" tabindex="0" aria-label="Screens, swipe or use the arrow keys">
       <li class="slide" aria-roledescription="slide" aria-label="1 of 19">
         <figure>
@@ -435,7 +434,6 @@ cardak</code></pre>
         </figure>
       </li>
     </ol>
-    <div class="dots" role="group" aria-label="Choose a screen"></div>
   </section>
 </main>
 <footer>

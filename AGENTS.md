@@ -734,7 +734,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - The demo video: put it at `site/assets/cardak-demo.mp4` and replace the contents of the `.video`
   div in `#demo` with the `<video>` element written in the comment above it. It sits left of the
   install card (`#install`: Full and Basic as ARIA tabs, both shown without JS) from 1120 px, two
-  thirds to one, the commands wrapping at a space in the card; below that they stack. Each
+  thirds to one, in a card of its own stretched to the install card's height, the commands wrapping at a space in the card; below that they stack. Each
   tab has a terminal box with every command under a shell comment, and one box below both holds
   the `wezterm.lua` line; their copy icons leave the comment lines out (zsh without
   `interactivecomments` runs `#` as a command). The tabs' sizes are a `uv tool install`
@@ -751,8 +751,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   with an invented note and commits; tab titles, sounds and the ASCII logo behind each window
   have no deck screen, so `illustrations` draws them as HTML in the same projects' schemes (the
   logo slide with `ascii_art.name_art`, the art cardak makes for a project with no logo). The dots
-  are the mark's háček (a CSS mask), a column right of the slides from 1000 px, else a row that
-  wraps on a phone; the track keeps the longest caption's height so they don't move. It turns
+  are the mark's háček (a CSS mask), a row above the slides that wraps on a phone; the track keeps
+  the longest caption's height so the page below doesn't jump. It turns
   every 6 s while half on screen, the tab shown and no pointer over it (none for reduced motion);
   a click, a key, or a sideways swipe or wheel stops it for good, a page scroll over it doesn't.
 - The link preview, `site/assets/cardak-og.png` (1200×630: the wordmark and the tagline), comes from

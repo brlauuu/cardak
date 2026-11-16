@@ -343,12 +343,23 @@ def test_dots_are_hacheks() -> None:
     assert "M38 14 L50 33 L62 14" in rule and "mask:" in rule
 
 
-def test_dots_stand_right_of_a_wide_carousel() -> None:
-    found = re.search(r"@media \(min-width: 1000px\) \{\s*#screens \{([^}]*)\}", _css())
-    assert found and "display: grid" in found.group(1)
-    assert re.search(
-        r"@media \(min-width: 1000px\) \{[^@]*\.dots \{[^}]*flex-direction: column", _css()
-    )
+def test_dots_are_a_row_above_the_slides() -> None:
+    # the háčeks on top, the caption below the screen (#164 follow-up)
+    text = PAGE.read_text()
+    region = text[text.index('id="screens"') :]
+    assert region.index('class="dots"') < region.index('class="track"')
+    dots = re.findall(r"\.dots \{([^}]*)\}", _css())
+    assert dots and not any("column" in x for x in dots)
+    assert "#screens { display: grid" not in _css()
+
+
+def test_video_sits_in_a_card_as_tall_as_the_install() -> None:
+    # side by side the two cards stretch to one height, the video centered in its own
+    found = re.search(r"@media \(min-width: 1120px\) \{\s*\.pair \{([^}]*)\}", _css())
+    assert found and "align-items: stretch" in found.group(1)
+    demo = _rule("#demo")
+    assert "background: var(--panel)" in demo and "border-radius: 14px" in demo
+    assert "justify-content: center" in demo
 
 
 def test_slides_open_full_size() -> None:
