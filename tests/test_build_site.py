@@ -20,15 +20,37 @@ def _site(tmp_path: Path, page: str) -> tuple[Path, Path]:
     (src / "assets" / "x.svg").write_text("<svg/>")
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[project]\nname = "cardak"\nversion = "1.2.3"\n')
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## Unreleased\n\n## 1.2.3 — 2026-01-02\n"
+    )
     return src, pyproject
+
+
+def _build(src: Path, out: Path, pyproject: Path) -> str:
+    return build_site.build(src, out, pyproject, pyproject.parent / "CHANGELOG.md")
 
 
 def test_build_fills_the_version(tmp_path: Path) -> None:
     src, pyproject = _site(tmp_path, "<p>v__VERSION__</p>")
     out = tmp_path / "out"
-    assert build_site.build(src, out, pyproject) == "1.2.3"
+    assert _build(src, out, pyproject) == "1.2.3"
     assert (out / "index.html").read_text() == "<p>v1.2.3</p>"
     assert (out / "assets" / "x.svg").read_text() == "<svg/>"
+
+
+def test_build_fills_the_release_date(tmp_path: Path) -> None:
+    # the banner shows for 30 days after the release; the page compares, the build dates it (#164)
+    src, pyproject = _site(tmp_path, '<a data-released="__RELEASED__">v__VERSION__</a>')
+    out = tmp_path / "out"
+    _build(src, out, pyproject)
+    assert (out / "index.html").read_text() == '<a data-released="2026-01-02">v1.2.3</a>'
+
+
+def test_no_dated_heading_means_no_date(tmp_path: Path) -> None:
+    # a version bumped but not yet cut has no dated heading: no banner, and the build passes
+    assert build_site.released("## Unreleased\n\n## 1.2.2 — 2026-01-01\n", "1.2.3") == ""
+    assert build_site.released("## 1.2.3 - 2026-01-05\n", "1.2.3") == "2026-01-05"
+    assert build_site.released("## 1.2.30 — 2026-01-05\n", "1.2.3") == ""
 
 
 def test_build_replaces_an_old_output(tmp_path: Path) -> None:
@@ -36,20 +58,23 @@ def test_build_replaces_an_old_output(tmp_path: Path) -> None:
     out = tmp_path / "out"
     out.mkdir()
     (out / "old.txt").write_text("stale")
-    build_site.build(src, out, pyproject)
+    _build(src, out, pyproject)
     assert not (out / "old.txt").exists()
 
 
 def test_leftover_placeholder_fails(tmp_path: Path) -> None:
     src, pyproject = _site(tmp_path, "<p>v__VERSION__ · __STARS__ stars</p>")
     with pytest.raises(ValueError, match="__STARS__"):
-        build_site.build(src, tmp_path / "out", pyproject)
+        _build(src, tmp_path / "out", pyproject)
 
 
 def test_real_site_builds(tmp_path: Path) -> None:
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     out = tmp_path / "out"
-    assert build_site.build(ROOT / "site", out, ROOT / "pyproject.toml") == version
+    assert (
+        build_site.build(ROOT / "site", out, ROOT / "pyproject.toml", ROOT / "CHANGELOG.md")
+        == version
+    )
     page = (out / "index.html").read_text()
     assert f"v{version}" in page
     assert not re.search(r"__[A-Z_]{2,}__", page)
@@ -60,6 +85,7 @@ def test_main_reports_a_leftover_placeholder(tmp_path: Path, monkeypatch, capsys
     monkeypatch.setattr(build_site, "SITE", src)
     monkeypatch.setattr(build_site, "OUT", tmp_path / "out")
     monkeypatch.setattr(build_site, "PYPROJECT", pyproject)
+    monkeypatch.setattr(build_site, "CHANGELOG", tmp_path / "CHANGELOG.md")
     assert build_site.main() == 1
     assert "__STARS__" in capsys.readouterr().err
 
@@ -67,7 +93,13 @@ def test_main_reports_a_leftover_placeholder(tmp_path: Path, monkeypatch, capsys
 def test_workflow_triggers_and_permissions() -> None:
     text = (ROOT / ".github" / "workflows" / "pages.yml").read_text()
     assert "branches: [main]" in text
-    inputs = ("site/**", "pyproject.toml", ".github/workflows/pages.yml", "scripts/build_site.py")
+    inputs = (
+        "site/**",
+        "pyproject.toml",
+        "CHANGELOG.md",  # the release date (#164)
+        ".github/workflows/pages.yml",
+        "scripts/build_site.py",
+    )
     for path in inputs:
         assert f'"{path}"' in text, path
     assert "workflow_dispatch:" in text

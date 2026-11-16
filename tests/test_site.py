@@ -1,3 +1,4 @@
+import html
 import re
 from html.parser import HTMLParser
 from pathlib import Path
@@ -82,9 +83,9 @@ def test_favicons_are_linked() -> None:
     assert _find(tags, "link", rel="apple-touch-icon", href="assets/cardak-icon-180.png")
 
 
-def test_version_placeholder_appears_once() -> None:
+def test_only_the_builds_placeholders() -> None:
     text = PAGE.read_text()
-    assert re.findall(r"__[A-Z_]{2,}__", text) == ["__VERSION__"]
+    assert set(re.findall(r"__[A-Z_]{2,}__", text)) == {"__VERSION__", "__RELEASED__"}
 
 
 def test_video_placeholder_says_how_to_swap() -> None:
@@ -104,7 +105,14 @@ def test_sections_in_order() -> None:
     line: dict[str | None, int] = {}
     for t, a, n in tags.tags:  # the first of each: the wordmark's picture, not the phone slide's
         line.setdefault(t if t in ("picture", "footer") else a.get("id"), n)
-    order = [line["picture"], line["tagline"], line["demo"], line["install"], line["screens"]]
+    order = [
+        line["release-banner"],
+        line["picture"],
+        line["tagline"],
+        line["demo"],
+        line["install"],
+        line["screens"],
+    ]
     assert order == sorted(order)
     assert order[-1] < line["footer"]
 
@@ -159,8 +167,28 @@ def test_preview_image_is_1200_by_630() -> None:
 
 TAGLINE = "Your control deck for multi-project agentic development."
 FULL = f"uv tool install 'cardak[all] @ git+{REPO}'"
-LITE = f"uv tool install git+{REPO}"
-SLIDES = ("overview", "waiting", "summaries", "usage", "board", "colors", "phone")
+BASIC = f"uv tool install git+{REPO}"
+SLIDES = (
+    "overview",
+    "waiting",
+    "summaries",
+    "providers",
+    "find",
+    "fold",
+    "add",
+    "docker",
+    "usage",
+    "context",
+    "events",
+    "board",
+    "recap",
+    "cleanup",
+    "colors",
+    "logo",
+    "tabs",
+    "sounds",
+    "phone",
+)  # a slide per feature (#164)
 
 
 def _content(tags: _Tags, **want: str) -> str:
@@ -184,16 +212,95 @@ def test_link_preview() -> None:
     assert _content(tags, property="og:image:height") == "630"
 
 
+def _code(code_id: str) -> list[str]:
+    text = PAGE.read_text()
+    found = re.search(rf'<code id="{code_id}">(.*?)</code>', text, flags=re.S)
+    assert found, code_id
+    return [html.unescape(re.sub(r"<[^>]+>", "", x)) for x in found.group(1).splitlines()]
+
+
 def test_install_panel() -> None:
+    # a terminal box per tab: every command to run, each under a shell comment saying what it does
     text = PAGE.read_text()
     section = text[text.index('id="install"') : text.index('id="screens"')]
-    for command in (FULL, LITE):
-        found = re.search(r"<code[^>]*>" + re.escape(command) + r"</code>", section)
-        assert found, command
-    # each command has a copy button next to it, which works on phones too (#106)
-    assert section.count("<button") >= 2 and section.count("data-copy") >= 2
-    assert f'href="{REPO}"' in section
-    assert "cardak wezterm install" in section and "cardak hooks install" in section
+    for code_id, install in (("cmd-full", FULL), ("cmd-basic", BASIC)):
+        lines = _code(code_id)
+        commands = [x for x in lines if x and not x.startswith("#")]
+        assert commands == [install, "cardak wezterm install", "cardak hooks install", "cardak"]
+        for command in commands:  # a comment above each one
+            assert lines[lines.index(command) - 1].startswith("# "), command
+        assert not any("require(" in x for x in lines)
+    assert section.count("data-copy") == 3
+
+
+def test_the_config_line_has_a_box_of_its_own() -> None:
+    # what goes in wezterm.lua apart from what runs in a terminal, both as code (#164)
+    assert _code("cmd-lua") == ["require('cardak').apply(config)"]
+    text = PAGE.read_text()
+    section = text[text.index('id="install"') : text.index('id="screens"')]
+    labels = [
+        " ".join(re.sub(r"<[^>]+>", "", x).split())
+        for x in re.findall(r'<span class="label">(.*?)</span>', section, flags=re.S)
+    ]
+    assert labels == [
+        "In a terminal",
+        "In a terminal",
+        "In ~/.config/wezterm/wezterm.lua, before return config",
+    ]
+
+
+def test_copy_is_an_icon() -> None:
+    text = PAGE.read_text()
+    buttons = re.findall(
+        r'<button type="button" class="copy"[^>]*>(.*?)</button>', text, flags=re.S
+    )
+    assert len(buttons) == 3
+    for inner in buttons:
+        assert "<svg" in inner and not re.sub(r"<[^>]+>", "", inner).strip()
+
+
+def test_copy_leaves_the_comments_out() -> None:
+    # zsh without interactivecomments runs "#" as a command: copy only the commands
+    assert '.filter((l) => l && !l.startsWith("#"))' in _script()
+
+
+def test_docs_and_github_are_icons_in_the_install_card() -> None:
+    # as on the owner's other pages: icon buttons, the name in aria-label and title (#164)
+    text = PAGE.read_text()
+    card = text[text.index('<section id="install"') : text.index('<div role="tablist"')]
+    for label, href in (("Docs", f"{REPO}#readme"), ("Source on GitHub", REPO)):
+        found = re.search(
+            rf'<a class="icon" href="{re.escape(href)}" aria-label="{label}" title="{label}">'
+            r"\s*<svg",
+            card,
+        )
+        assert found, label
+    assert "github.com/brlauuu/cardak</a>" not in text  # no spelled-out repo link any more
+
+
+def test_each_install_says_its_size() -> None:
+    # the reason there are two: Basic is a fifth of Full (#164)
+    tabs = re.findall(r'<button[^>]*role="tab"[^>]*>(.*?)</button>', PAGE.read_text(), flags=re.S)
+    sizes = [re.sub(r"<[^>]+>", " ", x).split() for x in tabs]
+    assert sizes == [["Full", "~72", "MB"], ["Basic", "~14", "MB"]]
+
+
+def test_each_install_says_what_it_has() -> None:
+    text = PAGE.read_text()
+    for panel, what in (
+        ("full", "Everything."),
+        ("basic", "Everything minus ASCII logo and AI summaries."),
+    ):
+        found = re.search(rf'id="panel-{panel}".*?<p class="what">(.*?)</p>', text, flags=re.S)
+        assert found and " ".join(found.group(1).split()) == what
+
+
+def test_needs_is_two_lines() -> None:
+    # what cardak runs on, then what the agent features need (#164)
+    found = re.search(r'<p class="needs">(.*?)</p>', PAGE.read_text(), flags=re.S)
+    assert found
+    lines = [" ".join(re.sub(r"<[^>]+>", "", x).split()) for x in found.group(1).split("<br>")]
+    assert lines == ["Needs Linux, WezTerm and uv.", "The agent features need Claude Code."]
 
 
 def test_carousel() -> None:
@@ -208,9 +315,40 @@ def test_carousel() -> None:
     for i, a in enumerate(imgs):
         assert a.get("alt") and a.get("width") and a.get("height"), a
         assert (a.get("loading") == "lazy") == (i > 0), a
+    # no heading, no arrows, no counter: the dots alone (#164)
     labels = [a.get("aria-label", "") for t, a, _ in tags.tags if t == "button"]
-    assert any("Previous" in x for x in labels) and any("Next" in x for x in labels)
-    assert "setInterval" not in PAGE.read_text()  # it moves only when the visitor moves it
+    assert not any("Previous" in x or "Next" in x for x in labels)
+    text = PAGE.read_text()
+    assert (
+        "What it does" not in text and 'class="steps"' not in text and 'class="where"' not in text
+    )
+
+
+def test_carousel_turns_by_itself() -> None:
+    # a slide every few seconds while it's on screen, from the last back to the first; it
+    # stops for good once the visitor takes over, and never starts for reduced motion (#164)
+    script = _script()
+    assert "setInterval(" in script
+    assert "IntersectionObserver" in script and "document.hidden" in script
+    assert 'if (e.pointerType !== "touch") stop();' in script  # a mouse or pen
+    assert 'dots.addEventListener("click", stop)' in script
+    # a finger or wheel scrolling the page past it doesn't stop it; a sideways one does
+    assert script.count("Math.abs(") == 4
+    assert "let auto = !still.matches;" in script
+
+
+def test_dots_are_hacheks() -> None:
+    # the háček from the mark, cut out of a block by a mask: grey, the shown one paprika
+    rule = _rule(".dots button::before")
+    assert "M38 14 L50 33 L62 14" in rule and "mask:" in rule
+
+
+def test_dots_stand_right_of_a_wide_carousel() -> None:
+    found = re.search(r"@media \(min-width: 1000px\) \{\s*#screens \{([^}]*)\}", _css())
+    assert found and "display: grid" in found.group(1)
+    assert re.search(
+        r"@media \(min-width: 1000px\) \{[^@]*\.dots \{[^}]*flex-direction: column", _css()
+    )
 
 
 def test_slides_open_full_size() -> None:
@@ -235,7 +373,7 @@ def test_feature_list_is_gone() -> None:
 
 def test_script_is_inline_and_small() -> None:
     scripts = re.findall(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S)
-    assert len(scripts) == 1 and len(scripts[0]) < 4000
+    assert len(scripts) == 1 and len(scripts[0]) < 6000
     assert "eval(" not in scripts[0]
 
 
@@ -263,10 +401,14 @@ def test_a_picture_fills_its_frame() -> None:
 
 
 def test_tap_targets_are_44px() -> None:
-    for selector in (".dots button", ".copy", ".steps button"):
-        rule = _rule(selector)
-        sizes = [int(v) for v in re.findall(r"(?:min-)?(?:height|width):\s*(\d+)px", rule)]
-        assert sizes and min(sizes) >= 44, (selector, rule)
+    rule = _rule(".copy")
+    sizes = [int(v) for v in re.findall(r"(?:min-)?(?:height|width):\s*(\d+)px", rule)]
+    assert sizes and min(sizes) >= 44, rule
+    # 19 dots: 24 px each way at least (WCAG 2.5.8), wrapping to a second row on a phone
+    for found in re.findall(r"\.dots button \{([^}]*)\}", _css()):
+        sizes = [int(v) for v in re.findall(r"(?:height|width):\s*(\d+)px", found)]
+        assert sizes and min(sizes) >= 24, found
+    assert "flex-wrap: wrap" in _rule(".dots")
 
 
 def test_arrow_keys_leave_browser_shortcuts_alone() -> None:
@@ -276,9 +418,125 @@ def test_arrow_keys_leave_browser_shortcuts_alone() -> None:
 
 
 def test_track_takes_the_shown_slides_height() -> None:
-    # a flex row is as tall as its tallest item: the script fits it to the slide on screen,
-    # again as images load, so the dots follow the caption on a phone (#106 review)
+    # a flex row is as tall as its tallest item: the script fits it to the tallest caption, so
+    # the dots stay put, and to the upright phone slide only while it's shown (#106, #164)
     script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
-    assert "track.style.height" in script
+    assert "track.style.height" in script and '.classList.contains("tall")' in script
     assert 'addEventListener("load"' in script
     assert "overflow-y: hidden" in _rule(".track")
+
+
+def test_release_banner() -> None:
+    # as on the owner's other pages (#164): hidden until the script finds the release recent
+    tags = _page()
+    banner = _find(tags, "a", id="release-banner")
+    assert banner and "hidden" in banner[0]
+    assert banner[0]["href"] == f"{REPO}/releases/tag/v__VERSION__"
+    assert banner[0]["data-released"] == "__RELEASED__"
+    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+    assert "WINDOW_DAYS = 30" in script and "banner.hidden = false" in script
+
+
+def test_header_is_centered() -> None:
+    assert "text-align: center" in _rule("header")
+    # one line from tablet width up; a phone may wrap it once (#164)
+    assert re.search(r"@media \(min-width: 700px\) \{\s*#tagline \{ white-space: nowrap;", _css())
+    # on a phone, two lines: "Your control deck for" / "multi-project agentic development."
+    assert '<span class="nowrap">multi-project agentic development.</span>' in PAGE.read_text()
+    assert "calc((100vw - 32px) / 19)" in _rule("#tagline")
+    # on one line it must shrink with the window, or it scrolls the page sideways at 768 px
+    one_line = r"#tagline \{ white-space: nowrap; font-size: min\(1\.9rem, calc\(\(100vw"
+    assert re.search(one_line, _css())
+
+
+def test_video_beside_the_install() -> None:
+    # side by side on a wide screen, the video above the install below it (#164)
+    text = PAGE.read_text()
+    pair = text[text.index('<div class="pair">') : text.index('id="screens"')]
+    assert pair.index('id="demo"') < pair.index('id="install"')
+    found = re.search(r"@media \(min-width: 1120px\) \{\s*\.pair \{([^}]*)\}", _css())
+    assert found and "display: grid" in found.group(1)
+    # the video two thirds, the install a third
+    assert "grid-template-columns: minmax(0, 2fr) minmax(0, 1fr)" in found.group(1)
+
+
+def test_tagline_is_not_bold() -> None:
+    assert "font-weight: 400" in _rule("#tagline")
+
+
+def test_install_tabs() -> None:
+    # one card, Full and Basic as tabs, Full selected (#164)
+    tags = _page()
+    assert _find(tags, "div", role="tablist")
+    tabs = _find(tags, "button", role="tab")
+    assert [a["id"] for a in tabs] == ["tab-full", "tab-basic"]
+    assert [a["aria-selected"] for a in tabs] == ["true", "false"]
+    panels = _find(tags, "div", role="tabpanel")
+    assert [a["aria-labelledby"] for a in panels] == ["tab-full", "tab-basic"]
+    assert "hidden" not in panels[0]  # without JS both show; the script hides the other
+    text = PAGE.read_text()
+    assert ">Basic <" in text and "Lite" not in text
+    assert 'html:not(.js) [role="tablist"]' in _css()
+
+
+def test_tabs_follow_the_arrow_keys() -> None:
+    # the ARIA tabs pattern: ←/→ move between tabs, the selected one is the only one in Tab order
+    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+    assert '"aria-selected"' in script and "tabIndex" in script
+    tabs = _find(_page(), "button", role="tab")
+    assert [a.get("tabindex") for a in tabs] == [None, "-1"]
+
+
+def test_footer_names_the_author_and_the_changelog() -> None:
+    text = PAGE.read_text()
+    footer = text[text.index("<footer") : text.index("</footer>")]
+    assert 'Created by <a href="https://brlauuu.dev">brlauuu</a>' in footer
+    assert f'href="{REPO}/blob/main/CHANGELOG.md">changelog</a>' in footer
+    assert "v__VERSION__" in footer
+    assert footer.index("Created by") < footer.index("changelog")
+    assert "text-align: center" in _rule("footer")
+
+
+def test_captions_are_centered() -> None:
+    assert "text-align: center" in _rule("figcaption")
+
+
+def test_slides_are_numbered_in_order() -> None:
+    labels = [a["aria-label"] for a in _find(_page(), "li", **{"class": "slide"})]
+    assert labels == [f"{i} of {len(SLIDES)}" for i in range(1, len(SLIDES) + 1)]
+
+
+def test_fast_clicks_count_every_step() -> None:
+    # a click during the smooth scroll steps on from where the last click was headed (#164)
+    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+    assert "go((target ?? current) + 1)" in script and "go((target ?? current) - 1)" in script
+    # ←/→ still step it from the keyboard, with no arrows on screen
+
+
+def _script() -> str:
+    return re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
+
+
+def test_a_go_that_does_not_move_leaves_no_target() -> None:
+    # #164 review: Safari has no `scrollend`; a go() that doesn't scroll (resize, ← on the first
+    # slide, the shown slide's dot) must not leave a target that sends the next click astray
+    script = _script()
+    assert "target = i === current ? null : i;" in script
+    assert "setTimeout(() => { target = null; mark(); }, 150)" in script  # scrolling went idle
+    assert (
+        'addEventListener("resize", () => { track.scrollLeft = slides[current].offsetLeft;'
+        in script
+    )
+
+
+def test_tab_keys_leave_browser_shortcuts_alone() -> None:
+    assert _script().count("if (e.altKey || e.ctrlKey || e.metaKey) return;") == 2  # tabs, slides
+
+
+def test_tagline_fits_a_320px_phone() -> None:
+    assert "clamp(.95rem, calc((100vw - 32px) / 19), 1.6rem)" in _rule("#tagline")
+
+
+def test_alt_text_says_what_the_add_dialog_shows() -> None:
+    add = [a for a in _find(_page(), "img") if a.get("src") == "assets/screens/add.webp"][0]
+    assert "/home/demo/code/blog" in add["alt"]
