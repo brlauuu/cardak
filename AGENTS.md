@@ -719,7 +719,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `uv run scripts/make_brand_pngs.py` (headless Chrome) and commit the PNGs. The 180 px icon has a
   square background: iOS rounds it itself and turns transparent corners black.
 - `site/index.html` is plain HTML and CSS with relative paths only, and one small inline script
-  (#106: the carousel's arrows, dots and keys, and the install commands' copy buttons; without it
+  (#106: the carousel's dots, keys and turning, and the install commands' copy buttons; without it
   the carousel is a strip that scrolls sideways and the buttons are hidden): the page is served at
   `brlauuu.github.io/cardak/` and proxied to `brlauuu.dev/cardak/`, which redirects the bare
   `/cardak` to the trailing slash so `assets/…` resolves. It loads nothing from elsewhere.
@@ -735,8 +735,9 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   div in `#demo` with the `<video>` element written in the comment above it. It sits left of the
   install card (`#install`: Full and Basic as ARIA tabs, both shown without JS) from 1120 px, two
   thirds to one, the commands wrapping at a space in the card; below that they stack. Each
-  tab has one code box with every command under a shell comment; Copy leaves the comment lines out
-  (zsh without `interactivecomments` runs `#` as a command). The tabs' sizes are a `uv tool install`
+  tab has a terminal box with every command under a shell comment, and one box below both holds
+  the `wezterm.lua` line; their copy icons leave the comment lines out (zsh without
+  `interactivecomments` runs `#` as a command). The tabs' sizes are a `uv tool install`
   into a scratch `UV_TOOL_DIR`, measured 2026-11-15 (0.19.0): Basic 14 MB, Full 72 MB.
 - **The carousel's screens (#106)** are made by `uv run scripts/make_screens.py` (headless Chrome
   and the background extra's Pillow): the real deck in `run_test` on invented projects, sessions,
@@ -749,8 +750,11 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   Since #164 there is a slide per feature (19). The recap slide patches `core.recap`'s readers
   with an invented note and commits; tab titles, sounds and the ASCII logo behind each window
   have no deck screen, so `illustrations` draws them as HTML in the same projects' schemes (the
-  logo slide with `ascii_art.name_art`, the art cardak makes for a project with no logo). On a phone the dots give way
-  to a "3 / 19" counter.
+  logo slide with `ascii_art.name_art`, the art cardak makes for a project with no logo). The dots
+  are the mark's háček (a CSS mask), a column right of the slides from 1000 px, else a row that
+  wraps on a phone; the track keeps the longest caption's height so they don't move. It turns
+  every 6 s while half on screen, the tab shown and no pointer over it (none for reduced motion);
+  a click, a key, or a sideways swipe or wheel stops it for good, a page scroll over it doesn't.
 - The link preview, `site/assets/cardak-og.png` (1200×630: the wordmark and the tagline), comes from
   `scripts/make_brand_pngs.py` with the icons.
 - The project list on brlauuu.dev shows `cardak-mark-mono-512.png`: that list inverts logos for

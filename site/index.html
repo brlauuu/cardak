@@ -119,11 +119,20 @@
   html.js [role="tabpanel"] + [role="tabpanel"] { margin-top: 0; }
   html:not(.js) [role="tabpanel"]::before { content: attr(data-name); display: block; font-weight: 600;
                                             margin-bottom: 4px; }
-  .what { color: var(--muted); font-size: .9rem; margin: 0 0 10px; }
-  .what { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .copy { flex: none; min-height: 44px; min-width: 64px; padding: 4px 12px;
-          border-radius: 8px; font-size: .85rem; background: transparent; border: 1px solid var(--rule); }
-  .copy:hover { border-color: var(--paprika); }
+  .what { color: var(--muted); font-size: .9rem; margin: 0 0 8px; }
+  /* what each box is for, and its copy icon: the terminal's commands apart from wezterm.lua's line */
+  .box-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+              font-size: .85rem; font-weight: 600; margin: 4px 0 4px; }
+  .box-head code { font-weight: 400; overflow-wrap: anywhere; }
+  .box-head .label { min-width: 0; }
+  pre + .box-head { margin-top: 14px; }
+  .copy { flex: none; display: inline-flex; align-items: center; justify-content: center;
+          width: 44px; height: 44px; padding: 0; border-radius: 8px; background: transparent;
+          border: 1px solid transparent; color: var(--muted); }
+  .copy:hover { border-color: var(--paprika); color: var(--text); }
+  .copy svg { width: 18px; height: 18px; }
+  .copy .i-done, .copy.done .i-copy { display: none; }
+  .copy.done .i-done { display: block; color: var(--paprika); }
   html:not(.js) .copy { display: none; }
   pre { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 10px; padding: 12px;
         margin: 0; font-size: .78rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -133,16 +142,8 @@
 
   /* the carousel: one screen at a time, swiped or stepped; a scrolling strip without JS */
   #screens { margin-top: 64px; }
-  .carousel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .carousel-head h2 { margin: 0; }
-  .steps { display: flex; gap: 8px; align-items: center; }
-  .where { color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums; margin-right: 4px; }
-  html:not(.js) .steps, html:not(.js) .dots { display: none; }
-  .steps button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--rule);
-                  background: var(--panel); font-size: 1.2rem; line-height: 1; }
-  .steps button:hover:not(:disabled) { border-color: var(--paprika); }
-  .steps button:disabled { opacity: .35; cursor: default; }
-  .track { list-style: none; margin: 16px 0 0; padding: 0; display: flex; overflow-x: auto;
+  html:not(.js) .dots { display: none; }
+  .track { list-style: none; margin: 0; padding: 0; display: flex; overflow-x: auto;
            scroll-snap-type: x mandatory; scrollbar-width: none; position: relative; border-radius: 14px;
            align-items: flex-start; overflow-y: hidden; transition: height .2s; }
   @media (prefers-reduced-motion: reduce) { .track { transition: none; } }
@@ -162,20 +163,25 @@
   kbd { font-family: ui-monospace, "SF Mono", "DejaVu Sans Mono", monospace; font-size: .85em; padding: 1px 6px;
         border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 5px; background: var(--panel);
         color: var(--text); }
-  .dots { display: flex; justify-content: center; gap: 0; margin-top: 8px; }
-  .dots button { flex: none; width: 44px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; }
-  .dots button::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--rule); }
+  /* the dots are the mark's háček: a row under the slides, a column right of them from 1000 px */
+  .dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 0; margin-top: 8px; }
+  .dots button { flex: none; width: 24px; height: 44px; padding: 0; border: 0; background: transparent;
+                 display: grid; place-items: center; }
+  .dots button::before { content: ""; width: 16px; height: 12px; background: var(--rule);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='33 9 34 29'%3E%3Cpath d='M38 14 L50 33 L62 14' fill='none' stroke='black' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; }
+  .dots button:hover::before { background: var(--muted); }
   .dots button[aria-current="true"]::before { background: var(--paprika); }
+  @media (min-width: 1000px) {
+    #screens { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+    .dots { flex-direction: column; flex-wrap: nowrap; margin-top: 0; }
+    .dots button { width: 44px; height: 28px; }
+  }
 
   /* as on the owner's other pages: who made it, then the version and the changelog */
   footer { margin: 48px auto 0; padding: 28px 20px 40px; text-align: center; color: var(--muted);
            font-size: .92rem; display: flex; flex-direction: column; gap: 6px; }
   footer .ver { font-size: .85rem; }
 
-  /* 19 dots of 44 px need 836 px: below that the counter alone */
-  @media (max-width: 860px) {
-    .dots { display: none; }
-  }
   @media (max-width: 600px) {
     main { padding: 32px 16px 16px; }
     header picture img { width: min(300px, 100%); }
@@ -237,14 +243,14 @@
       <button type="button" role="tab" id="tab-basic" aria-controls="panel-basic" aria-selected="false" tabindex="-1">Basic <span class="size">~14 MB</span></button>
     </div>
     <div role="tabpanel" id="panel-full" aria-labelledby="tab-full" data-name="Full, ~72 MB">
-      <div class="what"><span>Everything cardak does.</span>
-        <button type="button" class="copy" data-copy="cmd-full" aria-label="Copy the commands">Copy</button></div>
+      <p class="what">Everything.</p>
+      <div class="box-head"><span class="label">In a terminal</span>
+        <button type="button" class="copy" data-copy="cmd-full" aria-label="Copy the commands" title="Copy the commands"><svg class="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><svg class="i-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
       <div class="cmd">
         <pre><code id="cmd-full"><span class="c"># install cardak, with every extra</span>
 uv tool install 'cardak[all] @ git+https://github.com/brlauuu/cardak'
 <span class="c"># jumping, colors, tab names and ASCII logos per project</span>
 cardak wezterm install
-<span class="c"># and add require('cardak').apply(config) to wezterm.lua</span>
 <span class="c"># Claude Code status; shows what it adds, asks first</span>
 cardak hooks install
 <span class="c"># open the deck</span>
@@ -252,33 +258,28 @@ cardak</code></pre>
       </div>
     </div>
     <div role="tabpanel" id="panel-basic" aria-labelledby="tab-basic" data-name="Basic, ~14 MB">
-      <div class="what"><span>Full minus the ASCII logo and AI summaries.</span>
-        <button type="button" class="copy" data-copy="cmd-basic" aria-label="Copy the commands">Copy</button></div>
+      <p class="what">Everything minus ASCII logo and AI summaries.</p>
+      <div class="box-head"><span class="label">In a terminal</span>
+        <button type="button" class="copy" data-copy="cmd-basic" aria-label="Copy the commands" title="Copy the commands"><svg class="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><svg class="i-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
       <div class="cmd">
         <pre><code id="cmd-basic"><span class="c"># install cardak, without the extras</span>
 uv tool install git+https://github.com/brlauuu/cardak
 <span class="c"># jumping, colors and tab names per project</span>
 cardak wezterm install
-<span class="c"># and add require('cardak').apply(config) to wezterm.lua</span>
 <span class="c"># Claude Code status; shows what it adds, asks first</span>
 cardak hooks install
 <span class="c"># open the deck</span>
 cardak</code></pre>
       </div>
     </div>
+    <div class="box-head"><span class="label">In <code>~/.config/wezterm/wezterm.lua</code>, before <code>return config</code></span>
+      <button type="button" class="copy" data-copy="cmd-lua" aria-label="Copy the line" title="Copy the line"><svg class="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><svg class="i-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button></div>
+    <pre><code id="cmd-lua">require('cardak').apply(config)</code></pre>
   </section>
   </div>
 
   <section id="screens" aria-roledescription="carousel" aria-label="What cardak shows">
-    <div class="carousel-head">
-      <h2>What it does</h2>
-      <div class="steps">
-        <span class="where" aria-live="polite"></span>
-        <button type="button" class="prev" aria-label="Previous screen">&#8592;</button>
-        <button type="button" class="next" aria-label="Next screen">&#8594;</button>
-      </div>
-    </div>
-    <ol class="track" tabindex="0" aria-label="Screens, scroll sideways or use the arrow keys">
+    <ol class="track" tabindex="0" aria-label="Screens, swipe or use the arrow keys">
       <li class="slide" aria-roledescription="slide" aria-label="1 of 19">
         <figure>
           <a class="shot" href="assets/screens/overview.webp"><img src="assets/screens/overview.webp" width="2463" height="1283"
@@ -476,10 +477,7 @@ document.documentElement.classList.add("js");
   const region = document.getElementById("screens");
   const track = region.querySelector(".track");
   const slides = [...track.children];
-  const prev = region.querySelector(".prev");
-  const next = region.querySelector(".next");
   const dots = region.querySelector(".dots");
-  const where = region.querySelector(".where");
   const still = matchMedia("(prefers-reduced-motion: reduce)");
   let current = 0;
   let target = null;  // where a smooth scroll is headed: a click meanwhile steps on from there
@@ -500,12 +498,10 @@ document.documentElement.classList.add("js");
     current = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
     if (current === target) target = null;
     [...dots.children].forEach((d, j) => d.setAttribute("aria-current", j === current ? "true" : "false"));
-    const text = current + 1 + " / " + slides.length;  // aria-live: once per slide
-    if (target === null && where.textContent !== text) where.textContent = text;
-    // a flex row is as tall as its tallest slide (the upright phone): fit the one on screen
-    track.style.height = slides[current].offsetHeight + "px";
-    prev.disabled = current === 0;
-    next.disabled = current === slides.length - 1;
+    // the longest caption's height, so the dots stay put; the upright phone's only while shown
+    const level = slides.filter((s) => !s.querySelector(".shot").classList.contains("tall"));
+    const tallest = Math.max(slides[current].offsetHeight, ...level.map((s) => s.offsetHeight));
+    track.style.height = tallest + "px";
   };
   let queued = false;
   let idle;
@@ -516,8 +512,6 @@ document.documentElement.classList.add("js");
     idle = setTimeout(() => { target = null; mark(); }, 150);
   }, { passive: true });
   track.addEventListener("scrollend", () => { target = null; mark(); });  // a swipe cut it short
-  prev.addEventListener("click", () => go((target ?? current) - 1));
-  next.addEventListener("click", () => go((target ?? current) + 1));
   region.addEventListener("keydown", (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;  // Alt+← is the browser's back
     if (e.key === "ArrowLeft") { go((target ?? current) - 1); e.preventDefault(); }
@@ -527,22 +521,47 @@ document.documentElement.classList.add("js");
   track.addEventListener("load", mark, true);  // a lazy image changes its slide's height
   mark();
 
+  // it turns by itself while seen and not pointed at; a click, swipe or key stops it for good
+  let auto = !still.matches;
+  let seen = false;
+  let over = false;
+  const stop = () => { auto = false; };
+  new IntersectionObserver(([e]) => { seen = e.isIntersecting; }, { threshold: 0.5 }).observe(track);
+  region.addEventListener("pointerenter", () => { over = true; });
+  region.addEventListener("pointerleave", () => { over = false; });
+  // scrolling the page past it doesn't count, a sideways swipe does
+  region.addEventListener("pointerdown", (e) => { if (e.pointerType !== "touch") stop(); });
+  region.addEventListener("keydown", stop);
+  dots.addEventListener("click", stop);
+  let x0 = 0;
+  let y0 = 0;
+  track.addEventListener("touchstart", (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  track.addEventListener("touchend", (e) => {
+    const t = e.changedTouches[0];
+    if (Math.abs(t.clientX - x0) > Math.abs(t.clientY - y0)) stop();
+  }, { passive: true });
+  track.addEventListener("wheel", (e) => { if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) stop(); }, { passive: true });
+  setInterval(() => {
+    if (!auto || !seen || over || document.hidden) return;
+    const i = (current + 1) % slides.length;
+    if (i) go(i); else track.scrollTo({ left: 0 });
+  }, 6000);
+
   for (const button of document.querySelectorAll("button[data-copy]")) {
     button.addEventListener("click", async () => {
       const code = document.getElementById(button.dataset.copy);
       try {
         await navigator.clipboard.writeText(
           code.textContent.split("\n").filter((l) => l && !l.startsWith("#")).join("\n"));
-        button.textContent = "Copied";
+        button.classList.add("done");
       } catch {
         // no clipboard (an old browser, a page not over https): select it for the visitor
         const range = document.createRange();
         range.selectNodeContents(code);
         getSelection().removeAllRanges();
         getSelection().addRange(range);
-        button.textContent = "Selected";
       }
-      setTimeout(() => { button.textContent = "Copy"; }, 2000);
+      setTimeout(() => button.classList.remove("done"), 2000);
     });
   }
 })();

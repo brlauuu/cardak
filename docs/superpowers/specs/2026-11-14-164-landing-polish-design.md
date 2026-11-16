@@ -85,3 +85,17 @@ Supersedes goals 2 and 3 where they differ.
    Claude Code."
 3. The video takes two thirds of the width and the install card one third, from 1120 px; in the
    card the commands wrap at a space instead of scrolling sideways.
+
+## Round 4
+
+1. Full reads "Everything.", Basic "Everything minus ASCII logo and AI summaries."
+2. Copy is an icon (a check for two seconds after copying).
+3. The terminal's commands and the `wezterm.lua` line are separate boxes, each labeled ("In a
+   terminal"; "In ~/.config/wezterm/wezterm.lua, before return config"), both code.
+4. The carousel loses its heading, arrows and counter; the dots are háčeks. From 1000 px they stand
+   in a column right of the slides; below that in a row (wrapping on a phone), with the track held
+   at the longest caption's height so they don't move (my call: both of the owner's options, by
+   width). ←/→ still step it from the keyboard.
+5. It turns by itself every 6 s, the last back to the first, while half on screen, the tab shown
+   and no pointer over it; a click, key, sideways swipe or wheel stops it for good; never with
+   reduced motion (my calls).

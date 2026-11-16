@@ -220,7 +220,7 @@ def _code(code_id: str) -> list[str]:
 
 
 def test_install_panel() -> None:
-    # one box per tab: every command to run, each under a shell comment saying what it does
+    # a terminal box per tab: every command to run, each under a shell comment saying what it does
     text = PAGE.read_text()
     section = text[text.index('id="install"') : text.index('id="screens"')]
     for code_id, install in (("cmd-full", FULL), ("cmd-basic", BASIC)):
@@ -229,8 +229,34 @@ def test_install_panel() -> None:
         assert commands == [install, "cardak wezterm install", "cardak hooks install", "cardak"]
         for command in commands:  # a comment above each one
             assert lines[lines.index(command) - 1].startswith("# "), command
-        assert any("require('cardak').apply(config)" in x for x in lines if x.startswith("#"))
-    assert section.count("data-copy") == 2
+        assert not any("require(" in x for x in lines)
+    assert section.count("data-copy") == 3
+
+
+def test_the_config_line_has_a_box_of_its_own() -> None:
+    # what goes in wezterm.lua apart from what runs in a terminal, both as code (#164)
+    assert _code("cmd-lua") == ["require('cardak').apply(config)"]
+    text = PAGE.read_text()
+    section = text[text.index('id="install"') : text.index('id="screens"')]
+    labels = [
+        " ".join(re.sub(r"<[^>]+>", "", x).split())
+        for x in re.findall(r'<span class="label">(.*?)</span>', section, flags=re.S)
+    ]
+    assert labels == [
+        "In a terminal",
+        "In a terminal",
+        "In ~/.config/wezterm/wezterm.lua, before return config",
+    ]
+
+
+def test_copy_is_an_icon() -> None:
+    text = PAGE.read_text()
+    buttons = re.findall(
+        r'<button type="button" class="copy"[^>]*>(.*?)</button>', text, flags=re.S
+    )
+    assert len(buttons) == 3
+    for inner in buttons:
+        assert "<svg" in inner and not re.sub(r"<[^>]+>", "", inner).strip()
 
 
 def test_copy_leaves_the_comments_out() -> None:
@@ -259,11 +285,14 @@ def test_each_install_says_its_size() -> None:
     assert sizes == [["Full", "~72", "MB"], ["Basic", "~14", "MB"]]
 
 
-def test_basic_says_what_full_has_that_it_lacks() -> None:
-    pattern = r'id="panel-basic".*?<div class="what"><span>(.*?)</span>'
-    found = re.search(pattern, PAGE.read_text(), flags=re.S)
-    assert found
-    assert " ".join(found.group(1).split()) == "Full minus the ASCII logo and AI summaries."
+def test_each_install_says_what_it_has() -> None:
+    text = PAGE.read_text()
+    for panel, what in (
+        ("full", "Everything."),
+        ("basic", "Everything minus ASCII logo and AI summaries."),
+    ):
+        found = re.search(rf'id="panel-{panel}".*?<p class="what">(.*?)</p>', text, flags=re.S)
+        assert found and " ".join(found.group(1).split()) == what
 
 
 def test_needs_is_two_lines() -> None:
@@ -286,9 +315,40 @@ def test_carousel() -> None:
     for i, a in enumerate(imgs):
         assert a.get("alt") and a.get("width") and a.get("height"), a
         assert (a.get("loading") == "lazy") == (i > 0), a
+    # no heading, no arrows, no counter: the dots alone (#164)
     labels = [a.get("aria-label", "") for t, a, _ in tags.tags if t == "button"]
-    assert any("Previous" in x for x in labels) and any("Next" in x for x in labels)
-    assert "setInterval" not in PAGE.read_text()  # it moves only when the visitor moves it
+    assert not any("Previous" in x or "Next" in x for x in labels)
+    text = PAGE.read_text()
+    assert (
+        "What it does" not in text and 'class="steps"' not in text and 'class="where"' not in text
+    )
+
+
+def test_carousel_turns_by_itself() -> None:
+    # a slide every few seconds while it's on screen, from the last back to the first; it
+    # stops for good once the visitor takes over, and never starts for reduced motion (#164)
+    script = _script()
+    assert "setInterval(" in script
+    assert "IntersectionObserver" in script and "document.hidden" in script
+    assert 'if (e.pointerType !== "touch") stop();' in script  # a mouse or pen
+    assert 'dots.addEventListener("click", stop)' in script
+    # a finger or wheel scrolling the page past it doesn't stop it; a sideways one does
+    assert script.count("Math.abs(") == 4
+    assert "let auto = !still.matches;" in script
+
+
+def test_dots_are_hacheks() -> None:
+    # the háček from the mark, cut out of a block by a mask: grey, the shown one paprika
+    rule = _rule(".dots button::before")
+    assert "M38 14 L50 33 L62 14" in rule and "mask:" in rule
+
+
+def test_dots_stand_right_of_a_wide_carousel() -> None:
+    found = re.search(r"@media \(min-width: 1000px\) \{\s*#screens \{([^}]*)\}", _css())
+    assert found and "display: grid" in found.group(1)
+    assert re.search(
+        r"@media \(min-width: 1000px\) \{[^@]*\.dots \{[^}]*flex-direction: column", _css()
+    )
 
 
 def test_slides_open_full_size() -> None:
@@ -341,10 +401,14 @@ def test_a_picture_fills_its_frame() -> None:
 
 
 def test_tap_targets_are_44px() -> None:
-    for selector in (".dots button", ".copy", ".steps button"):
-        rule = _rule(selector)
-        sizes = [int(v) for v in re.findall(r"(?:min-)?(?:height|width):\s*(\d+)px", rule)]
-        assert sizes and min(sizes) >= 44, (selector, rule)
+    rule = _rule(".copy")
+    sizes = [int(v) for v in re.findall(r"(?:min-)?(?:height|width):\s*(\d+)px", rule)]
+    assert sizes and min(sizes) >= 44, rule
+    # 19 dots: 24 px each way at least (WCAG 2.5.8), wrapping to a second row on a phone
+    for found in re.findall(r"\.dots button \{([^}]*)\}", _css()):
+        sizes = [int(v) for v in re.findall(r"(?:height|width):\s*(\d+)px", found)]
+        assert sizes and min(sizes) >= 24, found
+    assert "flex-wrap: wrap" in _rule(".dots")
 
 
 def test_arrow_keys_leave_browser_shortcuts_alone() -> None:
@@ -354,10 +418,10 @@ def test_arrow_keys_leave_browser_shortcuts_alone() -> None:
 
 
 def test_track_takes_the_shown_slides_height() -> None:
-    # a flex row is as tall as its tallest item: the script fits it to the slide on screen,
-    # again as images load, so the dots follow the caption on a phone (#106 review)
+    # a flex row is as tall as its tallest item: the script fits it to the tallest caption, so
+    # the dots stay put, and to the upright phone slide only while it's shown (#106, #164)
     script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
-    assert "track.style.height" in script
+    assert "track.style.height" in script and '.classList.contains("tall")' in script
     assert 'addEventListener("load"' in script
     assert "overflow-y: hidden" in _rule(".track")
 
@@ -442,17 +506,11 @@ def test_slides_are_numbered_in_order() -> None:
     assert labels == [f"{i} of {len(SLIDES)}" for i in range(1, len(SLIDES) + 1)]
 
 
-def test_the_dots_leave_a_phone_alone() -> None:
-    # 19 dots of 44 px are 836 px: a phone gets a "3 / 19" counter instead (#164)
-    script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
-    assert "where.textContent" in script
-    assert _find(_page(), "span", **{"class": "where"})
-
-
 def test_fast_clicks_count_every_step() -> None:
     # a click during the smooth scroll steps on from where the last click was headed (#164)
     script = re.search(r"<script>(.*?)</script>", PAGE.read_text(), flags=re.S).group(1)  # type: ignore[union-attr]
     assert "go((target ?? current) + 1)" in script and "go((target ?? current) - 1)" in script
+    # ←/→ still step it from the keyboard, with no arrows on screen
 
 
 def _script() -> str:
@@ -471,21 +529,8 @@ def test_a_go_that_does_not_move_leaves_no_target() -> None:
     )
 
 
-def test_the_counter_speaks_once_per_slide() -> None:
-    # an aria-live region rewritten on every scroll frame reads out every slide passed
-    assert (
-        "if (target === null && where.textContent !== text) where.textContent = text;" in _script()
-    )
-
-
 def test_tab_keys_leave_browser_shortcuts_alone() -> None:
-    assert _script().count("if (e.altKey || e.ctrlKey || e.metaKey) return;") == 2
-
-
-def test_dots_keep_their_size_until_the_counter_takes_over() -> None:
-    # 19 dots of 44 px need 836 px: below 860 the counter alone (#164 review)
-    assert "flex: none" in _rule(".dots button")
-    assert re.search(r"@media \(max-width: 860px\) \{\s*\.dots \{ display: none; \}", _css())
+    assert _script().count("if (e.altKey || e.ctrlKey || e.metaKey) return;") == 2  # tabs, slides
 
 
 def test_tagline_fits_a_320px_phone() -> None:
