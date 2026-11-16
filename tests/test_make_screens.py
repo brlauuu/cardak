@@ -76,6 +76,7 @@ def test_the_phone_slide_reads_the_same_snapshot() -> None:
 
 
 def test_illustrations_for_what_has_no_screen(tmp_path: Path) -> None:
+    pytest.importorskip("pyfiglet")  # the logo slide draws real art: the background extra
     # tab titles and sounds live outside the deck: the script draws them (#164)
     made = make_screens.illustrations(tmp_path)
     assert set(made) == set(ILLUSTRATIONS)
@@ -89,6 +90,7 @@ def test_illustrations_for_what_has_no_screen(tmp_path: Path) -> None:
 
 
 def test_tabs_show_only_what_cardak_names() -> None:
+    pytest.importorskip("pyfiglet")  # the logo slide draws real art: the background extra
     # cardak.lua returns plain tab text: the drawing adds no accent of its own (#164 review)
     page = make_screens.illustrations(Path(make_screens.tempfile.mkdtemp()))["tabs"].read_text()
     assert "inset 0 3px" not in page
@@ -100,6 +102,7 @@ def test_the_context_plot_fills_its_slide() -> None:
 
 
 def test_the_logo_slide_draws_cardaks_own_art() -> None:
+    pytest.importorskip("pyfiglet")  # the logo slide draws real art: the background extra
     # the art is what cardak makes for a project without a logo: its name in figlet letters
     import html
 
