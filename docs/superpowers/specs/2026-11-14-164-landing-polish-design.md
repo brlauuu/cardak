@@ -99,3 +99,9 @@ Supersedes goals 2 and 3 where they differ.
 5. It turns by itself every 6 s, the last back to the first, while half on screen, the tab shown
    and no pointer over it; a click, key, sideways swipe or wheel stops it for good; never with
    reduced motion (my calls).
+
+## Round 5 (after the merge)
+
+1. The háčeks are a row above the slides at every width; the captions stay below.
+2. The video sits in a card like the install card's, and side by side the two are one height,
+   the video centered in its card.
