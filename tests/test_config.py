@@ -735,7 +735,45 @@ def test_background_position_defaults_to_none(tmp_path: Path) -> None:
     assert cfg.background.position is None and cfg.projects[0].background_position is None
 
 
-BAD_POSITIONS = ["[1]", "[1, 2, 3]", "[-1, 0]", '["a", 1]', "[1.5, 2]", "[true, 1]", '"2,1"']
+def test_background_position_takes_names_and_numbers(tmp_path: Path) -> None:
+    text = (
+        '[background]\nposition = ["center", "bottom"]\n'
+        '[[project]]\nname = "a"\npath = "/a"\nbackground_position = ["left", 2]\n'
+        '[[project]]\nname = "b"\npath = "/b"\nbackground_position = [3, "center"]\n'
+        '[[project]]\nname = "c"\npath = "/c"\nbackground_position = ["right", "top"]\n'
+    )
+    cfg = load(_cfg(tmp_path, text))
+    assert cfg.background.position == ("center", "bottom")
+    assert [p.background_position for p in cfg.projects] == [
+        ("left", 2),
+        (3, "center"),
+        ("right", "top"),
+    ]
+
+
+BAD_POSITIONS = [
+    "[1]",
+    "[1, 2, 3]",
+    "[-1, 0]",
+    '["a", 1]',
+    "[1.5, 2]",
+    "[true, 1]",
+    '"2,1"',
+    '["top", 1]',  # a row's name in the columns
+    '[1, "left"]',  # a column's name in the rows
+    '["Left", 1]',
+    '["middle", 1]',
+]
+
+
+def test_a_bad_position_names_the_choices(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError) as e:
+        load(_cfg(tmp_path, '[background]\nposition = ["top", 1]\n'))
+    assert (
+        '[background] position must be [columns, rows]: columns "left", "center", "right" or a'
+        ' whole number ≥ 0 counted from the right; rows "top", "center", "bottom" or a whole'
+        " number ≥ 0 counted from the top"
+    ) in str(e.value)
 
 
 @pytest.mark.parametrize("value", BAD_POSITIONS)

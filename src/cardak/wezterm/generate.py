@@ -7,12 +7,12 @@ from importlib.resources import files
 from pathlib import Path
 
 from cardak.core.backgrounds import Image
-from cardak.core.config import Config, Project, real_path
+from cardak.core.config import Config, Position, Project, real_path
 from cardak.core.themes import Scheme, project_tint
 from cardak.shared.files import write_atomic
 from cardak.wezterm.install import MARKER
 
-MODULE_VERSION = 7
+MODULE_VERSION = 8
 ZSH_MARKER = "# cardak: generated"
 PROJECTS_FILE = "cardak_projects.lua"
 TINTS_FILE = "tints"
@@ -96,8 +96,13 @@ def _background(image: Image | None) -> str:
     return f", background = {{ file = {file}, cols = {image.cols}, rows = {image.rows} }}"
 
 
-def _position(at: tuple[int, int] | None) -> str:
-    return "" if at is None else f", position = {{ {at[0]}, {at[1]} }}"
+def _lua_position(at: Position) -> str:
+    """`{ 'left', 2 }`: a name as a Lua string, a number as is (#168)."""
+    return "{ " + ", ".join(f"'{c}'" if isinstance(c, str) else str(c) for c in at) + " }"
+
+
+def _position(at: Position | None) -> str:
+    return "" if at is None else f", position = {_lua_position(at)}"
 
 
 def _project_lines(
@@ -122,7 +127,7 @@ def render_projects_lua(
     lines.append(f"  background_opacity = {config.background.opacity:g},")
     at = config.background.position
     if at is not None:
-        lines.append(f"  background_position = {{ {at[0]}, {at[1]} }},")
+        lines.append(f"  background_position = {_lua_position(at)},")
     default = config.defaults.get("theme")
     if isinstance(default, str):
         if known is not None and default not in known:

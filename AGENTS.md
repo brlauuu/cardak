@@ -221,10 +221,13 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   user's `color_schemes` (read at each sync, so ones set after `apply` count), else the built-in
   list, else the window's effective config, which still has the previous scheme during the sync
   that switches it (#128, module 6). A position (a project's `background_position`, else
-  `[background] position`; columns left and rows down from the top-right) aligns the image
-  `Right`/`Top` with offsets `-<cols>cell` / `<rows>cell`; without one it is `Right`/`Bottom` at
-  `-1cell`. Measured on 20240203 (`spikes/08_background_position.py`): a positive horizontal
-  offset pushes it past the right edge, and art outside the window is clipped (#132, module 7).
+  `[background] position`) is `[columns, rows]`, each axis on its own: a number aligns the image
+  `Right` with offset `-<cols>cell`, or `Top` with `<rows>cell`; a name (`config.COLUMNS`:
+  left / center / right, `ROWS`: top / center / bottom) aligns it `Left` / `Center` / `Right` or
+  `Top` / `Middle` / `Bottom` at `1cell`, `0cell` and `-1cell`, so `["right", "bottom"]` is the
+  default (#168, module 8). Measured on 20240203 (`spikes/08_background_position.py`,
+  `09_background_align.py`): every offset is added to its alignment (a positive horizontal one
+  pushes right-aligned art past the edge), and art outside the window is clipped (#132).
   With `[background] enabled = false` the picker's switch is disabled and its previews carry no art; the art line names a file only once its art was made (#126).
   Logos: README images first, then tracked files named logo / mark / icon (`git ls-files`),
   skipping wordmarks (art under 8 rows) and

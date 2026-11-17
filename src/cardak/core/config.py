@@ -18,6 +18,13 @@ if TYPE_CHECKING:
 # module on every Claude Code hook and only reads.
 
 
+# A background position's [columns, rows]: a name aligns that axis to a window edge (or its
+# middle), a whole number counts cells from the right and down from the top (#132, #168).
+COLUMNS = ("left", "center", "right")
+ROWS = ("top", "center", "bottom")
+Position = tuple[int | str, int | str]
+
+
 @dataclass(frozen=True)
 class Project:
     name: str
@@ -27,7 +34,7 @@ class Project:
     github: str | None = None
     tint: str | None = None
     background: bool = True  # the project's ASCII art behind its windows (#9)
-    background_position: tuple[int, int] | None = None  # cells from the top-right (#132)
+    background_position: Position | None = None  # see _position (#132, #168)
 
 
 Theme = Literal["waiting", "memory", "other"]  # which notification a sound is for (#91)
@@ -122,7 +129,7 @@ class BackgroundSettings:
     enabled: bool = True
     opacity: float = 0.06
     # (columns left, rows down) from the window's top-right corner; None: bottom-right (#132)
-    position: tuple[int, int] | None = None
+    position: Position | None = None
 
 
 ISSUE_COMMAND = "/issue-to-pr {number}"
@@ -438,16 +445,27 @@ def _background(path: Path, data: Mapping[str, object]) -> BackgroundSettings:
     return BackgroundSettings(enabled, float(opacity), position)
 
 
-def _position(path: Path, value: object, what: str) -> tuple[int, int] | None:
-    """[columns, rows], whole and ≥ 0, from the window's top-right corner (#132)."""
+def _coordinate(value: object, names: tuple[str, ...]) -> bool:
+    return value in names if isinstance(value, str) else type(value) is int and value >= 0
+
+
+def _position(path: Path, value: object, what: str) -> Position | None:
+    """[columns, rows]: each a name (`COLUMNS`, `ROWS`) or a whole number ≥ 0 of cells from the
+    window's right edge and down from its top (#132, #168)."""
     if value is None:
         return None
-    if (
-        not isinstance(value, list)
-        or len(value) != 2
-        or not all(type(n) is int and n >= 0 for n in value)
+    if not (
+        isinstance(value, list)
+        and len(value) == 2
+        and _coordinate(value[0], COLUMNS)
+        and _coordinate(value[1], ROWS)
     ):
-        raise ConfigError(path, f"{what} must be [columns, rows], two whole numbers ≥ 0")
+        names = (", ".join(f'"{n}"' for n in COLUMNS), ", ".join(f'"{n}"' for n in ROWS))
+        raise ConfigError(
+            path,
+            f"{what} must be [columns, rows]: columns {names[0]} or a whole number ≥ 0 counted"
+            f" from the right; rows {names[1]} or a whole number ≥ 0 counted from the top",
+        )
     return (value[0], value[1])
 
 
