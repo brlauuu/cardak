@@ -29,7 +29,7 @@ from cardak.core.agents import Status
 from cardak.core.pm import Band, Board, Card, Done, new_issue_url
 from cardak.core.pm_service import Observed
 from cardak.core.recap import ago
-from cardak.ui.widgets import IDLE, WAITING, WORKING
+from cardak.ui.widgets import IDLE, WAITING, WORKING, until
 
 LOADING = "Reading GitHub…"
 NO_WORK = "Starting work on an issue isn't available in this deck."
@@ -97,6 +97,9 @@ def band_title(band: Band, now: float) -> Text:
         text.append(f" · fetched {ago(now - band.fetched_at)}", "dim")
     if band.error:
         text.append(f" · {band.error}", "yellow")
+        if band.retry_at is not None:
+            left = band.retry_at - now
+            text.append(f" · retry in {until(left)}" if left > 0 else " · retrying", "dim")
     return text
 
 

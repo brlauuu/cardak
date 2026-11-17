@@ -150,6 +150,16 @@ def test_board_json_round_trip_and_garbage() -> None:
     assert board_from_json(None) is None
 
 
+def test_board_json_keeps_the_retry_and_reads_a_file_without_it() -> None:
+    band = Band("x", "/p", "example/x", (), (), Done((), None), 5.0, "oops", 300.0)
+    board = Board((band,), 7.0)
+    stored = json.loads(json.dumps(board_to_json(board)))
+    assert board_from_json(stored) == board
+    del stored["bands"][0]["retry_at"]  # written before #165
+    old = board_from_json(stored)
+    assert old is not None and old.bands[0].retry_at is None
+
+
 def test_new_issue_url_is_githubs_new_issue_page() -> None:
     band = Band("webshop", "/w/webshop", "example/webshop", (), (), Done((), None), None, None)
     assert new_issue_url(band) == f"{U}/issues/new"

@@ -335,6 +335,7 @@ def _pm_band(b: Band, now: float) -> Json:
         "repo": b.repo,
         "fetched_ago": None if b.fetched_at is None else round(now - b.fetched_at),
         "error": b.error,
+        "retry_in": None if b.retry_at is None else max(0, round(b.retry_at - now)),
         "todo": [_pm_card(c, now) for c in b.todo],
         "onit": [_pm_card(c, now) for c in b.onit],
         "done": {

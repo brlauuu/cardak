@@ -527,6 +527,13 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   newer than the repository's last fetch counts after a restart too. Local branches
   (`for-each-ref refs/heads`, shared by worktrees) and the branch of each Claude pane's folder are
   re-read every 10 s.
+- **A failed read** (#165) names its cause: a timeout as "can't reach GitHub: gh timed out after
+  20 s", a network failure as that prefix and gh's first stderr line (Go's `Post "<url>": ` cut, and
+  addresses with their ports, which change on every try),
+  anything else as gh's line, at most `github.MAX_LINE` (120) characters. The band carries
+  `retry_at` (the repository's `due`), shown as "retry in 4m" / "retrying"; a board file without it
+  still reads. `GithubError.detail` (all of gh's stderr) goes to hook.log once per message and
+  repository (an outage is one entry per repository), again only after a good read.
 - **onit**: an open issue whose number starts a local or open-PR branch (or its last `/` part),
   followed by `-`, `_` or the end, or which an open PR closes; open PRs that claim no open issue
   are PR cards.
