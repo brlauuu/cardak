@@ -113,7 +113,7 @@ def data(
     *projects: Project,
     default: str | None = None,
     images: dict[Path, Image] | None = None,
-    position: tuple[int, int] | None = None,
+    position: tuple[int | str, int | str] | None = None,
 ) -> str:
     defaults: dict[str, object] = {"theme": default} if default else {}
     background = BackgroundSettings(position=position)
@@ -267,8 +267,8 @@ def test_focus_is_harmless_without_a_state_dir(
     assert not (tmp_path / "missing").exists()
 
 
-def test_module_version_7() -> None:
-    assert MODULE.splitlines()[1] == "-- cardak-module: 7"
+def test_module_version_8() -> None:
+    assert MODULE.splitlines()[1] == "-- cardak-module: 8"
 
 
 def record_opens(wez: Wez) -> Any:
@@ -597,7 +597,47 @@ def test_a_moved_position_moves_the_art_after_a_reload() -> None:
     assert _placed(wez.background(w)) == ("Right", "Bottom", "-1cell", "-1cell")
 
 
-@pytest.mark.parametrize("bad", ["{ 1 }", "{ -1, 0 }", "{ 'a', 1 }", "{ 1.5, 2 }", "'x'"])
+# measured on 20240203 (spikes/09_background_align.py, #168): every offset is added to its
+# alignment, so a named edge keeps the default's one cell and center is exact
+@pytest.mark.parametrize(
+    ("at", "placed"),
+    [
+        (("left", "top"), ("Left", "Top", "1cell", "1cell")),
+        (("center", "center"), ("Center", "Middle", "0cell", "0cell")),
+        (("right", "bottom"), ("Right", "Bottom", "-1cell", "-1cell")),
+        (("left", 2), ("Left", "Top", "1cell", "2cell")),
+        ((3, "center"), ("Right", "Middle", "-3cell", "0cell")),
+        ((0, "bottom"), ("Right", "Bottom", "0cell", "-1cell")),
+    ],
+)
+def test_a_named_position_aligns_its_axis(at: tuple[object, object], placed: tuple) -> None:
+    web = Project(name="web", path=Path("/r/web"), theme="Nord", background_position=at)  # type: ignore[arg-type]
+    wez = Wez(data(web, images={web.path: ART}))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    assert _placed(wez.background(w)) == placed
+
+
+def test_moving_to_a_named_position_replaces_cardaks_layers() -> None:
+    wez = Wez(data(WEB, images={WEB.path: ART}, position=(2, 1)))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    wez.g.DATA = data(WEB, images={WEB.path: ART}, position=("left", "center"))
+    wez.lua.execute("package.loaded.cardak_projects = nil")
+    wez.reload()
+    wez.status(w)
+    assert _placed(wez.background(w)) == ("Left", "Middle", "1cell", "0cell")
+    wez.g.DATA = data(WEB, images={WEB.path: ART}, position=("center", 0))
+    wez.lua.execute("package.loaded.cardak_projects = nil")
+    wez.reload()
+    wez.status(w)
+    assert _placed(wez.background(w)) == ("Center", "Top", "0cell", "0cell")
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["{ 1 }", "{ -1, 0 }", "{ 'a', 1 }", "{ 1.5, 2 }", "'x'", "{ 'top', 1 }", "{ 1, 'left' }"],
+)
 def test_a_malformed_position_is_ignored(bad: str) -> None:
     wez = Wez(
         f"return {{ background_position = {bad}, projects = {{ {{ path = '/r/a', scheme = 'Nord',"

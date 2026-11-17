@@ -74,10 +74,10 @@ def test_module_version(tmp_path: Path) -> None:
     lua.write_text(MARKER + " by `cardak wezterm install`\nlocal wezterm\n")
     assert module_version(lua) == 1
     install(tmp_path)
-    assert module_version(lua) == MODULE_VERSION == 7
+    assert module_version(lua) == MODULE_VERSION == 8
     lua.write_text("-- mine\n")
     assert module_version(lua) is None
-    assert module_text().splitlines()[1] == "-- cardak-module: 7"
+    assert module_text().splitlines()[1] == "-- cardak-module: 8"
 
 
 def test_write_generated_needs_the_module(tmp_path: Path) -> None:
@@ -257,6 +257,14 @@ def test_lua_data_carries_the_background_positions() -> None:
     assert "  background_position = { 2, 1 },\n" in text
     assert "{ path = [[/r/web]], name = [[web]], position = { 10, 4 } }," in text
     assert "{ path = [[/r/api]], name = [[api]] }," in text
+
+
+def test_lua_data_carries_named_positions_as_strings() -> None:
+    web = Project(name="web", path=Path("/r/web"), background_position=("left", 2))
+    cfg = Config(projects=(web,), background=BackgroundSettings(position=("center", "bottom")))
+    text, _ = render_projects_lua(cfg, None)
+    assert "  background_position = { [[center]], [[bottom]] },\n" in text
+    assert "{ path = [[/r/web]], name = [[web]], position = { [[left]], 2 } }," in text
 
 
 def test_lua_data_without_positions_names_none() -> None:

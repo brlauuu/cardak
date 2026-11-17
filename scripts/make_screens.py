@@ -1279,7 +1279,7 @@ LOGO_TOML = (
     ('<span style="color:#f9e2af">[background]</span>', ""),
     ("enabled = <b>true</b>", "every project's logo, or its name"),
     ("opacity = <b>0.15</b>", "how faint it is"),
-    ('<span style="color:#6c7086"># position = [4, 2]</span>', "else from the top-right"),
+    ('<span style="color:#6c7086"># position = ["left", "top"]</span>', "else bottom-right"),
 )
 
 
