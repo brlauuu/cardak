@@ -22,6 +22,9 @@ OFFLINE = "can't reach GitHub"
 ODD = "unexpected reply from GitHub"
 MAX_LINE = 120  # characters of a message: the band's title line shows it whole
 _REQUEST = re.compile(r'^(?:Post|Get) "[^"]*": ')  # Go's prefix on a failed HTTP request
+# an address with its port ("192.168.1.5:54321->140.82.121.6:443", "[fd00::5]:40110"): a new local
+# port on every try would make each retry a new message, and a new line in hook.log
+_ADDRESS = re.compile(r" (?:\[[0-9a-fA-F:.]+\]|\d+(?:\.\d+){3})(?::\d+)?(?:->\S+)?(?=:)")
 _OFFLINE_HINTS = ("error connecting", "could not resolve host", "connection", "timeout", "dial tcp")
 _REPO_URL = re.compile(
     r"^(?:git@github\.com:|https://github\.com/|ssh://git@github\.com/)"
@@ -157,7 +160,8 @@ def _failure(out: subprocess.CompletedProcess[str]) -> GithubError:
     if not lines:
         return GithubError(f"gh exited {out.returncode}")
     if any(hint in lines[0].lower() for hint in _OFFLINE_HINTS):
-        return GithubError(_line(f"{OFFLINE}: {_REQUEST.sub('', lines[0])}"), detail)
+        cause = _ADDRESS.sub("", _REQUEST.sub("", lines[0]))
+        return GithubError(_line(f"{OFFLINE}: {cause}"), detail)
     return GithubError(_line(lines[0]), detail)
 
 

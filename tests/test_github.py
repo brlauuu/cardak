@@ -129,6 +129,23 @@ def test_a_long_gh_line_is_cut() -> None:
     assert len(str(e.value)) <= MAX_LINE and str(e.value).endswith("…")
 
 
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        'Post "https://api.github.com/graphql": read tcp 192.168.1.5:54321->140.82.121.6:443: '
+        "read: connection reset by peer",
+        'Post "https://api.github.com/graphql": read tcp [fd00::5]:40110->[2606:50c0::6]:443: '
+        "read: connection reset by peer",
+    ],
+)
+def test_addresses_leave_the_message_and_stay_in_detail(stderr: str) -> None:
+    # a new local port and GitHub's round-robin address on every try: one cause, one message
+    with pytest.raises(GithubError) as e:
+        fetch("example/webshop", SINCE, run=_failing(1, "", stderr + "\n"))
+    assert str(e.value) == "can't reach GitHub: read tcp: read: connection reset by peer"
+    assert e.value.detail == stderr
+
+
 def test_the_error_keeps_all_of_gh_output() -> None:
     stderr = "error connecting to api.github.com\ncheck your internet connection\n"
     with pytest.raises(GithubError) as e:
