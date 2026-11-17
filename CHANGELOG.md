@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.20.0 — 2026-11-17
+
 ### Added
 - The project background's position takes names: `"left"`, `"center"` or `"right"` for columns and `"top"`, `"center"` or `"bottom"` for rows, mixed with numbers if you like (`["left", 2]`). Centered or at an edge, it keeps its place when the window is resized. Run `cardak wezterm install` again to use it (#168).
 - The phone page has cardak's icon, in the browser tab and on your home screen when you add it there (#106).
