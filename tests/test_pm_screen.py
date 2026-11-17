@@ -358,3 +358,28 @@ async def test_n_on_a_project_not_on_github_says_so() -> None:
         await pilot.pause()
         assert opened == []
         assert notes_of(screen) == ["notes isn't on GitHub: there's nowhere to open an issue."]
+
+
+async def test_n_off_the_columns_of_every_project_opens_nothing() -> None:
+    from textual.containers import VerticalScroll
+
+    opened: list[str] = []
+    _, screen = screen_for(BOARD, opened=opened)
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        screen.query_one("#bands", VerticalScroll).focus()
+        await pilot.press("n")
+        await pilot.pause()
+        assert opened == []
+        assert notes_of(screen) == ["Move to a project's column first."]
+
+
+async def test_n_while_github_is_read_says_so() -> None:
+    _, screen = screen_for(None)
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        assert notes_of(screen) == [
+            "The PM view hasn't read its projects yet: try again in a moment."
+        ]

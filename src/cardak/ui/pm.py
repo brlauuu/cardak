@@ -35,6 +35,7 @@ LOADING = "Reading GitHub…"
 NO_WORK = "Starting work on an issue isn't available in this deck."
 NOT_LISTED = "{} isn't in projects.toml: press a on it in the deck to add it, then it shows here."
 NOT_READ = "The PM view hasn't read its projects yet: try again in a moment."
+PICK_BAND = "Move to a project's column first."
 OFF_GITHUB = "{} isn't on GitHub: there's nowhere to open an issue."
 REDRAW_EVERY = 30.0  # the ages ("fetched 12 minutes ago") move on without a new board
 _HEX = re.compile(r"^[0-9a-fA-F]{6}$")
@@ -314,9 +315,13 @@ class PmScreen(Screen[None]):
 
     def action_new_issue(self) -> None:
         column = self.focused
+        if not self._bands_shown:
+            self.notify(NOT_READ, severity="warning")
+            return
+        if not isinstance(column, Column) and len(self._bands_shown) > 1:
+            self.notify(PICK_BAND, severity="warning")  # which project's isn't clear
+            return
         at = column.band if isinstance(column, Column) else 0
-        if at >= len(self._bands_shown):
-            return  # still reading GitHub
         if (reason := open_new_issue(self._bands_shown[at], self._open_url)) is not None:
             self.notify(reason, severity="warning")
 
