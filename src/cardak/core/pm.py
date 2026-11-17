@@ -57,6 +57,7 @@ class Band:
     done: Done
     fetched_at: float | None
     error: str | None
+    retry_at: float | None = None  # when a failed read is tried again (#165)
 
 
 @dataclass(frozen=True)
@@ -148,11 +149,12 @@ def build_band(
     done: Done,
     fetched_at: float | None,
     error: str | None,
+    retry_at: float | None = None,
 ) -> Band:
     if repo is None:
         return Band(name, path, None, (), (), done, None, NOT_ON_GITHUB)
     if data is None:
-        return Band(name, path, repo, (), (), done, fetched_at, error)
+        return Band(name, path, repo, (), (), done, fetched_at, error, retry_at)
     by_number = _by_number(local)
     open_numbers = {i.number for i in data.issues}
     claimed = set(by_number).union(*(_claims(p) for p in data.prs))
@@ -160,7 +162,8 @@ def build_band(
     onit = [c for c in cards if c.number in claimed]
     onit += [_pr_card(p, sessions) for p in data.prs if not _claims(p) & open_numbers]
     todo = [c for c in cards if c.number not in claimed]
-    return Band(name, path, repo, _newest_first(todo), _newest_first(onit), done, fetched_at, error)
+    todo, onit = _newest_first(todo), _newest_first(onit)
+    return Band(name, path, repo, todo, onit, done, fetched_at, error, retry_at)
 
 
 def board_to_json(board: Board) -> dict[str, object]:
@@ -208,6 +211,7 @@ def _band(d: Mapping[str, Any]) -> Band:
         Done(bullets, _opt(done["note"])),
         None if d["fetched_at"] is None else float(d["fetched_at"]),
         _opt(d["error"]),
+        None if d.get("retry_at") is None else float(d["retry_at"]),
     )
 
 

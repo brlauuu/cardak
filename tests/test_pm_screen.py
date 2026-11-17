@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 from textual.app import App
@@ -5,7 +6,7 @@ from textual.widgets import OptionList, Static
 
 from cardak.collectors.github import Label
 from cardak.core.pm import NOTHING_DONE, Band, Board, Bullet, Card, Done
-from cardak.ui.pm import Column, PmScreen
+from cardak.ui.pm import Column, PmScreen, band_title
 
 NOW = 2_000_000_000.0
 U = "https://github.com/example/webshop"
@@ -226,6 +227,15 @@ async def test_band_error_and_nothing_done() -> None:
         await pilot.pause()
         text = text_of(screen)
         assert "can't reach GitHub" in text and NOTHING_DONE in text
+
+
+def test_a_band_error_says_when_it_retries() -> None:
+    failed = replace(webshop("can't reach GitHub: gh timed out after 20 s"), retry_at=NOW + 250)
+    assert band_title(failed, NOW).plain.endswith(
+        "can't reach GitHub: gh timed out after 20 s · retry in 4m"
+    )
+    assert band_title(failed, NOW + 300).plain.endswith("20 s · retrying")
+    assert "retry" not in band_title(webshop(), NOW).plain
 
 
 async def test_no_board_yet() -> None:

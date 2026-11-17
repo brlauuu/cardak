@@ -775,6 +775,11 @@ function pmCard(c) {
   return add(a, top, line);
 }
 
+function pmError(b) {
+  if (b.retry_in === null || b.retry_in === undefined) return b.error;
+  return b.error + (b.retry_in > 0 ? " · retry in " + limitUntil(b.retry_in) : " · retrying");
+}
+
 function pmBand(b) {
   const box = el("div", "trend");
   const issues = b.todo.length + b.onit.filter((c) => c.kind === "issue").length;
@@ -783,7 +788,7 @@ function pmBand(b) {
   if (b.repo && (b.fetched_ago !== null || !b.error)) head.push(issues + " open");
   if (b.fetched_ago !== null) head.push("fetched " + age(b.fetched_ago) + " ago");
   add(box, el("p", "muted small", head.join(" · ")));
-  if (b.error) add(box, el("p", "small pm-error", b.error));
+  if (b.error) add(box, el("p", "small pm-error", pmError(b)));
   const col = (title, cards) => {
     const c = add(el("div", "pm-col"), el("h4", null, title));
     for (const card of cards) add(c, pmCard(card));

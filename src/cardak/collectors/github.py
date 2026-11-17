@@ -2,7 +2,8 @@
 merged or closed since a time (#68). `gh` owns authentication; cardak handles no token.
 
 `gh pr list --json` has no closing issue references (checked with gh 2.45), GraphQL does.
-Every failure is a `GithubError` whose text is one line for the deck.
+Every failure is a `GithubError` whose text is one line for the deck, naming the cause (#165),
+and whose `detail` is all gh printed, for hook.log.
 """
 
 import json
@@ -19,6 +20,8 @@ PAGE = 100
 NOT_INSTALLED = "gh isn't installed"
 OFFLINE = "can't reach GitHub"
 ODD = "unexpected reply from GitHub"
+MAX_LINE = 120  # characters of a message: the band's title line shows it whole
+_REQUEST = re.compile(r'^(?:Post|Get) "[^"]*": ')  # Go's prefix on a failed HTTP request
 _OFFLINE_HINTS = ("error connecting", "could not resolve host", "connection", "timeout", "dial tcp")
 _REPO_URL = re.compile(
     r"^(?:git@github\.com:|https://github\.com/|ssh://git@github\.com/)"
@@ -107,7 +110,13 @@ class RepoData:
 
 
 class GithubError(Exception):
-    pass
+    def __init__(self, message: str, detail: str = "") -> None:
+        super().__init__(message)
+        self.detail = detail or message
+
+
+def _line(text: str) -> str:
+    return text if len(text) <= MAX_LINE else text[: MAX_LINE - 1].rstrip() + "…"
 
 
 def repo_from_url(url: str) -> str | None:
@@ -144,11 +153,12 @@ def _failure(out: subprocess.CompletedProcess[str]) -> GithubError:
     except (ValueError, AttributeError, TypeError, IndexError):
         pass
     lines = [line.strip() for line in out.stderr.splitlines() if line.strip()]
+    detail = "\n".join(lines)
     if not lines:
         return GithubError(f"gh exited {out.returncode}")
     if any(hint in lines[0].lower() for hint in _OFFLINE_HINTS):
-        return GithubError(OFFLINE)
-    return GithubError(lines[0])
+        return GithubError(_line(f"{OFFLINE}: {_REQUEST.sub('', lines[0])}"), detail)
+    return GithubError(_line(lines[0]), detail)
 
 
 def _query(
@@ -165,7 +175,8 @@ def _query(
     except FileNotFoundError as e:
         raise GithubError(NOT_INSTALLED) from e
     except subprocess.TimeoutExpired as e:
-        raise GithubError(OFFLINE) from e
+        waited = f"gh timed out after {timeout:g} s"
+        raise GithubError(f"{OFFLINE}: {waited}", f"{waited}: gh api graphql for {repo}") from e
     except OSError as e:
         raise GithubError(str(e)) from e
     if out.returncode != 0:

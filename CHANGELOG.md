@@ -18,6 +18,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 - The deck reads like a table: every project's and pane's numbers (a session's state, RAM with its graph, CPU, context and this month's spend) line up in columns on the right under a heading. In a window at least 120 columns wide, "Waiting on you" and the machine's CPU and RAM move to a pane of their own on the right: Tab moves there and every key works on a session in it, and `w` shows just the projects with a waiting session. Narrower windows keep one list (#122).
 - The landing page at brlauuu.dev/cardak is new: what cardak is for in one line, the demo video beside the install (Full or Basic, with their sizes, the commands to run and the line for wezterm.lua, each a click to copy), and a screen for every feature, nineteen in all, turning by itself. A banner announces a release for 30 days after it, the footer links the changelog, link previews show a proper image, and it reads well on a phone (#106, #164).
 
+### Fixed
+- When the PM view can't read a project from GitHub, it says why (gh timed out, the host couldn't be found, gh's own message) and when it tries again, in the deck and on the phone page; gh's full output goes to `~/.local/state/cardak/hook.log`, once per cause (#165).
+
 ## 0.19.0 — 2026-11-11
 
 ### Added

@@ -10,6 +10,7 @@ from cardak.collectors.github import GithubError, Issue, Merged, RepoData
 from cardak.core.config import Config, Project, SummarySettings
 from cardak.core.pm import NOT_ON_GITHUB
 from cardak.core.pm_service import (
+    ERROR_RETRY,
     EVENTS_EVERY,
     LOCAL_EVERY,
     MIN_GAP,
@@ -68,6 +69,7 @@ class Fetch:
     def __init__(self) -> None:
         self.calls: list[str] = []
         self.replies: dict[str, RepoData | GithubError] = {}
+        self.logged: list[str] = []  # what the service wrote to hook.log
 
     def __call__(self, repo: str, since: float) -> RepoData:
         self.calls.append(repo)
@@ -95,6 +97,7 @@ def parts(tmp_path: Path):  # noqa: ANN201
         board_file=tmp_path / "state" / "pm.json",
         cache=tmp_path / "cache",
         clock=clock,
+        log=fetch.logged.append,
     )
     yield svc, clock, git, fetch, store, tmp_path
     store.close()
@@ -250,6 +253,43 @@ def test_error_keeps_last_good_data(parts) -> None:  # noqa: ANN001
     svc.step()
     b = band(svc, "webshop")
     assert b.error == "can't reach GitHub" and b.todo and b.fetched_at == T0
+
+
+def test_a_failed_fetch_says_when_it_retries(parts) -> None:  # noqa: ANN001
+    svc, clock, git, fetch, *_ = parts
+    svc.step()
+    assert band(svc, "webshop").retry_at is None
+    fetch.replies["example/webshop"] = GithubError("can't reach GitHub: gh timed out after 20 s")
+    clock.now = T0 + REFRESH_EVERY + 1
+    svc.step()
+    assert band(svc, "webshop").retry_at == clock.now + ERROR_RETRY
+    del fetch.replies["example/webshop"]
+    clock.now += ERROR_RETRY
+    svc.step()
+    assert band(svc, "webshop").retry_at is None and band(svc, "webshop").error is None
+
+
+def test_a_failure_goes_to_the_log_once_per_cause(parts) -> None:  # noqa: ANN001
+    svc, clock, git, fetch, *_ = parts
+    timeout = GithubError("can't reach GitHub: gh timed out", "gh timed out: gh api graphql")
+    fetch.replies["example/webshop"] = timeout
+    svc.step()
+    assert len(fetch.logged) == 1
+    assert "example/webshop" in fetch.logged[0] and "gh api graphql" in fetch.logged[0]
+    clock.now += ERROR_RETRY
+    svc.step()
+    assert len(fetch.logged) == 1  # the same cause again
+    fetch.replies["example/webshop"] = GithubError("HTTP 401: Bad credentials")
+    clock.now += ERROR_RETRY
+    svc.step()
+    assert len(fetch.logged) == 2 and "Bad credentials" in fetch.logged[1]
+    del fetch.replies["example/webshop"]
+    clock.now += ERROR_RETRY
+    svc.step()
+    fetch.replies["example/webshop"] = GithubError("HTTP 401: Bad credentials")
+    clock.now += REFRESH_EVERY
+    svc.step()
+    assert len(fetch.logged) == 3  # it came back after a good read
 
 
 def test_done_written_once_per_input(parts, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001

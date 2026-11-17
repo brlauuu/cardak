@@ -89,6 +89,7 @@ class _Repo:
     done_hash: str | None = None  # set only for a settled done column
     due: float = 0.0
     attempted: float | None = None
+    logged: str | None = None  # the failure last written to hook.log, until a good read
 
 
 def _write(path: Path, text: str) -> None:
@@ -170,8 +171,10 @@ class PmService:
         board_file: Path,
         cache: Path,
         clock: Callable[[], float] = time.time,
+        log: Callable[[str], None] = lambda message: None,
     ) -> None:
         self._config = config
+        self._log = log
         self._store = store
         self._keys_dir = keys_dir
         self._tools = tools
@@ -299,9 +302,13 @@ class PmService:
         except GithubError as e:
             repo.error = str(e)
             repo.due = now + ERROR_RETRY
+            if repo.logged != repo.error:  # once per cause: a lasting outage is one entry
+                repo.logged = repo.error
+                self._log(f"pm view: reading {name} from GitHub failed: {e}\n{e.detail}")
             self._save(name, repo)
             return
         repo.data, repo.fetched_at, repo.error, repo.due = data, now, None, now + REFRESH_EVERY
+        repo.logged = None
         self._publish(projects, now)  # the cards now; a summary can take a minute
         if repo.done_hash is None or repo.done_hash != done_hash(data):
             try:
@@ -346,6 +353,7 @@ class PmService:
             repo.done if repo else Done((), None),
             repo.fetched_at if repo else None,
             repo.error if repo else None,
+            repo.due if repo and repo.error else None,
         )
 
 

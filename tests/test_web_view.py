@@ -317,6 +317,19 @@ def _pm_board(url: str = "https://github.com/example/webshop/issues/212", color:
     return Board((band,), 900.0)
 
 
+def test_pm_json_says_when_a_failed_read_retries() -> None:
+    from dataclasses import replace
+
+    from cardak.core.pm import Board
+    from cardak.web.view import pm_json
+
+    board = _pm_board()
+    failed = replace(board.bands[0], error="can't reach GitHub", retry_at=1000.0)
+    got = pm_json(Board((failed,), 900.0), 940.0)
+    assert got["bands"][0]["retry_in"] == 60  # type: ignore[index]
+    assert pm_json(board, 940.0)["bands"][0]["retry_in"] is None  # type: ignore[index]
+
+
 def test_pm_json_whitelists() -> None:
     from cardak.web.view import pm_json
 

@@ -990,6 +990,7 @@ def _pm_service(
         git_runner=subprocess.run,
         board_file=board_path(),
         cache=repo_cache_dir(),
+        log=lambda message: log_problem(os.environ, message),
     )
     return service, background(service, lambda message: log_problem(os.environ, message)), store
 

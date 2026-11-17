@@ -295,3 +295,14 @@ def test_picked_context_day_is_a_date() -> None:
     )
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert json.loads(out.stdout) == ["2026-10-11", "2026-10-25", "2026-11-09"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_a_band_error_says_when_it_retries() -> None:
+    script = "".join(_js_function(f) for f in ("limitUntil", "pmError")) + (
+        "console.log(JSON.stringify([pmError({error: 'offline', retry_in: 250}), "
+        "pmError({error: 'offline', retry_in: 0}), pmError({error: 'offline', retry_in: null})]));"
+    )
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) == ["offline · retry in 4m", "offline · retrying", "offline"]
+    assert 'el("p", "small pm-error", pmError(b))' in PAGE

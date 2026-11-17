@@ -7,7 +7,14 @@ from typing import Any
 
 import pytest
 
-from cardak.collectors.github import TIMEOUT, GithubError, Label, fetch, repo_from_url
+from cardak.collectors.github import (
+    MAX_LINE,
+    TIMEOUT,
+    GithubError,
+    Label,
+    fetch,
+    repo_from_url,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "github"
 SINCE = datetime(2026, 10, 24, tzinfo=UTC).timestamp()
@@ -81,8 +88,23 @@ def _failing(code: int, stdout: str, stderr: str):  # noqa: ANN202
     "run, message",
     [
         (_raising(FileNotFoundError("gh")), "gh isn't installed"),
-        (_raising(subprocess.TimeoutExpired("gh", TIMEOUT)), "can't reach GitHub"),
-        (_failing(1, "", "error connecting to api.github.com\n"), "can't reach GitHub"),
+        (
+            _raising(subprocess.TimeoutExpired("gh", TIMEOUT)),
+            "can't reach GitHub: gh timed out after 20 s",
+        ),
+        (
+            _failing(1, "", "error connecting to api.github.com\ncheck your connection\n"),
+            "can't reach GitHub: error connecting to api.github.com",
+        ),
+        (
+            _failing(
+                1,
+                "",
+                'Post "https://api.github.com/graphql": dial tcp: lookup api.github.com: '
+                "no such host\n",
+            ),
+            "can't reach GitHub: dial tcp: lookup api.github.com: no such host",
+        ),
         (
             _failing(1, "", "\nTo get started with GitHub CLI, run:  gh auth login\nmore"),
             "To get started with GitHub CLI, run:  gh auth login",
@@ -99,6 +121,25 @@ def test_fetch_errors_are_one_line(run: Any, message: str) -> None:
     with pytest.raises(GithubError) as e:
         fetch("example/webshop", SINCE, run=run)
     assert str(e.value) == message
+
+
+def test_a_long_gh_line_is_cut() -> None:
+    with pytest.raises(GithubError) as e:
+        fetch("example/webshop", SINCE, run=_failing(1, "", "connection " + "x" * 300 + "\n"))
+    assert len(str(e.value)) <= MAX_LINE and str(e.value).endswith("…")
+
+
+def test_the_error_keeps_all_of_gh_output() -> None:
+    stderr = "error connecting to api.github.com\ncheck your internet connection\n"
+    with pytest.raises(GithubError) as e:
+        fetch("example/webshop", SINCE, run=_failing(1, "", stderr))
+    assert e.value.detail == stderr.strip()
+
+
+def test_a_timeout_says_so_in_detail() -> None:
+    with pytest.raises(GithubError) as e:
+        fetch("example/webshop", SINCE, run=_raising(subprocess.TimeoutExpired("gh", TIMEOUT)))
+    assert "20 s" in e.value.detail and "gh api graphql" in e.value.detail
 
 
 def test_graphql_errors_are_readable() -> None:
