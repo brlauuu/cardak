@@ -81,8 +81,8 @@ the picker shows where its file is. In `projects.toml`, `[background]` takes `en
 `position = [columns, rows]` under `[background]` places it elsewhere, and a project's own
 `background_position` wins over that. Columns are `"left"`, `"center"` or `"right"`, rows
 `"top"`, `"center"` or `"bottom"`, and either can be a number instead: cells left of the
-window's right edge, or down from its top. Names stay put when the window is resized; numbers
-count from the corner.
+window's right edge, or down from its top. A name keeps its place, centered or at its edge,
+when the window is resized; a number always counts from the top-right corner.
 
 ```toml
 [background]

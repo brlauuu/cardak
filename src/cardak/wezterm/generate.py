@@ -97,8 +97,8 @@ def _background(image: Image | None) -> str:
 
 
 def _lua_position(at: Position) -> str:
-    """`{ 'left', 2 }`: a name as a Lua string, a number as is (#168)."""
-    return "{ " + ", ".join(f"'{c}'" if isinstance(c, str) else str(c) for c in at) + " }"
+    """`{ [[left]], 2 }`: a name as a Lua string, a number as is (#168)."""
+    return "{ " + ", ".join(lua_str(c) if isinstance(c, str) else str(c) for c in at) + " }"
 
 
 def _position(at: Position | None) -> str:

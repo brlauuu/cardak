@@ -128,7 +128,7 @@ class BackgroundSettings:
 
     enabled: bool = True
     opacity: float = 0.06
-    # (columns left, rows down) from the window's top-right corner; None: bottom-right (#132)
+    # [columns, rows], names or cells from the top-right (see _position); None: bottom-right
     position: Position | None = None
 
 
