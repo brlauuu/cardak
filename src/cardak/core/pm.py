@@ -14,6 +14,7 @@ from cardak.core.agents import Status
 
 NOTHING_DONE = "Nothing done this week."
 NOT_ON_GITHUB = "not on GitHub"
+NEW_ISSUE = "https://github.com/{}/issues/new"
 _NUMBER = re.compile(r"(\d+)(?:[-_]|$)")
 _URGENCY: dict[Status, int] = {"waiting": 2, "working": 1, "idle": 0}
 
@@ -62,6 +63,11 @@ class Band:
 class Board:
     bands: tuple[Band, ...]
     built_at: float
+
+
+def new_issue_url(band: Band) -> str | None:
+    """GitHub's page for a new issue in the band's repository (`n`, #166); None off GitHub."""
+    return None if band.repo is None else NEW_ISSUE.format(band.repo)
 
 
 def issue_number(branch: str) -> int | None:

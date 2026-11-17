@@ -1707,9 +1707,9 @@ def work_board(path: str) -> Board:
 class BoardPm(PmStub):
     def __init__(self, board: Board) -> None:
         super().__init__()
-        self.current = board
+        self.current: Board | None = board
 
-    def board(self) -> Board:  # type: ignore[override]
+    def board(self) -> Board | None:  # type: ignore[override]
         return self.current
 
 
@@ -1954,3 +1954,46 @@ async def test_the_pane_wraps_a_long_reason_and_keeps_the_age() -> None:
         reasons = [n for n in app.waiting_tree.root.children if n.data and n.data.role == "reason"]
         assert len(reasons) == 3  # wrapped, at most three lines
         assert all(node_id(n.data) == "r:7" for n in reasons)
+
+
+async def test_n_on_a_pane_row_opens_a_new_issue_for_its_project() -> None:
+    opened: list[str] = []
+    pm = BoardPm(work_board("/repos/cardak"))
+    app = DeckApp(StubSource(SNAP), interval=3600, pm=pm, browse=opened.append)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        project = app.deck_tree.root.children[1]
+        project.expand()
+        await pilot.pause()
+        app.deck_tree.move_cursor(project.children[0])
+        await pilot.press("n")
+        await pilot.pause()
+        assert opened == ["https://github.com/o/r/issues/new"]
+
+
+async def test_n_refuses_other_unlisted_projects_and_a_missing_pm() -> None:
+    opened: list[str] = []
+    pm = BoardPm(work_board("/repos/cardak"))
+    app = DeckApp(StubSource(SNAP), interval=3600, pm=pm, browse=opened.append)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[2])  # Other
+        await pilot.press("n")
+        app.deck_tree.move_cursor(app.deck_tree.root.children[0])  # webshop: not on the board
+        await pilot.press("n")
+        pm.current = None  # the PM view hasn't built its board yet
+        await pilot.press("n")
+        await pilot.pause()
+        assert opened == []
+        assert notices(app) == [
+            "Select a project or one of its panes.",
+            "/repos/webshop isn't in projects.toml: press a on it in the deck to add it, "
+            "then it shows here.",
+            "The PM view hasn't read its projects yet: try again in a moment.",
+        ]
+    plain = DeckApp(StubSource(SNAP), interval=3600, browse=opened.append)
+    async with plain.run_test() as pilot:
+        await settle(plain, pilot)
+        await pilot.press("n")
+        await pilot.pause()
+        assert notices(plain) == ["The PM view isn't available in this deck."]

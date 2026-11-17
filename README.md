@@ -381,7 +381,8 @@ columns, each scrolling on its own:
   your monthly summary limit. With summaries off, it lists the merged pull requests instead.
 
 ↑/↓ move within a column and on to the next project, ←/→ between columns, Enter opens the
-card on GitHub, `R` reads GitHub again.
+card on GitHub, `R` reads GitHub again, and `n` opens GitHub's page for a new issue in the
+project the cursor is in. `n` in the deck does the same for the highlighted project or pane.
 
 `w` on an issue in **todo** opens a new WezTerm tab in that project, next to its panes, types
 `claude '/issue-to-pr 120'` into it and takes you there, after asking. It never types into a

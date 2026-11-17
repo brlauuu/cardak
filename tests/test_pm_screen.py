@@ -321,3 +321,40 @@ async def test_w_without_a_way_to_open_tabs_says_so() -> None:
         await pilot.pause()
         notes = [str(n.message) for n in screen.app._notifications]  # noqa: SLF001
         assert notes == ["Starting work on an issue isn't available in this deck."]
+
+
+def notes_of(screen: PmScreen) -> list[str]:
+    return [str(n.message) for n in screen.app._notifications]  # noqa: SLF001
+
+
+async def test_n_opens_a_new_issue_for_the_band_the_cursor_is_in() -> None:
+    opened: list[str] = []
+    _, screen = screen_for(BOARD, opened=opened)
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("right", "n")  # webshop's onit column
+        await pilot.press("down", "down", "down", "n")  # down into api-gw's band
+        await pilot.pause()
+        assert opened == [f"{U}/issues/new", "https://github.com/example/api-gw/issues/new"]
+
+
+async def test_n_in_one_projects_view_opens_its_new_issue() -> None:
+    opened: list[str] = []
+    _, screen = screen_for(BOARD, project=API, opened=opened)
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        assert opened == ["https://github.com/example/api-gw/issues/new"]
+
+
+async def test_n_on_a_project_not_on_github_says_so() -> None:
+    opened: list[str] = []
+    notes = Band("notes", "/w/notes", None, (), (), Done((), None), None, "not on GitHub")
+    _, screen = screen_for(Board((notes,), NOW), opened=opened)
+    async with Host(screen).run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        assert opened == []
+        assert notes_of(screen) == ["notes isn't on GitHub: there's nowhere to open an issue."]
