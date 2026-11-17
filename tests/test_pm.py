@@ -15,6 +15,7 @@ from cardak.core.pm import (
     board_to_json,
     build_band,
     issue_number,
+    new_issue_url,
 )
 
 U = "https://github.com/example/webshop"
@@ -147,3 +148,13 @@ def test_board_json_round_trip_and_garbage() -> None:
     assert board_from_json({"bands": "nope"}) is None
     assert board_from_json({"bands": [{"name": 3}], "built_at": 1}) is None
     assert board_from_json(None) is None
+
+
+def test_new_issue_url_is_githubs_new_issue_page() -> None:
+    band = Band("webshop", "/w/webshop", "example/webshop", (), (), Done((), None), None, None)
+    assert new_issue_url(band) == f"{U}/issues/new"
+
+
+def test_a_band_with_no_repository_has_no_new_issue_page() -> None:
+    band = Band("notes", "/w/notes", None, (), (), Done((), None), None, NOT_ON_GITHUB)
+    assert new_issue_url(band) is None

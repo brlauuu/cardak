@@ -503,7 +503,9 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   on focus, so a key typed into a just-focused field replaces it.
 
 ### PM view (#68)
-- `P` / `p` in the deck (`ui/pm.py`), the Projects sheet on the phone. `core/pm_service.PmService`
+- `P` / `p` in the deck (`ui/pm.py`), the Projects sheet on the phone. `n` there and in the deck opens
+  `github.com/<repo>/issues/new` for the band's or line's project in the browser (`pm.new_issue_url`,
+  from the board's repository, #166); nothing is read from GitHub for it. `core/pm_service.PmService`
   runs on a thread of the deck only, with its own store connection; the daemon only serves the
   board file the deck writes (`BoardFile`, `/api/pm`), so with the deck closed the phone shows the
   last board and its age.
@@ -934,3 +936,6 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - **#106 (landing page)** split `scripts/make_screens.demo_snapshot` (10: `_project`) and `_trends`
   (10: `_day_cost`). Accepted: `resources.derive` and `ui/app.node_id` at fan-in 8 (the screens
   script builds its snapshot and finds its rows through the deck's own code, which is its point).
+- **#166 (`n`: a new issue)** split `DeckApp.action_new_issue` (13: `_band_here`). Accepted:
+  `cleanup.place` as a hotspot (5 × 5: `x`, `p` and `n` each ask it which project a line means)
+  and `DeckApp._cursor_node` at fan-in 11.

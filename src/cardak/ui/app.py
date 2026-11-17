@@ -2,6 +2,7 @@
 
 import threading
 import time
+import webbrowser
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -27,7 +28,7 @@ from cardak.core.config import ConfigError
 from cardak.core.eventlog import sentences
 from cardak.core.filter import filter_snapshot, waiting_only, waiting_projects
 from cardak.core.navigate import JumpResult
-from cardak.core.pm import Card
+from cardak.core.pm import Band, Card
 from cardak.core.snapshot import WAITING_NAME, DeckSnapshot, DockerLine, Group, PaneRow
 from cardak.core.store import DayPeak, ResourceEvent, StoreError
 from cardak.core.summary import ProviderTools, SummaryInfo
@@ -37,7 +38,7 @@ from cardak.ui.confirm import ConfirmScreen
 from cardak.ui.detail import DetailScreen
 from cardak.ui.events import EventLogScreen
 from cardak.ui.history import HistoryScreen
-from cardak.ui.pm import PmScreen, PmView
+from cardak.ui.pm import NOT_LISTED, NOT_READ, PmScreen, PmView, open_new_issue
 from cardak.ui.recap import RecapScreen
 from cardak.ui.summaries import SummariesScreen, SummaryControl
 from cardak.ui.theme_picker import Backgrounds, ThemeChoice, ThemePickerScreen, ThemePreviewer
@@ -67,6 +68,7 @@ from cardak.ui.widgets import (
 LOG_DAYS = 30
 SENT_WITH_IT = "Anything already typed in that pane's input is sent with it."
 CLEANUP_NOTE = "Claude starts in that tab as if you typed it; the tab stays open after it exits."
+NO_PM = "The PM view isn't available in this deck."
 WIDE_AT = 120  # the deck's width from which "Waiting on you" gets a pane of its own (#122)
 SIDE_WIDTH = 42
 GUTTER = 2  # each tree keeps room for its scrollbar, so a line's width doesn't jump
@@ -334,6 +336,7 @@ class DeckApp(App[None]):
         Binding("s", "summaries", "Summaries"),
         Binding("p", "pm_project", "PM"),
         Binding("P", "pm_all", "All projects", show=False),
+        Binding("n", "new_issue", "New issue", show=False),
         Binding("R", "refresh_all", "Refresh", show=False),
         Binding("q", "quit", "Quit"),
     ]
@@ -342,7 +345,7 @@ class DeckApp(App[None]):
     DECK_ACTIONS = frozenset(
         {"add_project", "theme", "waiting_only", "detail", "find", "refresh", "cursor_down",
          "cursor_up", "clear_find", "event_log", "dismiss_crash", "history", "checkpoint",
-         "recap", "cleanup"}
+         "recap", "cleanup", "new_issue"}
     )  # fmt: skip
 
     def format_title(self, title: str, sub_title: str) -> Content:
@@ -373,6 +376,7 @@ class DeckApp(App[None]):
         providers: ProviderTools | None = None,
         pm: PmView | None = None,
         backgrounds: Backgrounds | None = None,
+        browse: Callable[[str], object] = webbrowser.open,
     ) -> None:
         super().__init__()
         self.title = f"cardak {version()}"  # the top bar, and every screen's header (#121)
@@ -391,6 +395,7 @@ class DeckApp(App[None]):
         self.summaries = summaries  # the provider settings `s` shows and writes (#47)
         self.providers = providers
         self.pm = pm  # the PM view's board, and what reads GitHub for it (#68)
+        self.browse = browse  # a GitHub page in the browser: the PM view's cards, `n` (#166)
         self.resource_log = log  # its own cardak.db connection: events, crash banner, history
         self._crash: ResourceEvent | None = None
         self._cap_noticed = False  # the summary-limit notice shows once per run
@@ -872,14 +877,35 @@ class DeckApp(App[None]):
             return
         self._open_pm(place.cwd)
 
+    def action_new_issue(self) -> None:
+        """`n`: GitHub's new-issue page for the highlighted line's project (#166)."""
+        found = self._band_here()
+        reason = found if isinstance(found, str) else open_new_issue(found, self.browse)
+        if reason is not None:
+            self.notify(reason, severity="warning")
+
+    def _band_here(self) -> Band | str:
+        """The PM board's band for the highlighted line's project, or why there is none."""
+        node = self._cursor_node()
+        if node is None or node.data is None:
+            return cleanup.NOT_A_PROJECT
+        place = cleanup.place(node.data.group, node.data.row, self.raw.groups if self.raw else ())
+        if isinstance(place, str):
+            return place
+        board = self.pm.board() if self.pm is not None else None
+        if board is None:
+            return NO_PM if self.pm is None else NOT_READ
+        band = next((b for b in board.bands if Path(b.path) == place.cwd), None)
+        return NOT_LISTED.format(place.cwd) if band is None else band
+
     def action_pm_all(self) -> None:
         self._open_pm(None)
 
     def _open_pm(self, project: Path | None) -> None:
         if self.pm is None:
-            self.notify("The PM view isn't available in this deck.", severity="warning")
+            self.notify(NO_PM, severity="warning")
             return
-        self.push_screen(PmScreen(self.pm, project, work=self._work_on))
+        self.push_screen(PmScreen(self.pm, project, open_url=self.browse, work=self._work_on))
 
     def action_refresh_all(self) -> None:
         self.action_refresh()

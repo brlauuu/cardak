@@ -3,7 +3,7 @@
 Each column scrolls on its own. ↑/↓ move within a column and, past its first or last line, to
 the same column of the neighbouring band; ←/→ move between columns. Enter opens the card on
 GitHub; `R` reads GitHub again for what's shown; `w` on a todo issue opens a tab in its project
-and starts Claude on it (#120).
+and starts Claude on it (#120); `n` opens GitHub's new-issue page for the band's project (#166).
 """
 
 import re
@@ -26,7 +26,7 @@ from textual.widgets.option_list import Option
 from cardak.collectors.github import Label
 from cardak.core import work
 from cardak.core.agents import Status
-from cardak.core.pm import Band, Board, Card, Done
+from cardak.core.pm import Band, Board, Card, Done, new_issue_url
 from cardak.core.pm_service import Observed
 from cardak.core.recap import ago
 from cardak.ui.widgets import IDLE, WAITING, WORKING
@@ -34,6 +34,9 @@ from cardak.ui.widgets import IDLE, WAITING, WORKING
 LOADING = "Reading GitHub…"
 NO_WORK = "Starting work on an issue isn't available in this deck."
 NOT_LISTED = "{} isn't in projects.toml: press a on it in the deck to add it, then it shows here."
+NOT_READ = "The PM view hasn't read its projects yet: try again in a moment."
+PICK_BAND = "Move to a project's column first."
+OFF_GITHUB = "{} isn't on GitHub: there's nowhere to open an issue."
 REDRAW_EVERY = 30.0  # the ages ("fetched 12 minutes ago") move on without a new board
 _HEX = re.compile(r"^[0-9a-fA-F]{6}$")
 _STATE_STYLE: dict[Status, str] = {"waiting": f"bold {WAITING}", "working": WORKING, "idle": IDLE}
@@ -45,6 +48,15 @@ class PmView(Protocol):
     def refresh(self, project: Path | None = None) -> None: ...
 
     def observe(self, sessions: Sequence[Observed]) -> None: ...
+
+
+def open_new_issue(band: Band, open_url: Callable[[str], object]) -> str | None:
+    """Open the band's new-issue page; why not, when it can't (`n`, #166)."""
+    url = new_issue_url(band)
+    if url is None:
+        return OFF_GITHUB.format(band.name)
+    open_url(url)
+    return None
 
 
 def chip(label: Label) -> Text:
@@ -167,6 +179,7 @@ class PmScreen(Screen[None]):
         Binding("escape", "app.pop_screen", "Back"),
         Binding("R", "refresh", "Refresh"),
         Binding("w", "work", "Work"),
+        Binding("n", "new_issue", "New issue"),
     ]
     CSS = """
     #loading { padding: 1 2; }
@@ -299,6 +312,18 @@ class PmScreen(Screen[None]):
     def action_refresh(self) -> None:
         self._view.refresh(self._project)
         self.notify("Reading GitHub…")
+
+    def action_new_issue(self) -> None:
+        column = self.focused
+        if not self._bands_shown:
+            self.notify(NOT_READ, severity="warning")
+            return
+        if not isinstance(column, Column) and len(self._bands_shown) > 1:
+            self.notify(PICK_BAND, severity="warning")  # which project's isn't clear
+            return
+        at = column.band if isinstance(column, Column) else 0
+        if (reason := open_new_issue(self._bands_shown[at], self._open_url)) is not None:
+            self.notify(reason, severity="warning")
 
     def action_work(self) -> None:
         column = self.focused
