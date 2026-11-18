@@ -20,7 +20,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.screen import Screen
-from textual.widgets import Footer, Header, OptionList, Static
+from textual.widgets import Header, OptionList, Static
 from textual.widgets.option_list import Option
 
 from cardak.collectors.github import Label
@@ -29,6 +29,7 @@ from cardak.core.agents import Status
 from cardak.core.pm import Band, Board, Card, Done, new_issue_url
 from cardak.core.pm_service import Observed
 from cardak.core.recap import ago
+from cardak.ui.footer import WrappingFooter
 from cardak.ui.widgets import IDLE, WAITING, WORKING, until
 
 LOADING = "Reading GitHub…"
@@ -219,7 +220,7 @@ class PmScreen(Screen[None]):
         yield Header()
         yield Static(LOADING, id="loading")
         yield VerticalScroll(id="bands")
-        yield Footer()
+        yield WrappingFooter()
 
     async def on_mount(self) -> None:
         self.title = "PM · all projects" if self._project is None else "PM"
