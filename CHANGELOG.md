@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.21.1 — 2026-11-18
+
 ### Fixed
 
 - The footer's keys wrap onto a second row (or more) when the window is too narrow for
