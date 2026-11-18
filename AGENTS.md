@@ -228,6 +228,12 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   default (#168, module 8). Measured on 20240203 (`spikes/08_background_position.py`,
   `09_background_align.py`): every offset is added to its alignment (a positive horizontal one
   pushes right-aligned art past the edge), and art outside the window is clipped (#132).
+  The picker's `ctrl+l` (#175, module 9) steps through `config.SPOTS` (the nine named spots in
+  reading order, then back to a custom one it started at), previewing each: a preview's
+  `position` wins over the project's in `position_for`. A save writes `background_position` only
+  when `ctrl+l` moved it, and the default (`[background] position`, else bottom right) as no key,
+  so the project follows the default again. With the switch off the key does nothing, and a move
+  made before it was turned off is not saved.
   With `[background] enabled = false` the picker's switch is disabled and its previews carry no art; the art line names a file only once its art was made (#126).
   Logos: README images first, then tracked files named logo / mark / icon (`git ls-files`),
   skipping wordmarks (art under 8 rows) and
@@ -949,3 +955,6 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - **#166 (`n`: a new issue)** split `DeckApp.action_new_issue` (13: `_band_here`). Accepted:
   `cleanup.place` as a hotspot (5 × 5: `x`, `p` and `n` each ask it which project a line means)
   and `DeckApp._cursor_node` at fan-in 11.
+- **#175 (art position in the picker)** adds `config.SPOTS` / `spot_name` /
+  `set_project_position` and module 9. Accepted: one more dead-code candidate
+  (`ThemePickerScreen.action_move_art`, which Textual calls through the `ctrl+l` binding).

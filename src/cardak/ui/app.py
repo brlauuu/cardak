@@ -24,7 +24,7 @@ from textual.worker import Worker
 from cardak.core import checkpoint, cleanup, recap, work
 from cardak.core.agents import SessionState
 from cardak.core.checkpoint import PROJECT_KINDS
-from cardak.core.config import ConfigError
+from cardak.core.config import ConfigError, Position, spot_name
 from cardak.core.eventlog import sentences
 from cardak.core.filter import filter_snapshot, waiting_only, waiting_projects
 from cardak.core.navigate import JumpResult
@@ -101,10 +101,17 @@ class DeckSource(Protocol):
     def add_project(self, name: str, path: Path) -> None: ...
 
     def set_look(
-        self, project_path: Path, theme: str, background: bool, name: str | None = None
+        self,
+        project_path: Path,
+        theme: str,
+        background: bool,
+        name: str | None = None,
+        position: Position | None = None,
     ) -> None: ...
 
     def background_on(self, project_path: Path) -> bool: ...
+
+    def background_position(self, project_path: Path) -> Position: ...
 
     def issue_command(self) -> str: ...
 
@@ -1125,17 +1132,20 @@ class DeckApp(App[None]):
             return
         name, path, current = group.name, group.key, group.theme
         background = self.source.background_on(path)
+        position = self.source.background_position(path)
 
         def done(choice: ThemeChoice | None) -> None:
             if choice is None or not choice.scheme:
                 return
+            moved = choice.position if choice.position not in (None, position) else None
             said = f"{name}: {choice.scheme}" + ("" if choice.background else ", background off")
-            if (choice.scheme, choice.background) == (current, background):
+            said += f", art {spot_name(moved)}" if moved else ""
+            if (choice.scheme, choice.background, moved) == (current, background, None):
                 self._clear_preview(path)  # nothing to write, so no reload replaces the preview
                 self.notify(escape(said))
                 return
             try:
-                self.source.set_look(path, choice.scheme, choice.background, name)
+                self.source.set_look(path, choice.scheme, choice.background, name, position=moved)
             except ConfigError as e:
                 self._clear_preview(path)
                 self.notify(escape(str(e)), severity="error")
@@ -1156,5 +1166,6 @@ class DeckApp(App[None]):
             art_file=tools.art_file(path) if tools else None,
             preview_image=(lambda scheme: tools.preview_image(path, scheme)) if tools else None,
             backgrounds_off=tools.off_reason() if tools else None,
+            position=position,
         )
         self.push_screen(picker, done)

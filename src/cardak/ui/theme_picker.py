@@ -1,5 +1,5 @@
-"""Pick a color scheme for a project, and whether its ASCII art shows behind its windows (#9),
-previewing both live on the project's windows."""
+"""Pick a color scheme for a project, whether its ASCII art shows behind its windows (#9) and
+where it sits (#175), previewing all three live on the project's windows."""
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -19,6 +19,7 @@ from textual.widgets import Checkbox, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from cardak.core.backgrounds import Image
+from cardak.core.config import DEFAULT_POSITION, SPOTS, Position, spot_name
 from cardak.core.themes import Scheme
 
 SchemeLoader = Callable[[], Mapping[str, Scheme]]
@@ -28,7 +29,11 @@ class ThemePreviewer(Protocol):
     in_wezterm: bool
 
     def preview(
-        self, project_path: Path, scheme: str, background: Image | bool | None = None
+        self,
+        project_path: Path,
+        scheme: str,
+        background: Image | bool | None = None,
+        position: Position | None = None,
     ) -> bool: ...
 
 
@@ -46,6 +51,7 @@ class Backgrounds(Protocol):
 class ThemeChoice:
     scheme: str
     background: bool
+    position: Position | None = None  # where ctrl+l moved the art; None: left as it was (#175)
 
 
 def _tilde(path: Path) -> str:
@@ -71,12 +77,13 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         Binding("down", "move(1)", show=False),
         Binding("up", "move(-1)", show=False),
         Binding("ctrl+b", "toggle_background", "Background", priority=True),
+        Binding("ctrl+l", "move_art", "Move art", priority=True),
     ]
     DEFAULT_CSS = """
     ThemePickerScreen { align: center middle; }
-    #picker { width: 70; height: 27; border: round $accent; background: $surface; padding: 0 1; }
+    #picker { width: 70; height: 28; border: round $accent; background: $surface; padding: 0 1; }
     #background { border: none; padding: 0; height: 1; }
-    #art-path { color: $text-muted; }
+    #art-path, #art-position { color: $text-muted; }
     #schemes { height: 1fr; }
     """
 
@@ -91,6 +98,7 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         art_file: Path | None = None,
         preview_image: Callable[[str], Image | None] | None = None,
         backgrounds_off: str | None = None,
+        position: Position = DEFAULT_POSITION,
     ) -> None:
         super().__init__()
         self._name = project_name
@@ -107,6 +115,10 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         self._preview_image = preview_image
         # why no project shows art ([background] enabled = false, #126; no extra, #131)
         self._backgrounds_off = backgrounds_off
+        self._position = position  # where the art sits now: the project's, else the default
+        # ctrl+l's stops: the nine spots, and a custom position last, so it can be got back
+        self._stops = SPOTS if position in SPOTS else (*SPOTS, position)
+        self._moved = False  # ctrl+l pressed: previews and the choice carry the position
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker"):
@@ -123,7 +135,13 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
                 id="background",
                 disabled=self._backgrounds_off is not None,
             )
+            yield Static(escape(self._position_line(self._background)), id="art-position")
             yield Static(escape(self._art_line(self._background)), id="art-path")
+
+    def _position_line(self, on: bool) -> str:
+        custom = "" if self._position in SPOTS else ", custom"
+        how = "ctrl+l to move" if on else "with the background on"
+        return f"position: {spot_name(self._position)}{custom} ({how})"
 
     def _art_line(self, on: bool) -> str:
         if self._backgrounds_off is not None:
@@ -134,6 +152,7 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
+        self.query_one("#art-position", Static).display = self._backgrounds_off is None
         self.query_one("#preview-note", Static).display = not (
             self._previewer is not None and self._previewer.in_wezterm
         )
@@ -207,9 +226,23 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
             return
         box.value = not box.value
 
+    def action_move_art(self) -> None:
+        """The next of the nine spots (#175), then the custom position it started at, if any."""
+        if self._backgrounds_off is not None or not self.query_one("#background", Checkbox).value:
+            return
+        at = self._stops.index(self._position) + 1
+        self._position, self._moved = self._stops[at % len(self._stops)], True
+        self.query_one("#art-position", Static).update(escape(self._position_line(True)))
+        self._preview_now()
+
     @on(Checkbox.Changed, "#background")
     def _background_changed(self, event: Checkbox.Changed) -> None:
         self.query_one("#art-path", Static).update(escape(self._art_line(event.value)))
+        self.query_one("#art-position", Static).update(escape(self._position_line(event.value)))
+        self._preview_now()
+
+    def _preview_now(self) -> None:
+        """Preview the highlighted scheme at once, else the last one previewed or the saved."""
         options = self.query_one(OptionList)
         highlighted = options.highlighted
         name = None
@@ -223,7 +256,10 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
 
     def _preview(self, name: str) -> None:
         background = self._background_arg(name)
-        if self._previewer is not None and self._previewer.preview(self._path, name, background):
+        position = self._position if self._moved else None
+        if self._previewer is not None and self._previewer.preview(
+            self._path, name, background, position
+        ):
             self._previewed = True
             self._last_previewed = name
 
@@ -258,10 +294,13 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
             self._timer.stop()
         if self._previewed and self._last_previewed != name and self._previewer is not None:
             known = name in self._schemes
-            self._previewer.preview(
-                self._path, name if known else "", self._background_arg(name) if known else None
-            )
-        self.dismiss(ThemeChoice(name, self.query_one("#background", Checkbox).value))
+            if known:
+                self._preview(name)
+            else:
+                self._previewer.preview(self._path, "")
+        on = self.query_one("#background", Checkbox).value
+        # with the art off, a move is dropped: the line said it needs the background on
+        self.dismiss(ThemeChoice(name, on, self._position if self._moved and on else None))
 
     def action_cancel(self) -> None:
         self._clear_preview()

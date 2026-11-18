@@ -11,7 +11,7 @@ from textual.widgets import Checkbox, Input, Static, Tree
 
 from cardak.collectors.machine import MachineSample
 from cardak.core.agents import SessionState
-from cardak.core.config import ConfigError
+from cardak.core.config import ConfigError, Position
 from cardak.core.navigate import JumpResult
 from cardak.core.pm import Board
 from cardak.core.resolver import Kind
@@ -79,6 +79,8 @@ class StubSource:
         self.themes: list[tuple[Path, str, str | None]] = []
         self.looks: list[tuple[Path, str, bool, str | None]] = []
         self.backgrounds_off: set[Path] = set()
+        self.position: Position = ("right", "bottom")
+        self.positions: list[Position | None] = []
         self.regenerated = 0
         self.seen_panes: list[int] = []
         self.sessions: dict[str, SessionState] = {}
@@ -93,13 +95,22 @@ class StubSource:
         self.added.append((name, path))
 
     def set_look(
-        self, project_path: Path, theme: str, background: bool, name: str | None = None
+        self,
+        project_path: Path,
+        theme: str,
+        background: bool,
+        name: str | None = None,
+        position: Position | None = None,
     ) -> None:
         self.themes.append((project_path, theme, name))
         self.looks.append((project_path, theme, background, name))
+        self.positions.append(position)
 
     def background_on(self, project_path: Path) -> bool:
         return project_path not in self.backgrounds_off
+
+    def background_position(self, project_path: Path) -> Position:
+        return self.position
 
     def issue_command(self) -> str:
         return self.issue_template
@@ -531,6 +542,37 @@ async def test_t_on_a_git_group_saves_a_theme() -> None:
         await pilot.press("enter")
         await settle(app, pilot)
         assert source.themes == [(Path("/repos/cardak"), "Nord", "cardak")]
+
+
+async def test_ctrl_l_in_the_picker_saves_and_names_the_arts_new_place() -> None:
+    # #175
+    source = StubSource(SNAP)
+    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES))
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        assert "bottom right" in str(app.screen.query_one("#art-position", Static).render())
+        await pilot.press("ctrl+l", "enter")
+        await settle(app, pilot)
+        assert source.positions == [("left", "top")]
+        assert "cardak: Nord, art top left" in [n.message for n in app._notifications]
+
+
+async def test_a_position_moved_back_to_where_it_was_writes_nothing() -> None:
+    source = StubSource(SNAP)
+    source.position = ("center", "bottom")
+    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES))
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        await pilot.press(*["ctrl+l"] * 9, "enter")  # all the way round
+        await settle(app, pilot)
+        assert source.positions == [None]
+        assert "cardak: Nord" in [n.message for n in app._notifications]
 
 
 async def test_t_needs_a_project_and_a_valid_config() -> None:
@@ -1286,14 +1328,21 @@ class PreviewRecorder:
     def __init__(self) -> None:
         self.calls: list[tuple[Path, str]] = []
 
-    def preview(self, project_path: Path, scheme: str, background: object = None) -> bool:
+    def preview(
+        self, project_path: Path, scheme: str, background: object = None, position: object = None
+    ) -> bool:
         self.calls.append((project_path, scheme))
         return True
 
 
 class FailingThemeSource(StubSource):
     def set_look(
-        self, project_path: Path, theme: str, background: bool, name: str | None = None
+        self,
+        project_path: Path,
+        theme: str,
+        background: bool,
+        name: str | None = None,
+        position: Position | None = None,
     ) -> None:
         raise ConfigError(Path("projects.toml"), "is read-only")
 

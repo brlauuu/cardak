@@ -696,11 +696,14 @@ class _Source:
     def add_project(self, name, path) -> None:
         pass
 
-    def set_look(self, project_path, theme, background, name=None) -> None:
+    def set_look(self, project_path, theme, background, name=None, position=None) -> None:
         pass
 
     def background_on(self, project_path) -> bool:
         return True
+
+    def background_position(self, project_path) -> tuple[str, str]:
+        return ("right", "bottom")
 
     def issue_command(self) -> str:
         return "/issue-to-pr {number}"

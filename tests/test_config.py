@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from cardak.core.config import (
+    SPOTS,
     THEMES,
     BackgroundSettings,
     Config,
@@ -22,10 +23,12 @@ from cardak.core.config import (
     load,
     remove_provider,
     set_project_background,
+    set_project_position,
     set_project_theme,
     set_provider,
     set_summary_provider,
     set_web_enabled,
+    spot_name,
     summary_ready,
     web_key_path,
     write_resource_defaults,
@@ -831,6 +834,43 @@ def test_add_project_with_background_off(tmp_path: Path, home: Path) -> None:
     add_project(f, "x", home / "x", background=False)
     assert "background = false" in f.read_text()
     assert load(f).projects[0].background is False
+
+
+def test_set_project_position_writes_replaces_and_removes(tmp_path: Path, home: Path) -> None:
+    # #175: the picker's ctrl+l; None hands the project back to the default
+    f = _cfg(tmp_path, SAMPLE)
+    set_project_position(f, home / "repos/webshop", ("left", "top"))
+    text = f.read_text()
+    assert 'background_position = ["left", "top"]' in text and "# my projects" in text
+    assert load(f).projects[0].background_position == ("left", "top")
+    set_project_position(f, home / "repos/webshop", ("center", "bottom"))
+    assert load(f).projects[0].background_position == ("center", "bottom")
+    set_project_position(f, home / "repos/webshop", None)
+    assert f.read_text() == SAMPLE
+
+
+def test_set_project_position_unknown_project(tmp_path: Path, home: Path) -> None:
+    with pytest.raises(ConfigError, match="not a configured project"):
+        set_project_position(_cfg(tmp_path, SAMPLE), home / "nope", ("left", "top"))
+
+
+def test_add_project_with_a_position(tmp_path: Path, home: Path) -> None:
+    f = tmp_path / "projects.toml"
+    add_project(f, "x", home / "x", position=("right", "top"))
+    assert load(f).projects[0].background_position == ("right", "top")
+
+
+def test_spots_are_the_nine_named_positions_in_reading_order() -> None:
+    assert len(SPOTS) == 9 and SPOTS[0] == ("left", "top") and SPOTS[-1] == ("right", "bottom")
+    assert [spot_name(s) for s in SPOTS[:3]] == ["top left", "top center", "top right"]
+    assert spot_name(("center", "center")) == "center"
+    assert spot_name(("left", "center")) == "center left"
+
+
+def test_spot_name_words_numbers() -> None:
+    assert spot_name((3, "top")) == "top, 3 cells from the right"
+    assert spot_name(("left", 2)) == "left, 2 cells down"
+    assert spot_name((1, 0)) == "1 cell from the right, 0 cells down"
 
 
 def test_empty_sound_keys_are_unset(tmp_path: Path) -> None:

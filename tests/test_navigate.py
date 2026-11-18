@@ -153,3 +153,27 @@ def test_preview_request_carries_the_background() -> None:
     assert sent(False)["background"] is False
     shown = sent(Image(Path("/c/x.png"), 30, 5))["background"]
     assert shown == {"file": "/c/x.png", "cols": 30, "rows": 5}
+
+
+def test_preview_request_carries_the_position() -> None:
+    # #175: the picker's ctrl+l previews where the art would sit
+    def sent(**kw: object) -> dict[str, object]:
+        data = preview_request(Path("/r/web"), "Nord", "7", **kw)  # type: ignore[arg-type]
+        prefix = b"\x1b]1337;SetUserVar=cardak_preview="
+        return json.loads(base64.b64decode(data[len(prefix) : -1]))
+
+    assert "position" not in sent()
+    assert sent(position=("left", "top"))["position"] == ["left", "top"]
+    assert sent(position=(3, "center"))["position"] == [3, "center"]
+
+
+def test_previewer_passes_the_position_on() -> None:
+    written: list[bytes] = []
+    Previewer(written.append, in_wezterm=True).preview(
+        Path("/r/web"), "Nord", position=("center", "bottom")
+    )
+    prefix = b"\x1b]1337;SetUserVar=cardak_preview="
+    assert json.loads(base64.b64decode(written[0][len(prefix) : -1]))["position"] == [
+        "center",
+        "bottom",
+    ]

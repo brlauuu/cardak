@@ -223,12 +223,31 @@ class LiveSource:
             project = next((p for p in self._config.projects if p.path == project_path), None)
             return project.background if project else True
 
-    def set_look(
-        self, project_path: Path, theme: str, background: bool, name: str | None = None
-    ) -> None:
-        """Save the picker's scheme and background switch, writing only what changed."""
+    def background_position(self, project_path: Path) -> config_mod.Position:
+        """Where the project's art sits: its own position, else [background]'s, else the
+        bottom-right corner (#175)."""
         with self._lock:
             project = next((p for p in self._config.projects if p.path == project_path), None)
+            own = project.background_position if project else None
+            return own or self._default_position()
+
+    def _default_position(self) -> config_mod.Position:
+        return self._config.background.position or config_mod.DEFAULT_POSITION
+
+    def set_look(
+        self,
+        project_path: Path,
+        theme: str,
+        background: bool,
+        name: str | None = None,
+        position: config_mod.Position | None = None,
+    ) -> None:
+        """Save the picker's scheme, background switch and art position (None: unchanged),
+        writing only what changed. The default position is written as no key, so the project
+        follows [background] position again."""
+        with self._lock:
+            project = next((p for p in self._config.projects if p.path == project_path), None)
+            own = None if position in (None, self._default_position()) else position
             if project is None:
                 config_mod.add_project(
                     self.config_file,
@@ -236,12 +255,15 @@ class LiveSource:
                     project_path,
                     theme=theme,
                     background=background,
+                    position=own,
                 )
             else:
                 if project.theme != theme:
                     config_mod.set_project_theme(self.config_file, project_path, theme)
                 if project.background != background:
                     config_mod.set_project_background(self.config_file, project_path, background)
+                if position is not None and project.background_position != own:
+                    config_mod.set_project_position(self.config_file, project_path, own)
             self._reload_if_changed(themes_now=False)
 
     # The Summaries screen calls these on the UI thread, and a poll holds the lock throughout

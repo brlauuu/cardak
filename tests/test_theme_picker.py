@@ -5,6 +5,7 @@ from textual.app import App
 from textual.widgets import Checkbox, Input, OptionList, Static
 
 from cardak.core.backgrounds import Image
+from cardak.core.config import Position
 from cardak.core.themes import Scheme
 from cardak.ui.theme_picker import ThemeChoice, ThemePickerScreen, swatch_label
 
@@ -22,10 +23,14 @@ class Recorder:
         self.calls: list[tuple[object, ...]] = []
 
     def preview(
-        self, project_path: Path, scheme: str, background: Image | bool | None = None
+        self,
+        project_path: Path,
+        scheme: str,
+        background: Image | bool | None = None,
+        position: Position | None = None,
     ) -> bool:
         call = (project_path, scheme) if background is None else (project_path, scheme, background)
-        self.calls.append(call)
+        self.calls.append(call if position is None else (*call, position))
         return True
 
 
@@ -304,3 +309,117 @@ async def test_art_not_made_yet_is_made_when_the_background_is_turned_on() -> No
         await pilot.press("ctrl+b")
         await pilot.pause()
         assert "made when you save" in line()
+
+
+def position_line(host: Host) -> str:
+    return str(host.picker.query_one("#art-position", Static).render())
+
+
+async def test_the_picker_says_where_the_art_sits_and_how_to_move_it() -> None:
+    # #175
+    host, _ = picker(position=("right", "bottom"))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        assert position_line(host) == "position: bottom right (ctrl+l to move)"
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        assert position_line(host) == "position: bottom right (with the background on)"
+
+
+async def test_a_custom_position_is_named_as_such() -> None:
+    host, _ = picker(position=(3, "top"))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        assert (
+            position_line(host) == "position: top, 3 cells from the right, custom (ctrl+l to move)"
+        )
+
+
+async def test_ctrl_l_steps_through_the_spots_and_previews_each() -> None:
+    host, rec = picker(position=("center", "bottom"), preview_image=lambda scheme: ART)
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+l")
+        await pilot.pause()
+        assert position_line(host) == "position: bottom right (ctrl+l to move)"
+        assert rec.calls == [(PATH, "Nord", ART, ("right", "bottom"))]
+        await pilot.press("ctrl+l")  # round again
+        await pilot.pause()
+        assert position_line(host).startswith("position: top left ")
+        await pilot.press("down")  # another scheme keeps the moved art
+        await pilot.pause(ThemePickerScreen.DEBOUNCE * 3)
+        assert rec.calls[-1] == (PATH, "Tokyo Night", ART, ("left", "top"))
+        await pilot.press("enter")
+        await pilot.pause()
+        assert host.result == ThemeChoice("Tokyo Night", True, ("left", "top"))
+
+
+async def test_ctrl_l_from_a_custom_position_starts_at_top_left() -> None:
+    host, _ = picker(position=(3, 1))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+l")
+        await pilot.pause()
+        assert position_line(host).startswith("position: top left ")
+
+
+async def test_without_ctrl_l_the_position_is_left_alone() -> None:
+    host, rec = picker(position=(3, 1))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+b", "ctrl+b")
+        await pilot.pause()
+        assert all(len(call) < 4 for call in rec.calls)  # no position previewed
+        await pilot.press("enter")
+        await pilot.pause()
+        assert host.result == ThemeChoice("Nord", True)  # position None: unchanged
+
+
+async def test_ctrl_l_does_nothing_with_the_background_off_or_backgrounds_off() -> None:
+    host, rec = picker(position=("right", "bottom"), background=False)
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+l")
+        await pilot.pause()
+        assert rec.calls == [] and "bottom right" in position_line(host)
+    host, rec = picker(position=("right", "bottom"), backgrounds_off=OFF_REASON)
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        assert not host.picker.query_one("#art-position", Static).display
+        await pilot.press("ctrl+l")
+        await pilot.pause()
+        assert rec.calls == []
+
+
+async def test_escape_after_ctrl_l_clears_the_preview_and_saves_nothing() -> None:
+    host, rec = picker(position=("right", "bottom"))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+l")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        assert host.result is None and rec.calls[-1] == (PATH, "")
+
+
+async def test_ctrl_l_comes_back_round_to_a_custom_position() -> None:
+    # review of #175: a stray ctrl+l mustn't lose a numbered position
+    host, _ = picker(position=(3, 1))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press(*["ctrl+l"] * 10)
+        await pilot.pause()
+        line = "position: 3 cells from the right, 1 cell down, custom"
+        assert position_line(host).startswith(line)
+        await pilot.press("ctrl+l")
+        await pilot.pause()
+        assert position_line(host).startswith("position: top left ")
+
+
+async def test_a_move_is_dropped_when_the_background_is_turned_off() -> None:
+    host, _ = picker(position=("right", "bottom"))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+l", "ctrl+b", "enter")
+        await pilot.pause()
+        assert host.result == ThemeChoice("Nord", False)
