@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.21.0 — 2026-11-18
+
 ### Added
 - The theme picker (`t`) shows where a project's art sits, and `ctrl+l` moves it through the nine spots from top left to bottom right, previewed on the project's windows; Enter saves it with the scheme. Run `cardak wezterm install` again for the preview (#175).
 
