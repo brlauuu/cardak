@@ -1956,6 +1956,23 @@ async def test_the_pane_wraps_a_long_reason_and_keeps_the_age() -> None:
         assert all(node_id(n.data) == "r:7" for n in reasons)
 
 
+async def test_footer_lists_n_on_the_deck_only() -> None:
+    def shown(app: DeckApp) -> dict[str, str]:
+        return {
+            key: active.binding.description
+            for key, active in app.screen.active_bindings.items()
+            if active.binding.show and active.enabled
+        }
+
+    app = DeckApp(StubSource(SNAP), interval=3600)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        assert shown(app)["n"] == "New issue"
+        app.push_screen(AddProjectScreen(Path("/repos/x"), "x"))
+        await pilot.pause()
+        assert "n" not in shown(app)
+
+
 async def test_n_on_a_pane_row_opens_a_new_issue_for_its_project() -> None:
     opened: list[str] = []
     pm = BoardPm(work_board("/repos/cardak"))
