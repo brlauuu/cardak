@@ -6,10 +6,11 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Tree
+from textual.widgets import Header, Tree
 
 from cardak.core.eventlog import line_text, log_lines, sentences
 from cardak.core.store import ResourceEvent
+from cardak.ui.footer import WrappingFooter
 
 EMPTY = "No events yet. The daemon writes them: cardak resources install."
 STYLES = {"critical": "bold red", "warning": "yellow", "info": "dim"}
@@ -25,7 +26,7 @@ class EventLogScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Tree[None]("events", id="events")
-        yield Footer()
+        yield WrappingFooter()
 
     def on_mount(self) -> None:
         self.sub_title = "event log · last 30 days"

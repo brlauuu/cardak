@@ -56,6 +56,7 @@ src/cardak/
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
   ui/summaries.py                                      # #47–#49: `s`, the summary providers
   ui/pm.py                                             # #68: `p` / `P`, the PM view
+  ui/footer.py                                         # #179: the footer every screen shows, wrapped into rows
   ui/context_plot.py                                   # #86: one project's sessions over a day
   web/{view, server, key, lan}.py, page.html          # M7: the read-only page for phones
   web/icon.svg, icon-180.png                          # #106: its favicon and home-screen icon (copies)
@@ -958,3 +959,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - **#175 (art position in the picker)** adds `config.SPOTS` / `spot_name` /
   `set_project_position` and module 9. Accepted: one more dead-code candidate
   (`ThemePickerScreen.action_move_art`, which Textual calls through the `ctrl+l` binding).
+- **#179 (footer rows)** adds `ui/footer.WrappingFooter`, which every screen yields instead of
+  Textual's `Footer`. Accepted: two more dead-code candidates (`WrappingFooter.compose` and
+  `on_resize`, which Textual calls), and a performance report on `row_sizes` (a binary search
+  over the row width, each step one pass over the screen's dozen or so keys).

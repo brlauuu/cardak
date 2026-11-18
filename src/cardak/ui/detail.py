@@ -13,12 +13,13 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.markup import escape
 from textual.screen import Screen
-from textual.widgets import Button, Collapsible, Footer, Header, Static
+from textual.widgets import Button, Collapsible, Header, Static
 
 from cardak.collectors.transcripts import Entry, read_transcript
 from cardak.core.agents import KIND_LABELS, SessionState, tool_summary
 from cardak.core.detail import shown_path, turn_text, words
 from cardak.core.summary import SummaryInfo
+from cardak.ui.footer import WrappingFooter
 from cardak.ui.widgets import IDLE, WAITING, WORKING, age
 
 PAGE = 200
@@ -92,7 +93,7 @@ class DetailScreen(Screen[int | None]):
         yield Header()
         with VerticalScroll():
             yield Static(detail_text(self.state, self.project, time.time(), self.info), id="detail")
-        yield Footer()
+        yield WrappingFooter()
 
     def action_jump(self) -> None:
         self.dismiss(self.pane_id if self.pane_id is not None else self.state.pane_id)
@@ -141,7 +142,7 @@ class TranscriptScreen(Screen[None]):
         with VerticalScroll():
             yield Button("load earlier", id="earlier")
             yield VerticalScroll(id="entries")
-        yield Footer()
+        yield WrappingFooter()
 
     def on_mount(self) -> None:
         self.sub_title = self.title_text

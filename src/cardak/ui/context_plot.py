@@ -7,7 +7,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Header, Static
 
 from cardak.core.context import (
     TICKS,
@@ -18,6 +18,7 @@ from cardak.core.context import (
     position,
 )
 from cardak.core.trends import DAYS, first_day
+from cardak.ui.footer import WrappingFooter
 from cardak.ui.plot import BLANK, braille_cells, level_row
 from cardak.ui.widgets import fmt_count
 
@@ -134,7 +135,7 @@ class ContextPlotScreen(Screen[None]):
         yield Static("", id="plot-title")
         yield Static("", id="plot")
         yield Static("", id="day")
-        yield Footer()
+        yield WrappingFooter()
 
     def on_mount(self) -> None:
         self._draw()

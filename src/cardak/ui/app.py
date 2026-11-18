@@ -17,7 +17,7 @@ from textual.containers import Horizontal, Vertical
 from textual.content import Content
 from textual.markup import escape
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Input, Label, Static, Tree
+from textual.widgets import Input, Label, Static, Tree
 from textual.widgets.tree import TreeNode
 from textual.worker import Worker
 
@@ -37,6 +37,7 @@ from cardak.shared.meta import version
 from cardak.ui.confirm import ConfirmScreen
 from cardak.ui.detail import DetailScreen
 from cardak.ui.events import EventLogScreen
+from cardak.ui.footer import WrappingFooter
 from cardak.ui.history import HistoryScreen
 from cardak.ui.pm import NOT_LISTED, NOT_READ, PmScreen, PmView, open_new_issue
 from cardak.ui.recap import RecapScreen
@@ -434,7 +435,7 @@ class DeckApp(App[None]):
                 yield Static(WAITING_NAME, id="side-title")
                 yield Tree[NodeData]("waiting", id="waiting")
                 yield Static("", id="side-machine")
-        yield Footer()
+        yield WrappingFooter()
 
     @property
     def deck_tree(self) -> Tree[NodeData]:

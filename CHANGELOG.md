@@ -9,6 +9,12 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Fixed
+
+- The footer's keys wrap onto a second row (or more) when the window is too narrow for
+  them, instead of the last ones being cut off. The deck at 160 columns showed `q Quit`
+  as `q Q` (#179).
+
 ## 0.21.0 — 2026-11-18
 
 ### Added

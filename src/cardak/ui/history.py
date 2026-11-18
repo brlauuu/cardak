@@ -10,7 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.markup import escape
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Header, Static
+from textual.widgets import DataTable, Header, Static
 
 from cardak.core.config import ResourceSettings
 from cardak.core.context import (
@@ -51,6 +51,7 @@ from cardak.core.trends import (
     value,
 )
 from cardak.ui.context_plot import ContextPlotScreen
+from cardak.ui.footer import WrappingFooter
 from cardak.ui.plot import BLANK, braille, level_row
 from cardak.ui.widgets import fmt_count, fmt_usd
 
@@ -232,7 +233,7 @@ class HistoryScreen(Screen[None]):
         yield DataTable(cursor_type="cell", cell_padding=0, id="history")
         yield Static("", id="legend")
         yield Static("", id="hint")
-        yield Footer()
+        yield WrappingFooter()
 
     def on_mount(self) -> None:
         self._fill()
@@ -478,7 +479,7 @@ class PlotScreen(Screen[None]):
         yield Static(title, id="plot-title")
         yield Static("", id="plot")
         yield Static("", id="day")
-        yield Footer()
+        yield WrappingFooter()
 
     def on_mount(self) -> None:
         self._draw()

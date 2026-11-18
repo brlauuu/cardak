@@ -8,11 +8,12 @@ from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Markdown, OptionList, Static
+from textual.widgets import Header, Markdown, OptionList, Static
 
 from cardak.collectors.git import GitState
 from cardak.core import recap
 from cardak.core.recap import Note
+from cardak.ui.footer import WrappingFooter
 
 NO_NOTE = "No checkpoint yet. Press c on an agent pane to write one."
 
@@ -46,7 +47,7 @@ class RecapScreen(Screen[None]):
         yield Markdown("", id="note")
         yield Static("", id="since")
         yield OptionList(id="others")
-        yield Footer()
+        yield WrappingFooter()
 
     def on_mount(self) -> None:
         self.title = f"recap · {self._title}"
