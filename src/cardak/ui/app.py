@@ -335,8 +335,8 @@ class DeckApp(App[None]):
         Binding("x", "cleanup", "Cleanup"),
         Binding("s", "summaries", "Summaries"),
         Binding("p", "pm_project", "PM"),
+        Binding("n", "new_issue", "New issue"),
         Binding("P", "pm_all", "All projects", show=False),
-        Binding("n", "new_issue", "New issue", show=False),
         Binding("R", "refresh_all", "Refresh", show=False),
         Binding("q", "quit", "Quit"),
     ]

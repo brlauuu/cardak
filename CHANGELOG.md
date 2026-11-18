@@ -9,6 +9,9 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Fixed
+- The deck's footer lists `n` (New issue) next to `p`, so the key is there to find without reading the docs (#174).
+
 ## 0.20.0 — 2026-11-17
 
 ### Added
