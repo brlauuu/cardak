@@ -88,10 +88,14 @@ class Wez:
     def status(self, w: Any) -> None:
         self.g.fire("update-status", w, None)
 
-    def preview(self, w: Any, path: str, scheme: str, background: object = None) -> None:
+    def preview(
+        self, w: Any, path: str, scheme: str, background: object = None, position: object = None
+    ) -> None:
         request: dict[str, object] = {"path": path, "scheme": scheme, "n": 1}
         if background is not None:
             request["background"] = background
+        if position is not None:
+            request["position"] = position
         value = json.dumps(request)
         self.g.fire("user-var-changed", w, None, "cardak_preview", value)
 
@@ -267,8 +271,8 @@ def test_focus_is_harmless_without_a_state_dir(
     assert not (tmp_path / "missing").exists()
 
 
-def test_module_version_8() -> None:
-    assert MODULE.splitlines()[1] == "-- cardak-module: 8"
+def test_module_version_9() -> None:
+    assert MODULE.splitlines()[1] == "-- cardak-module: 9"
 
 
 def record_opens(wez: Wez) -> Any:
@@ -579,6 +583,23 @@ def test_a_preview_is_placed_where_the_art_will_be() -> None:
     w = wez.window(1, "/r/new")
     wez.preview(w, "/r/new", "Nord", OTHER_ART)
     assert _placed(wez.background(w)) == ("Right", "Top", "-3cell", "0cell")
+
+
+def test_a_previewed_position_moves_the_art_and_clearing_puts_it_back() -> None:
+    # #175: the picker's ctrl+l, before anything is saved
+    web = Project(name="web", path=Path("/r/web"), theme="Nord", background_position=(2, 1))
+    wez = Wez(data(web, images={web.path: ART}))
+    w = wez.window(1, "/r/web/src")
+    wez.status(w)
+    wez.preview(w, "/r/web", "Nord", position=["left", "top"])
+    assert _placed(wez.background(w)) == ("Left", "Top", "1cell", "1cell")
+    wez.preview(w, "/r/web", "Nord", OTHER_ART, ["center", "center"])
+    assert _placed(wez.background(w)) == ("Center", "Middle", "0cell", "0cell")
+    wez.preview(w, "/r/web", "Nord", position=["nowhere", 1])  # not a position: the saved one
+    assert _placed(wez.background(w)) == ("Right", "Top", "-2cell", "1cell")
+    wez.preview(w, "/r/web", "Nord", position=["left", "top"])
+    wez.preview(w, "/r/web", "")
+    assert _placed(wez.background(w)) == ("Right", "Top", "-2cell", "1cell")
 
 
 def test_a_moved_position_moves_the_art_after_a_reload() -> None:

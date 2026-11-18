@@ -23,6 +23,23 @@ if TYPE_CHECKING:
 COLUMNS = ("left", "center", "right")
 ROWS = ("top", "center", "bottom")
 Position = tuple[int | str, int | str]
+# The nine named spots, in reading order: what the theme picker's ctrl+l steps through (#175).
+SPOTS: tuple[Position, ...] = tuple((column, row) for row in ROWS for column in COLUMNS)
+DEFAULT_POSITION: Position = ("right", "bottom")  # where the art sits with no position set
+
+
+def spot_name(at: Position) -> str:
+    """A position in words: "top left", "center", or "top, 3 cells from the right"."""
+    column, row = at
+    if isinstance(column, str) and isinstance(row, str):
+        return "center" if column == row == "center" else f"{row} {column}"
+    x = column if isinstance(column, str) else f"{_cells(column)} from the right"
+    y = row if isinstance(row, str) else f"{_cells(row)} down"
+    return f"{y}, {x}" if isinstance(row, str) else f"{x}, {y}"
+
+
+def _cells(n: int) -> str:
+    return f"{n} cell{'' if n == 1 else 's'}"
 
 
 @dataclass(frozen=True)
@@ -501,7 +518,12 @@ def _atomic_write(path: Path, target: Path, text: str) -> None:
 
 
 def add_project(
-    path: Path, name: str, project_path: Path, theme: str | None = None, background: bool = True
+    path: Path,
+    name: str,
+    project_path: Path,
+    theme: str | None = None,
+    background: bool = True,
+    position: Position | None = None,
 ) -> None:
     """Append a [[project]] block, keeping the existing text (and its comments) as is."""
     config = load(path)  # raises ConfigError on a broken file, before anything is written
@@ -516,6 +538,8 @@ def add_project(
         entry["theme"] = theme
     if not background:
         entry["background"] = False
+    if position is not None:
+        entry["background_position"] = list(position)
     import tomli_w
 
     block = "[[project]]\n" + tomli_w.dumps(entry)
@@ -713,6 +737,18 @@ def set_project_background(path: Path, project_path: Path, on: bool) -> None:
             _set_key(table, "background", False)
         elif "background" in table:
             del table["background"]
+
+    _edit_project(path, project_path, edit)
+
+
+def set_project_position(path: Path, project_path: Path, at: Position | None) -> None:
+    """Set one project's `background_position`; None removes it (the default places the art)."""
+
+    def edit(table: "Table") -> None:
+        if at is not None:
+            _set_key(table, "background_position", list(at))
+        elif "background_position" in table:
+            del table["background_position"]
 
     _edit_project(path, project_path, edit)
 

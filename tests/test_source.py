@@ -930,6 +930,47 @@ def test_set_look_adds_an_unconfigured_project_with_the_switch(tmp_path: Path) -
     assert 'name = "webshop"' in text and "background = false" in text
 
 
+def test_background_position_is_the_projects_else_the_default(tmp_path: Path) -> None:
+    # #175: what the picker shows and starts ctrl+l from
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(
+        '[background]\nposition = ["center", "top"]\n\n'
+        f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\nbackground_position = [3, 1]\n'
+    )
+    source = make(cfg)
+    assert source.background_position(HOME / "notes") == (3, 1)
+    assert source.background_position(HOME / "repos/webshop") == ("center", "top")
+    cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\n')
+    assert make(cfg).background_position(HOME / "notes") == ("right", "bottom")
+
+
+def test_set_look_writes_a_moved_position_and_drops_the_default(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(
+        '[background]\nposition = ["center", "top"]\n\n'
+        f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\ntheme = "Nord"\n'
+    )
+    source = make(cfg)
+    before = cfg.read_text()
+    source.set_look(HOME / "notes", "Nord", True)  # no position: left as it was
+    source.set_look(HOME / "notes", "Nord", True, position=("center", "top"))  # the default
+    assert cfg.read_text() == before
+    source.set_look(HOME / "notes", "Nord", True, position=("left", "bottom"))
+    assert 'background_position = ["left", "bottom"]' in cfg.read_text()
+    assert source.background_position(HOME / "notes") == ("left", "bottom")
+    source.set_look(HOME / "notes", "Nord", True, position=("center", "top"))
+    assert cfg.read_text() == before
+
+
+def test_set_look_adds_a_project_with_its_position(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    source = make(cfg)
+    source.set_look(HOME / "repos/webshop", "Nord", True, name="webshop", position=("left", "top"))
+    assert source.background_position(HOME / "repos/webshop") == ("left", "top")
+    source.set_look(HOME / "repos/api", "Nord", True, name="api", position=("right", "bottom"))
+    assert "background_position" not in cfg.read_text().split('name = "api"')[1]
+
+
 def test_edited_art_reruns_on_config(tmp_path: Path) -> None:
     cfg = tmp_path / "projects.toml"
     cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\n')

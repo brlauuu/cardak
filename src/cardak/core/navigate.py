@@ -16,6 +16,7 @@ from typing import Literal
 
 from cardak.collectors import wezterm
 from cardak.core.backgrounds import Image
+from cardak.core.config import Position
 
 FOCUS_VAR = "cardak_focus"
 
@@ -36,10 +37,17 @@ def _user_var(name: str, value: str) -> bytes:
 
 
 def preview_request(
-    project_path: Path, scheme: str, nonce: str, background: Image | bool | None = None
+    project_path: Path,
+    scheme: str,
+    nonce: str,
+    background: Image | bool | None = None,
+    position: Position | None = None,
 ) -> bytes:
-    """background: an image to show, False to show none, None to keep the saved one (#9)."""
+    """background: an image to show, False to show none, None to keep the saved one (#9).
+    position: where the art sits, None for the saved place (#175, cardak.lua module 9)."""
     request: dict[str, object] = {"path": str(project_path), "scheme": scheme, "n": nonce}
+    if position is not None:
+        request["position"] = list(position)
     if isinstance(background, Image):
         request["background"] = {
             "file": str(background.file),
@@ -133,13 +141,17 @@ class Previewer:
         return cls(_write_dev_tty, "WEZTERM_PANE" in env)
 
     def preview(
-        self, project_path: Path, scheme: str, background: Image | bool | None = None
+        self,
+        project_path: Path,
+        scheme: str,
+        background: Image | bool | None = None,
+        position: Position | None = None,
     ) -> bool:
         if not self.in_wezterm:
             return False
         nonce = f"{time.time_ns()}.{next(self._counter)}"
         try:
-            self.write_tty(preview_request(project_path, scheme, nonce, background))
+            self.write_tty(preview_request(project_path, scheme, nonce, background, position))
         except OSError:
             return False
         return True
