@@ -229,10 +229,11 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `09_background_align.py`): every offset is added to its alignment (a positive horizontal one
   pushes right-aligned art past the edge), and art outside the window is clipped (#132).
   The picker's `ctrl+l` (#175, module 9) steps through `config.SPOTS` (the nine named spots in
-  reading order; from a custom, numbered position the first), previewing each: a preview's
+  reading order, then back to a custom one it started at), previewing each: a preview's
   `position` wins over the project's in `position_for`. A save writes `background_position` only
   when `ctrl+l` moved it, and the default (`[background] position`, else bottom right) as no key,
-  so the project follows the default again. With the switch off the key does nothing.
+  so the project follows the default again. With the switch off the key does nothing, and a move
+  made before it was turned off is not saved.
   With `[background] enabled = false` the picker's switch is disabled and its previews carry no art; the art line names a file only once its art was made (#126).
   Logos: README images first, then tracked files named logo / mark / icon (`git ls-files`),
   skipping wordmarks (art under 8 rows) and

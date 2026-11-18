@@ -116,6 +116,8 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         # why no project shows art ([background] enabled = false, #126; no extra, #131)
         self._backgrounds_off = backgrounds_off
         self._position = position  # where the art sits now: the project's, else the default
+        # ctrl+l's stops: the nine spots, and a custom position last, so it can be got back
+        self._stops = SPOTS if position in SPOTS else (*SPOTS, position)
         self._moved = False  # ctrl+l pressed: previews and the choice carry the position
 
     def compose(self) -> ComposeResult:
@@ -225,11 +227,11 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         box.value = not box.value
 
     def action_move_art(self) -> None:
-        """The next of the nine spots (#175); from a custom position, the first."""
+        """The next of the nine spots (#175), then the custom position it started at, if any."""
         if self._backgrounds_off is not None or not self.query_one("#background", Checkbox).value:
             return
-        at = SPOTS.index(self._position) + 1 if self._position in SPOTS else 0
-        self._position, self._moved = SPOTS[at % len(SPOTS)], True
+        at = self._stops.index(self._position) + 1
+        self._position, self._moved = self._stops[at % len(self._stops)], True
         self.query_one("#art-position", Static).update(escape(self._position_line(True)))
         self._preview_now()
 
@@ -296,13 +298,9 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
                 self._preview(name)
             else:
                 self._previewer.preview(self._path, "")
-        self.dismiss(
-            ThemeChoice(
-                name,
-                self.query_one("#background", Checkbox).value,
-                self._position if self._moved else None,
-            )
-        )
+        on = self.query_one("#background", Checkbox).value
+        # with the art off, a move is dropped: the line said it needs the background on
+        self.dismiss(ThemeChoice(name, on, self._position if self._moved and on else None))
 
     def action_cancel(self) -> None:
         self._clear_preview()

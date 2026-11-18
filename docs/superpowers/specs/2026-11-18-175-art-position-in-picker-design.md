@@ -15,8 +15,8 @@ spots, the project's windows show each one, and Enter saves it with the scheme.
   bottom right. Numbers are worded too (`top, 3 cells from the right`), marked `custom`.
 - `ctrl+l` steps through `SPOTS`, in reading order: top left, top center, top right, center left,
   center, center right, bottom left, bottom center, bottom right, then round again. From a named
-  spot it takes the next; from a custom one, the first. A custom position is not in the cycle:
-  Escape keeps it.
+  spot it takes the next; a custom one is a tenth stop, after bottom right (from the
+  review: a stray press mustn't lose it). A move is dropped when the switch is off at Enter.
 - Each step previews the highlighted scheme with the art at the new spot. With the switch off,
   `ctrl+l` does nothing (there is no art to move); with backgrounds off for every project (#126,
   #131) the line isn't shown and the key does nothing.

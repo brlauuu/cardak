@@ -400,3 +400,26 @@ async def test_escape_after_ctrl_l_clears_the_preview_and_saves_nothing() -> Non
         await pilot.press("escape")
         await pilot.pause()
         assert host.result is None and rec.calls[-1] == (PATH, "")
+
+
+async def test_ctrl_l_comes_back_round_to_a_custom_position() -> None:
+    # review of #175: a stray ctrl+l mustn't lose a numbered position
+    host, _ = picker(position=(3, 1))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press(*["ctrl+l"] * 10)
+        await pilot.pause()
+        line = "position: 3 cells from the right, 1 cell down, custom"
+        assert position_line(host).startswith(line)
+        await pilot.press("ctrl+l")
+        await pilot.pause()
+        assert position_line(host).startswith("position: top left ")
+
+
+async def test_a_move_is_dropped_when_the_background_is_turned_off() -> None:
+    host, _ = picker(position=("right", "bottom"))
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press("ctrl+l", "ctrl+b", "enter")
+        await pilot.pause()
+        assert host.result == ThemeChoice("Nord", False)
