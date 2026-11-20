@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 from cardak.core.config import (
-    step_spot,
     SPOTS,
     THEMES,
     BackgroundSettings,
@@ -30,6 +29,7 @@ from cardak.core.config import (
     set_summary_provider,
     set_web_enabled,
     spot_name,
+    step_spot,
     summary_ready,
     web_key_path,
     write_resource_defaults,

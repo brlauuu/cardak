@@ -1049,7 +1049,9 @@ def test_set_look_none_on_an_unconfigured_repo_writes_only_for_an_art_change(
     cfg = tmp_path / "projects.toml"
     source = make(cfg)
     source.set_look(HOME / "repos/webshop", None, True, name="webshop")
-    source.set_look(HOME / "repos/webshop", None, True, name="webshop", position=("right", "bottom"))
+    source.set_look(
+        HOME / "repos/webshop", None, True, name="webshop", position=("right", "bottom")
+    )
     assert not cfg.exists()
     source.set_look(HOME / "repos/webshop", None, False, name="webshop")
     text = cfg.read_text()
