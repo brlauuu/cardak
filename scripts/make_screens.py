@@ -702,6 +702,11 @@ class _Source:
     def background_on(self, project_path) -> bool:
         return True
 
+    config_file = Path("/home/demo/.config/cardak/projects.toml")
+
+    def inherited_theme(self, project_path) -> None:
+        return None
+
     def background_position(self, project_path) -> tuple[str, str]:
         return ("right", "bottom")
 

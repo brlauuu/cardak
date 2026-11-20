@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from logfix import FakeLog
 from textual.pilot import Pilot
-from textual.widgets import Checkbox, Input, Static, Tree
+from textual.widgets import Input, Static, Tree
 
 from cardak.collectors.machine import MachineSample
 from cardak.core.agents import SessionState
@@ -28,6 +28,7 @@ from cardak.core.store import ResourceEvent
 from cardak.core.summary import SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
 from cardak.ui.app import AddProjectScreen, DeckApp, Node, node_id
+from cardak.ui.art_pane import ArtPane
 from cardak.ui.detail import DetailScreen, TranscriptScreen
 from cardak.ui.theme_picker import ThemePickerScreen
 from cardak.ui.widgets import nothing_waiting_label
@@ -76,8 +77,10 @@ class StubSource:
         self.fail_add = fail_add
         self.added: list[tuple[str, Path]] = []
         self.issue_template = "/issue-to-pr {number}"
-        self.themes: list[tuple[Path, str, str | None]] = []
-        self.looks: list[tuple[Path, str, bool, str | None]] = []
+        self.themes: list[tuple[Path, str | None, str | None]] = []
+        self.looks: list[tuple[Path, str | None, bool, str | None]] = []
+        self.config_file = Path("/cfg/projects.toml")
+        self.inherits: tuple[str | None, str] | None = None
         self.backgrounds_off: set[Path] = set()
         self.position: Position = ("right", "bottom")
         self.positions: list[Position | None] = []
@@ -97,7 +100,7 @@ class StubSource:
     def set_look(
         self,
         project_path: Path,
-        theme: str,
+        theme: str | None,
         background: bool,
         name: str | None = None,
         position: Position | None = None,
@@ -105,6 +108,9 @@ class StubSource:
         self.themes.append((project_path, theme, name))
         self.looks.append((project_path, theme, background, name))
         self.positions.append(position)
+
+    def inherited_theme(self, project_path: Path) -> tuple[str | None, str] | None:
+        return self.inherits
 
     def background_on(self, project_path: Path) -> bool:
         return project_path not in self.backgrounds_off
@@ -539,13 +545,13 @@ async def test_t_on_a_git_group_saves_a_theme() -> None:
         await pilot.press("t")
         await settle(app, pilot)
         assert isinstance(app.screen, ThemePickerScreen)
-        await pilot.press("enter")
+        await pilot.press("down", "enter")  # from "none", where a repo without a theme starts
         await settle(app, pilot)
         assert source.themes == [(Path("/repos/cardak"), "Nord", "cardak")]
 
 
-async def test_ctrl_l_in_the_picker_saves_and_names_the_arts_new_place() -> None:
-    # #175
+async def test_arrows_in_the_dialog_save_and_name_the_arts_new_place() -> None:
+    # #175, #182
     source = StubSource(SNAP)
     app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES))
     async with app.run_test() as pilot:
@@ -553,8 +559,8 @@ async def test_ctrl_l_in_the_picker_saves_and_names_the_arts_new_place() -> None
         app.deck_tree.move_cursor(app.deck_tree.root.children[1])
         await pilot.press("t")
         await settle(app, pilot)
-        assert "bottom right" in str(app.screen.query_one("#art-position", Static).render())
-        await pilot.press("ctrl+l", "enter")
+        assert "bottom right" in str(app.screen.query_one("#art-grid", Static).render())
+        await pilot.press("down", "tab", "left", "left", "up", "up", "enter")
         await settle(app, pilot)
         assert source.positions == [("left", "top")]
         assert "cardak: Nord, art top left" in [n.message for n in app._notifications]
@@ -569,7 +575,7 @@ async def test_a_position_moved_back_to_where_it_was_writes_nothing() -> None:
         app.deck_tree.move_cursor(app.deck_tree.root.children[1])
         await pilot.press("t")
         await settle(app, pilot)
-        await pilot.press(*["ctrl+l"] * 9, "enter")  # all the way round
+        await pilot.press("down", "tab", "left", "right", "enter")  # there and back
         await settle(app, pilot)
         assert source.positions == [None]
         assert "cardak: Nord" in [n.message for n in app._notifications]
@@ -617,9 +623,74 @@ async def test_saving_a_theme_says_how_to_enable_themes() -> None:
         app.deck_tree.move_cursor(app.deck_tree.root.children[1])
         await pilot.press("t")
         await settle(app, pilot)
-        await pilot.press("enter")
+        await pilot.press("down", "enter")
         await settle(app, pilot)
         assert "install it" in [n.message for n in app._notifications]
+
+
+async def test_none_in_the_dialog_removes_a_theme_and_says_so() -> None:
+    # #182
+    themed = replace(
+        SNAP, groups=(SNAP.groups[0], replace(SNAP.groups[1], theme="Nord"), SNAP.groups[2])
+    )
+    source = StubSource(themed)
+    app = DeckApp(source, interval=3600, schemes=SchemeStore(THEMES))
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        await pilot.press("up", "enter")
+        await settle(app, pilot)
+        assert source.themes == [(Path("/repos/cardak"), None, "cardak")]
+        assert "cardak: no theme" in [n.message for n in app._notifications]
+
+
+async def test_a_save_that_writes_nothing_still_says_the_module_is_old() -> None:
+    # #182: an older cardak.lua ignored the "none" preview; say why nothing was shown
+    source = StubSource(SNAP)
+    app = DeckApp(
+        source, interval=3600, schemes=SchemeStore(THEMES), theme_status=lambda: "install it"
+    )
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+        await pilot.press("t")
+        await settle(app, pilot)
+        await pilot.press("enter")  # "none" on a repo without a theme: nothing to write
+        await settle(app, pilot)
+        messages = [n.message for n in app._notifications]
+        assert source.themes == [] and "cardak: no theme" in messages and "install it" in messages
+
+
+async def test_the_dialog_opens_the_config_through_the_decks_opener() -> None:
+    # #182; review focus 5: a file that is gone is an error notice with its path
+    for reason, notice in (
+        (None, "Opened /cfg/projects.toml"),
+        ("no such file", "Couldn't open /cfg/projects.toml: no such file"),
+    ):
+        opened: list[Path] = []
+
+        def opener(
+            path: Path, reason: str | None = reason, opened: list[Path] = opened
+        ) -> str | None:
+            opened.append(path)
+            return reason
+
+        app = DeckApp(
+            StubSource(SNAP), interval=3600, schemes=SchemeStore(THEMES), open_file=opener
+        )
+        async with app.run_test() as pilot:
+            await settle(app, pilot)
+            app.deck_tree.move_cursor(app.deck_tree.root.children[1])
+            await pilot.press("t")
+            await settle(app, pilot)
+            await pilot.press("tab", "c")
+            await app.workers.wait_for_complete()
+            await settle(app, pilot)
+            assert opened == [Path("/cfg/projects.toml")]
+            assert notice in [n.message for n in app._notifications]
+            assert isinstance(app.screen, ThemePickerScreen)  # still open, nothing saved
 
 
 def agent_row(pane_id: int, status: str, kind: str | None = None, since: float = 0.0) -> PaneRow:
@@ -1326,10 +1397,14 @@ class PreviewRecorder:
     in_wezterm = True
 
     def __init__(self) -> None:
-        self.calls: list[tuple[Path, str]] = []
+        self.calls: list[tuple[Path, str | None]] = []
 
     def preview(
-        self, project_path: Path, scheme: str, background: object = None, position: object = None
+        self,
+        project_path: Path,
+        scheme: str | None,
+        background: object = None,
+        position: object = None,
     ) -> bool:
         self.calls.append((project_path, scheme))
         return True
@@ -1339,7 +1414,7 @@ class FailingThemeSource(StubSource):
     def set_look(
         self,
         project_path: Path,
-        theme: str,
+        theme: str | None,
         background: bool,
         name: str | None = None,
         position: Position | None = None,
@@ -1352,7 +1427,7 @@ async def choose_nord(app: DeckApp, pilot: Pilot[None], row: int) -> None:
     app.deck_tree.move_cursor(app.deck_tree.root.children[row])
     await pilot.press("t")
     await settle(app, pilot)
-    await pilot.press("enter")
+    await pilot.press(*"nord", "enter")  # by name: with or without a theme it starts elsewhere
     await settle(app, pilot)
 
 
@@ -1389,7 +1464,7 @@ async def test_deck_saves_background_off() -> None:
         app.deck_tree.move_cursor(app.deck_tree.root.children[1])
         await pilot.press("t")
         await settle(app, pilot)
-        await pilot.press("ctrl+b", "enter")
+        await pilot.press("tab", "space", "enter")
         await settle(app, pilot)
         assert source.looks == [(Path("/repos/cardak"), "Nord", False, "cardak")]
         assert any("background off" in str(n.message) for n in app._notifications)  # noqa: SLF001
@@ -1405,7 +1480,7 @@ class FakeArt:
     def art_file(self, project_path: Path) -> Path | None:
         return Path("/art/cardak.txt")
 
-    def preview_image(self, project_path: Path, scheme: str) -> None:
+    def preview_image(self, project_path: Path, scheme: str | None) -> None:
         return None
 
 
@@ -1421,9 +1496,10 @@ async def test_picker_opens_with_the_saved_switch_and_art_path() -> None:
         await settle(app, pilot)
         screen = app.screen
         assert isinstance(screen, ThemePickerScreen)
-        assert screen.query_one(Checkbox).value is False
-        assert not screen.query_one(Checkbox).disabled
-        assert "/art/cardak.txt" in str(screen.query_one("#art-path", Static).render())
+        assert screen.query_one(ArtPane).on is False
+        assert str(screen.query_one("#art-switch", Static).render()).startswith("[ ] show art")
+        assert "/art/cardak.txt" in str(screen.query_one("#art-file", Static).render())
+        assert "/cfg/projects.toml" in str(screen.query_one("#config-file", Static).render())
 
 
 async def test_picker_knows_backgrounds_are_off() -> None:
@@ -1440,8 +1516,8 @@ async def test_picker_knows_backgrounds_are_off() -> None:
         await settle(app, pilot)
         screen = app.screen
         assert isinstance(screen, ThemePickerScreen)
-        assert screen.query_one(Checkbox).disabled
-        assert str(screen.query_one("#art-path", Static).render()) == "no extra"
+        assert not screen.query("#art-switch")
+        assert str(screen.query_one("#art-off", Static).render()) == "no extra"
 
 
 async def test_picker_load_regenerates() -> None:
