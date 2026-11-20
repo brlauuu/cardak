@@ -177,3 +177,11 @@ def test_previewer_passes_the_position_on() -> None:
         "center",
         "bottom",
     ]
+
+
+def test_preview_request_without_a_scheme_sends_false() -> None:
+    # #182: "none" in the dialog; "" still clears
+    data = preview_request(Path("/r/web"), None, "n1", position=("left", "top"))
+    prefix = b"\x1b]1337;SetUserVar=cardak_preview="
+    payload = json.loads(base64.b64decode(data[len(prefix) : -1]))
+    assert payload["scheme"] is False and payload["position"] == ["left", "top"]

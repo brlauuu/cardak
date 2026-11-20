@@ -89,7 +89,12 @@ class Wez:
         self.g.fire("update-status", w, None)
 
     def preview(
-        self, w: Any, path: str, scheme: str, background: object = None, position: object = None
+        self,
+        w: Any,
+        path: str,
+        scheme: str | bool,
+        background: object = None,
+        position: object = None,
     ) -> None:
         request: dict[str, object] = {"path": path, "scheme": scheme, "n": 1}
         if background is not None:
@@ -785,3 +790,37 @@ def test_a_users_scheme_without_a_background_falls_back_to_the_window() -> None:
     wez.status(w)
     layers = wez.background(w)
     assert layers is not None and layers[0]["source"] == {"Color": "#111111"}
+
+
+def test_a_preview_of_none_shows_the_project_without_its_scheme() -> None:
+    # #182: the dialog's "none" row, module 10
+    wez = Wez(data(WEB))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    assert wez.scheme(w) == "Nord"
+    wez.preview(w, "/r/web", False)
+    assert wez.scheme(w) is None
+    wez.preview(w, "/r/web", "")
+    assert wez.scheme(w) == "Nord"
+
+
+def test_a_preview_of_none_shows_the_default_or_the_outer_projects_scheme() -> None:
+    inner = Project(name="app", path=Path("/r/web/app"), theme="Dracula")
+    wez = Wez(data(WEB, inner, default="Gruvbox"))
+    w = wez.window(1, "/r/web/app/src")
+    wez.preview(w, "/r/web/app", False)
+    assert wez.scheme(w) == "Nord"
+    top = wez.window(2, "/r/web")
+    wez.preview(top, "/r/web", False)
+    assert wez.scheme(top) == "Gruvbox"
+
+
+def test_a_preview_of_none_still_moves_the_art() -> None:
+    plain = Project(name="new", path=Path("/r/new"))
+    wez = Wez(data(plain, images={plain.path: ART}))
+    w = wez.window(1, "/r/new")
+    wez.preview(w, "/r/new", False, OTHER_ART, ["left", "top"])
+    assert wez.scheme(w) is None
+    assert _placed(wez.background(w)) == ("Left", "Top", "1cell", "1cell")
+    wez.preview(w, "/r/new", False, False)
+    assert wez.background(w) is None

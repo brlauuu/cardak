@@ -38,14 +38,17 @@ def _user_var(name: str, value: str) -> bytes:
 
 def preview_request(
     project_path: Path,
-    scheme: str,
+    scheme: str | None,
     nonce: str,
     background: Image | bool | None = None,
     position: Position | None = None,
 ) -> bytes:
     """background: an image to show, False to show none, None to keep the saved one (#9).
-    position: where the art sits, None for the saved place (#175, cardak.lua module 9)."""
-    request: dict[str, object] = {"path": str(project_path), "scheme": scheme, "n": nonce}
+    position: where the art sits, None for the saved place (#175, cardak.lua module 9).
+    scheme: "" clears the preview; None is the project with no scheme of its own (#182,
+    module 10; an older module takes it for a clear)."""
+    shown: object = False if scheme is None else scheme
+    request: dict[str, object] = {"path": str(project_path), "scheme": shown, "n": nonce}
     if position is not None:
         request["position"] = list(position)
     if isinstance(background, Image):
@@ -143,7 +146,7 @@ class Previewer:
     def preview(
         self,
         project_path: Path,
-        scheme: str,
+        scheme: str | None,
         background: Image | bool | None = None,
         position: Position | None = None,
     ) -> bool:
