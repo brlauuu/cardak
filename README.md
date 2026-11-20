@@ -75,10 +75,13 @@ is a text file, `~/.config/cardak/logos/<project>.txt`, and from then on it's yo
 ASCII art into it to replace it, at any size. cardak never makes it again, so a deleted file
 means no background for that project.
 
-In the theme picker (`t`), `ctrl+b` turns a project's background off or on, and `ctrl+l` moves
-its art through the nine named spots (top left to bottom right), both previewed live; the picker
-shows where the art sits and where its file is, and Enter saves the spot as the project's
-`background_position`. In `projects.toml`, `[background]` takes `enabled = false`
+`t` on a project opens its theme and art: color schemes on the left, the art on the right. Tab
+switches sides. On the art side, space turns the project's background off or on and the arrows
+move the art between nine spots (top left to bottom right), all previewed live; Enter saves the
+scheme, the switch and the spot (as the project's `background_position`) from either side, and
+Esc drops them. The first row, "none", takes a project's scheme away again. The art's text file
+and `projects.toml` are named there too: click one, or press `e` or `c`, to open it in your
+desktop's editor. In `projects.toml`, `[background]` takes `enabled = false`
 (every project) and `opacity` (default `0.06`). The art sits in the bottom-right corner;
 `position = [columns, rows]` under `[background]` places it elsewhere, and a project's own
 `background_position` wins over that. Columns are `"left"`, `"center"` or `"right"`, rows

@@ -97,7 +97,7 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
     DEFAULT_CSS = """
     ThemePickerScreen { align: center middle; }
     #picker {
-        width: 112; max-width: 100%; height: 28; max-height: 100%;
+        width: 118; max-width: 100%; height: 28; max-height: 100%;
         border: round $accent; background: $surface; padding: 0 1;
     }
     #picker.-stacked { width: 72; height: 34; }
@@ -106,10 +106,10 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
     #unsaved { width: auto; color: $warning; }
     #panes { height: 1fr; }
     #picker.-stacked #panes { layout: vertical; }
-    #schemes-pane { width: 1fr; height: 1fr; border: round $panel; padding: 0 1; }
+    #schemes-pane { width: 1fr; height: 1fr; border: round $foreground-muted; padding: 0 1; }
     #schemes-pane:focus-within { border: round $accent; }
     #schemes { height: 1fr; }
-    #art { width: 50; height: 100%; border: round $panel; padding: 0 1; }
+    #art { width: 56; height: 100%; border: round $foreground-muted; padding: 0 1; }
     #art:focus { border: round $accent; }
     #picker.-stacked #art { width: 100%; height: auto; }
     #keys { height: 1; color: $text-muted; }

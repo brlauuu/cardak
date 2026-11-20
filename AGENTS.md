@@ -48,12 +48,14 @@ src/cardak/
   core/{ascii_art, backgrounds}.py                     # #9: each project's art, made once, and its image
   collectors/{wezterm, processes, claude, hooks, transcripts, machine, docker, journal}.py
   collectors/{handoff, git}.py                         # M6: the handoff note, read-only git
+  collectors/desktop.py                                # #182: `xdg-open` for a text file
   collectors/{usage, prices}.py                        # #29: per-reply usage, LiteLLM's price list
   collectors/soundpacks.py                             # #91: the user's openpeon sound packs
   collectors/limits.py                                 # #70: plan limits in the status line input
   collectors/github.py                                 # #68: issues and PRs through `gh api graphql`
   collectors/{logos, fonts}.py                         # #9: README images, the monospace font
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
+  ui/art_pane.py                                       # #182: the Art pane of the theme and art dialog
   ui/summaries.py                                      # #47–#49: `s`, the summary providers
   ui/pm.py                                             # #68: `p` / `P`, the PM view
   ui/footer.py                                         # #179: the footer every screen shows, wrapped into rows
@@ -100,7 +102,8 @@ tests/                    # mirrors src/cardak; fixtures/ holds sanitized record
 input, #70), `collectors/github.py` (every `gh` call, #68).
   Nothing else touches raw `wezterm cli` output or reads files under `~/.claude/`; the one
   writers there are `claude/install.py` and `claude/statusline.py` (#70). Neither format is a stable API. Sound packs'
-  `openpeon.json` is read only in `collectors/soundpacks.py` (#91).
+  `openpeon.json` is read only in `collectors/soundpacks.py` (#91). `xdg-open` is run only in
+  `collectors/desktop.py` (#182).
 - Read-only by default: the deck observes and focuses panes; it does not launch or drive agents.
   Three exceptions, each after the user confirms it in a dialog: `c` (M6) types `/checkpoint` into
   an agent pane, and `x` (#65) opens a shell tab in a project (`wezterm cli spawn --cwd`, in the
@@ -111,6 +114,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   A third, `w` in the PM view (#120), opens such a tab for a todo issue's project and types
   `claude '<[pm] issue_command with {number} filled in>'` (`core/work`, shell-quoted; default
   `/issue-to-pr {number}`, a skill cardak doesn't ship). It never types into a running session.
+  Opening a file from the theme and art dialog (`e`, `c`, #182) hands its path to `xdg-open`:
+  nothing is typed anywhere, so it asks nothing.
 - Never edit `~/.config/wezterm/wezterm.lua`, `~/.claude/settings.json` or anything else
   under `~/.config` or `~/.claude` without asking. Generated files go to a path the user
   `require`s or opts into.
@@ -229,13 +234,37 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   default (#168, module 8). Measured on 20240203 (`spikes/08_background_position.py`,
   `09_background_align.py`): every offset is added to its alignment (a positive horizontal one
   pushes right-aligned art past the edge), and art outside the window is clipped (#132).
-  The picker's `ctrl+l` (#175, module 9) steps through `config.SPOTS` (the nine named spots in
-  reading order, then back to a custom one it started at), previewing each: a preview's
-  `position` wins over the project's in `position_for`. A save writes `background_position` only
-  when `ctrl+l` moved it, and the default (`[background] position`, else bottom right) as no key,
-  so the project follows the default again. With the switch off the key does nothing, and a move
-  made before it was turned off is not saved.
-  With `[background] enabled = false` the picker's switch is disabled and its previews carry no art; the art line names a file only once its art was made (#126).
+  In the theme and art dialog (below) the arrows move the art over `config.SPOTS` (the nine
+  named spots, `config.step_spot`; #175, module 9), previewing each: a preview's `position`
+  wins over the project's in `position_for`. A save writes `background_position` only when the
+  art was moved, and the default (`[background] position`, else bottom right) as no key, so the
+  project follows the default again. With the switch off the arrows do nothing, and a move made
+  before it was turned off is not saved.
+  With `[background] enabled = false` the dialog's Art pane shows that reason in place of its switch and grid, and its previews carry no art; the art line names a file only once its art was made (#126).
+- **The theme and art dialog (#182)**, `t` on a project (`ui/theme_picker.py`, its right half
+  `ui/art_pane.ArtPane`): Schemes on the left (filter, list, live preview), Art on the right
+  (space: the switch; arrows: the spot; `r`: back to the spot it opened with, which is how a
+  numbered position survives a stray arrow; `e` / `c`: open the art file / `projects.toml`).
+  Tab switches panes; Enter is a priority binding and saves both from anywhere; the dialog's
+  last line names the keys (it covers the deck's footer) and its top right says what isn't
+  saved. Under `SIDE_BY_SIDE_AT` (100) columns the Art pane goes below the list. Enter can arrive
+  before the filter's `Input.Changed`: `action_save` refills the list when the text it was
+  filled for is stale.
+  The first row is **"none"**: no scheme of the project's own, saved as no `theme` key
+  (`set_project_theme(…, None)`), labelled with what the windows then get
+  (`LiveSource.inherited_theme`, the same order as `cardak.lua`'s `scheme_for`: the nearest
+  other themed project around it, else `[defaults] theme`, else WezTerm's own colors). The
+  project's own scheme is always a row and the one highlighted at open, even before the list
+  loads or when WezTerm doesn't know it, so an art-only save never changes the theme. A git
+  repo that is no project yet is saved as one only when there is something to write, and its
+  art is not previewed (`Tools` knows configured projects only).
+  Previewing "none" is a `cardak_preview` request with `"scheme": false` (**module 10**):
+  `scheme_for` skips the project at the preview's path; its `background` and `position` still
+  count. A module 9 takes `false` for a clear. The art's preview color for "none" is the default
+  theme's, else the fallback, as `backgrounds._color` gives a saved unthemed project.
+  Files open through `collectors/desktop.open_file` (`xdg-open`, detached, waited for 3 s on a
+  worker: a non-zero exit or a missing `xdg-open` is an error notice with the full path; one
+  still running is the app itself). `cli.py` hands it to the deck as `open_file`.
   Logos: README images first, then tracked files named logo / mark / icon (`git ls-files`),
   skipping wordmarks (art under 8 rows) and
   broken files; an opaque tile (an app icon) is read by the mark inside it. Measured on the
