@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 COLUMNS = ("left", "center", "right")
 ROWS = ("top", "center", "bottom")
 Position = tuple[int | str, int | str]
-# The nine named spots, in reading order: what the theme picker's ctrl+l steps through (#175).
+# The nine named spots, in reading order: the grid the theme and art dialog moves the art in
+# (#175, #182).
 SPOTS: tuple[Position, ...] = tuple((column, row) for row in ROWS for column in COLUMNS)
 DEFAULT_POSITION: Position = ("right", "bottom")  # where the art sits with no position set
 
@@ -36,6 +37,16 @@ def spot_name(at: Position) -> str:
     x = column if isinstance(column, str) else f"{_cells(column)} from the right"
     y = row if isinstance(row, str) else f"{_cells(row)} down"
     return f"{y}, {x}" if isinstance(row, str) else f"{x}, {y}"
+
+
+def step_spot(at: Position, columns: int, rows: int) -> Position:
+    """One step in the grid of spots, stopping at its edges (#182). A numbered position is
+    in no spot: any step from it starts at the bottom-right corner."""
+    if at not in SPOTS:
+        return DEFAULT_POSITION
+    x = min(max(COLUMNS.index(str(at[0])) + columns, 0), len(COLUMNS) - 1)
+    y = min(max(ROWS.index(str(at[1])) + rows, 0), len(ROWS) - 1)
+    return (COLUMNS[x], ROWS[y])
 
 
 def _cells(n: int) -> str:
@@ -724,9 +735,17 @@ def _put_before(body: list, at: int, trail: list) -> None:
     body[at:at] = trail
 
 
-def set_project_theme(path: Path, project_path: Path, theme: str) -> None:
-    """Set one project's `theme` in place; comments and layout elsewhere are kept."""
-    _edit_project(path, project_path, lambda table: _set_key(table, "theme", theme))
+def set_project_theme(path: Path, project_path: Path, theme: str | None) -> None:
+    """Set one project's `theme` in place, or with None remove it (#182); comments and layout
+    elsewhere are kept."""
+
+    def edit(table: "Table") -> None:
+        if theme is not None:
+            _set_key(table, "theme", theme)
+        elif "theme" in table:
+            del table["theme"]
+
+    _edit_project(path, project_path, edit)
 
 
 def set_project_background(path: Path, project_path: Path, on: bool) -> None:

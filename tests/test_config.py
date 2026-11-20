@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from cardak.core.config import (
+    step_spot,
     SPOTS,
     THEMES,
     BackgroundSettings,
@@ -929,3 +930,26 @@ def test_removing_a_middle_provider_keeps_the_comment_on_the_next_one(tmp_path: 
     assert 'provider = "anthropic"\n\n# the other one\n[summary.codex]' in text, text
     _intro_stays(text)
     assert set(load(path).summary.providers) == {"codex"}
+
+
+def test_set_project_theme_none_removes_the_key_and_keeps_comments(tmp_path: Path) -> None:
+    # #182: the picker's "none" row
+    f = tmp_path / "projects.toml"
+    f.write_text(
+        '# mine\n[[project]]\nname = "web"\npath = "/r/web"\ntheme = "Nord"  # dark\n\n'
+        "# next\n[notify]\ndesktop = false\n"
+    )
+    set_project_theme(f, Path("/r/web"), None)
+    text = f.read_text()
+    assert "theme" not in text and "# mine" in text and "# next\n[notify]" in text
+    assert load(f).projects[0].theme is None
+    set_project_theme(f, Path("/r/web"), None)  # already none: still fine
+    assert f.read_text() == text
+
+
+def test_step_spot_moves_and_stops_at_the_edges() -> None:
+    assert step_spot(("center", "center"), 1, 0) == ("right", "center")
+    assert step_spot(("center", "center"), 0, -1) == ("center", "top")
+    assert step_spot(("right", "bottom"), 1, 1) == ("right", "bottom")
+    assert step_spot(("left", "top"), -1, -1) == ("left", "top")
+    assert step_spot((3, 1), -1, 0) == ("right", "bottom")  # custom: starts at bottom right
