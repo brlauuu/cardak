@@ -1,5 +1,6 @@
-"""Pick a color scheme for a project, whether its ASCII art shows behind its windows (#9) and
-where it sits (#175), previewing all three live on the project's windows."""
+"""The theme and art dialog (#182): a project's color scheme on the left, its ASCII art on the
+right (whether it shows, #9, where it sits, #175, and the text files behind it), previewed
+live on the project's windows and saved together with Enter."""
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -7,22 +8,26 @@ from pathlib import Path
 from typing import Protocol
 
 from rich.text import Text
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.fuzzy import Matcher
 from textual.markup import escape
 from textual.screen import ModalScreen
 from textual.timer import Timer
-from textual.widgets import Checkbox, Input, Label, OptionList, Static
+from textual.widgets import Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from cardak.core.backgrounds import Image
-from cardak.core.config import DEFAULT_POSITION, SPOTS, Position, spot_name
+from cardak.core.config import DEFAULT_POSITION, Position
 from cardak.core.themes import Scheme
+from cardak.ui.art_pane import ArtPane, tilde
 
 SchemeLoader = Callable[[], Mapping[str, Scheme]]
+
+NONE_ID = "\0none"  # the row for no scheme of the project's own; no scheme has this name
+SIDE_BY_SIDE_AT = 100  # screen columns from which the two panes fit beside each other
 
 
 class ThemePreviewer(Protocol):
@@ -31,7 +36,7 @@ class ThemePreviewer(Protocol):
     def preview(
         self,
         project_path: Path,
-        scheme: str,
+        scheme: str | None,
         background: Image | bool | None = None,
         position: Position | None = None,
     ) -> bool: ...
@@ -44,19 +49,14 @@ class Backgrounds(Protocol):
 
     def art_file(self, project_path: Path) -> Path | None: ...
 
-    def preview_image(self, project_path: Path, scheme: str) -> Image | None: ...
+    def preview_image(self, project_path: Path, scheme: str | None) -> Image | None: ...
 
 
 @dataclass(frozen=True)
 class ThemeChoice:
-    scheme: str
+    scheme: str | None  # None: no scheme of its own (the "none" row, #182)
     background: bool
-    position: Position | None = None  # where ctrl+l moved the art; None: left as it was (#175)
-
-
-def _tilde(path: Path) -> str:
-    home = Path.home()
-    return f"~/{path.relative_to(home)}" if path.is_relative_to(home) else str(path)
+    position: Position | None = None  # where the art was moved to; None: left as it was (#175)
 
 
 def swatch_label(scheme: Scheme, current: bool) -> Text:
@@ -70,21 +70,53 @@ def swatch_label(scheme: Scheme, current: bool) -> Text:
     return text
 
 
+def none_label(inherits: tuple[str | None, str] | None, current: bool) -> Text:
+    """The "none" row, naming what the project's windows get without a scheme of its own."""
+    if inherits is None:
+        gets = "WezTerm's own colors"
+    elif inherits[0] is None:
+        gets = f"the default: {inherits[1]}"
+    else:
+        gets = f"as {inherits[0]}: {inherits[1]}"
+    text = Text(f"none ({gets})")
+    if current:
+        text.append(" •", style="bold")
+    return text
+
+
 class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
     DEBOUNCE = 0.15
     BINDINGS = [
+        Binding("enter", "save", "Save", priority=True),
         Binding("escape", "cancel", "Cancel"),
+        Binding("tab", "switch_pane", "Switch pane", priority=True),
+        Binding("shift+tab", "switch_pane", show=False, priority=True),
         Binding("down", "move(1)", show=False),
         Binding("up", "move(-1)", show=False),
-        Binding("ctrl+b", "toggle_background", "Background", priority=True),
-        Binding("ctrl+l", "move_art", "Move art", priority=True),
+        Binding("pagedown", "page(1)", show=False),
+        Binding("pageup", "page(-1)", show=False),
     ]
     DEFAULT_CSS = """
     ThemePickerScreen { align: center middle; }
-    #picker { width: 70; height: 28; border: round $accent; background: $surface; padding: 0 1; }
-    #background { border: none; padding: 0; height: 1; }
-    #art-path, #art-position { color: $text-muted; }
+    #picker {
+        width: 118; max-width: 100%; height: 28; max-height: 100%;
+        border: round $accent; background: $surface; padding: 0 1;
+    }
+    #picker.-stacked { width: 72; height: 34; }
+    #picker-head { height: 1; }
+    #picker-title { width: 1fr; }
+    #unsaved { width: auto; color: $warning; }
+    #panes { height: 1fr; }
+    #picker.-stacked #panes { layout: vertical; }
+    #schemes-pane { width: 1fr; height: 1fr; border: round $foreground-muted; padding: 0 1; }
+    #schemes-pane:focus-within { border: round $accent; }
     #schemes { height: 1fr; }
+    #art { width: 56; height: 100%; border: round $foreground-muted; padding: 0 1; }
+    #art:focus { border: round $accent; }
+    #picker.-stacked #art { width: 100%; height: auto; }
+    #picker.-stacked #scheme-find { border: none; height: 1; padding: 0; }
+    #picker.-stacked #art-grid, #picker.-stacked #art-files { margin-top: 0; }
+    #keys { height: 1; color: $text-muted; }
     """
 
     def __init__(
@@ -96,9 +128,13 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         previewer: ThemePreviewer | None,
         background: bool = True,
         art_file: Path | None = None,
-        preview_image: Callable[[str], Image | None] | None = None,
+        preview_image: Callable[[str | None], Image | None] | None = None,
         backgrounds_off: str | None = None,
         position: Position = DEFAULT_POSITION,
+        inherits: tuple[str | None, str] | None = None,
+        configured: bool = True,
+        config_file: Path | None = None,
+        open_file: Callable[[Path], str | None] | None = None,
     ) -> None:
         super().__init__()
         self._name = project_name
@@ -110,53 +146,64 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         self._timer: Timer | None = None
         self._previewed = False
         self._last_previewed: str | None = None
-        self._background = background
-        self._art_file = art_file
         self._preview_image = preview_image
         # why no project shows art ([background] enabled = false, #126; no extra, #131)
         self._backgrounds_off = backgrounds_off
-        self._position = position  # where the art sits now: the project's, else the default
-        # ctrl+l's stops: the nine spots, and a custom position last, so it can be got back
-        self._stops = SPOTS if position in SPOTS else (*SPOTS, position)
-        self._moved = False  # ctrl+l pressed: previews and the choice carry the position
+        self._inherits = inherits  # what "none" gets: (project or None, scheme), or None
+        self._open_file = open_file
+        self._listed_for = ""  # the filter text the list was last filled for
+        self._art = ArtPane(
+            on=background,
+            position=position,  # where the art sits now: the project's, else the default
+            art_file=art_file,
+            config_file=config_file,
+            off_reason=backgrounds_off,
+            configured=configured,
+            id="art",
+        )
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker"):
-            yield Label(f"Theme for {escape(self._name)}")
-            yield Input(placeholder="filter schemes", id="scheme-find")
-            yield Static("loading schemes…", id="picker-status")
-            yield Static(
-                "No live preview: the deck isn't running inside WezTerm.", id="preview-note"
-            )
-            yield OptionList(id="schemes")
-            yield Checkbox(
-                "Background: the project's ASCII art (ctrl+b)",
-                self._background,
-                id="background",
-                disabled=self._backgrounds_off is not None,
-            )
-            yield Static(escape(self._position_line(self._background)), id="art-position")
-            yield Static(escape(self._art_line(self._background)), id="art-path")
-
-    def _position_line(self, on: bool) -> str:
-        custom = "" if self._position in SPOTS else ", custom"
-        how = "ctrl+l to move" if on else "with the background on"
-        return f"position: {spot_name(self._position)}{custom} ({how})"
-
-    def _art_line(self, on: bool) -> str:
-        if self._backgrounds_off is not None:
-            return self._backgrounds_off
-        if self._art_file:
-            return f"art: {_tilde(self._art_file)}; replace its text to change it"
-        return "art: made when you save" if on else "art: made when the background is turned on"
+            with Horizontal(id="picker-head"):
+                yield Label(f"Theme and art: {escape(self._name)}", id="picker-title")
+                yield Static("", id="unsaved")
+            with Horizontal(id="panes"):
+                with Vertical(id="schemes-pane"):
+                    yield Input(placeholder="filter schemes", id="scheme-find")
+                    yield Static("loading schemes…", id="picker-status")
+                    yield Static(
+                        "No live preview: the deck isn't running inside WezTerm.",
+                        id="preview-note",
+                    )
+                    yield OptionList(id="schemes")
+                yield self._art
+            yield Static("", id="keys")
 
     def on_mount(self) -> None:
+        self.query_one("#schemes-pane").border_title = "Schemes"
+        self._art.border_title = "Art"
+        self._stack(self.app.size.width)
         self.query_one(Input).focus()
-        self.query_one("#art-position", Static).display = self._backgrounds_off is None
         self.query_one("#preview-note", Static).display = not (
             self._previewer is not None and self._previewer.in_wezterm
         )
+        self._refill()  # "none" and the project's scheme are there before the list loads
+        self._show_keys()
         self.run_worker(self._load_worker, thread=True, exit_on_error=False)
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._stack(event.size.width)  # App.size still has the old width here
+
+    def _stack(self, width: int) -> None:
+        """Under SIDE_BY_SIDE_AT columns the Art pane goes below the list."""
+        self.query_one("#picker").set_class(width < SIDE_BY_SIDE_AT, "-stacked")
+
+    def on_descendant_focus(self) -> None:
+        self._show_keys()
+
+    def _show_keys(self) -> None:
+        other = "Schemes" if self._art.has_focus else "Art"
+        self.query_one("#keys", Static).update(f"tab {other} · enter Save · esc Cancel")
 
     def _load_worker(self) -> None:
         try:
@@ -176,23 +223,63 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
             escape(f"Couldn't list schemes: {reason}. Type an exact name and press Enter.")
         )
 
-    def _refill(self) -> None:
-        query = self.query_one(Input).value.strip()
+    def _rows(self, query: str) -> list[Option]:
+        """The rows for a filter: "none" first (no filter, or one that spells it out), then the
+        schemes. The project's scheme is always a row, even one the list doesn't have (not
+        loaded, or a name WezTerm doesn't know), so
+        Enter with nothing touched never changes the theme."""
         names = sorted(self._schemes)
+        current = self._current
+        if current is not None and current not in self._schemes:
+            names.insert(0, current)
+        rows = []
         if query:
             matcher = Matcher(query)
             names = [n for n in names if matcher.match(n) > 0]
+        for name in names:
+            scheme = self._schemes.get(name)
+            label = swatch_label(scheme, name == current) if scheme else Text(f"{name} (current)")
+            rows.append(Option(label, id=name))
+        none = Option(none_label(self._inherits, current is None), id=NONE_ID)
+        if not query or query.lower() == "none":
+            rows.insert(0, none)  # spelled out, it is what was asked for: _refill highlights it
+        elif len(query) > 1 and "none".startswith(query.lower()):
+            # being spelled, not fuzzy ("one" is One Dark's), and last: a real list is
+            # hundreds of rows long, but a filter's first row is what Enter saves
+            rows.append(none)
+        return rows
+
+    def _refill(self) -> None:
+        self._listed_for = self.query_one(Input).value.strip()
+        rows = self._rows(self._listed_for)
         options = self.query_one(OptionList)
         options.clear_options()
-        options.add_options(
-            Option(swatch_label(self._schemes[n], n == self._current), id=n) for n in names
-        )
-        if names:
-            options.highlighted = names.index(self._current) if self._current in names else 0
+        options.add_options(rows)
+        if rows:
+            ids = [row.id for row in rows]
+            asked = self._listed_for.lower() == "none"
+            mine = NONE_ID if self._current is None or asked else self._current
+            options.highlighted = ids.index(mine) if mine in ids else 0
+        self._show_unsaved()
 
     @on(Input.Changed, "#scheme-find")
     def _filter(self) -> None:
         self._refill()
+
+    def _highlighted_id(self) -> str | None:
+        """The highlighted row's id (NONE_ID for "none"); None when the list is empty."""
+        options = self.query_one(OptionList)
+        if options.highlighted is None or not options.option_count:
+            return None
+        return options.get_option_at_index(options.highlighted).id
+
+    def _show_unsaved(self) -> None:
+        at = self._highlighted_id()
+        typed = self.query_one(Input).value.strip()
+        theme = (at != (NONE_ID if self._current is None else self._current)) if at else bool(typed)
+        parts = (["theme"] if theme else []) + self._art.changes()
+        said = f"not saved: {', '.join(parts)}" if parts else ""
+        self.query_one("#unsaved", Static).update(said)
 
     def action_move(self, step: int) -> None:
         options = self.query_one(OptionList)
@@ -201,67 +288,62 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         else:
             options.action_cursor_up()
 
+    def action_page(self, step: int) -> None:
+        options = self.query_one(OptionList)
+        if step > 0:
+            options.action_page_down()
+        else:
+            options.action_page_up()
+
+    def action_switch_pane(self) -> None:
+        (self.query_one(Input) if self._art.has_focus else self._art).focus()
+
     @on(OptionList.OptionHighlighted)
     def _highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        self._show_unsaved()
         if self._timer is not None:
             self._timer.stop()
-        name = event.option.id
-        # The current scheme is already on screen; preview it only to undo another preview.
-        if name is None or (name == self._current and not self._previewed):
+        at = event.option.id
+        if at is None:
             return
-        self._timer = self.set_timer(self.DEBOUNCE, lambda: self._preview(name))
+        scheme = None if at == NONE_ID else at
+        # The current scheme is already on screen; preview it only to undo another preview.
+        if scheme == self._current and not self._previewed:
+            return
+        self._timer = self.set_timer(self.DEBOUNCE, lambda: self._preview(scheme))
 
-    def _background_arg(self, name: str) -> Image | bool | None:
+    def _background_arg(self, scheme: str | None) -> Image | bool | None:
         """Off → False; on → the art in that scheme's color, None (the saved one) without it.
         With backgrounds off for every project, None: the scheme alone, as before #9."""
         if self._backgrounds_off is not None:
             return None
-        if not self.query_one("#background", Checkbox).value:
+        if not self._art.on:
             return False
-        return self._preview_image(name) if self._preview_image else None
+        return self._preview_image(scheme) if self._preview_image else None
 
-    def action_toggle_background(self) -> None:
-        box = self.query_one("#background", Checkbox)
-        if box.disabled:
-            return
-        box.value = not box.value
-
-    def action_move_art(self) -> None:
-        """The next of the nine spots (#175), then the custom position it started at, if any."""
-        if self._backgrounds_off is not None or not self.query_one("#background", Checkbox).value:
-            return
-        at = self._stops.index(self._position) + 1
-        self._position, self._moved = self._stops[at % len(self._stops)], True
-        self.query_one("#art-position", Static).update(escape(self._position_line(True)))
-        self._preview_now()
-
-    @on(Checkbox.Changed, "#background")
-    def _background_changed(self, event: Checkbox.Changed) -> None:
-        self.query_one("#art-path", Static).update(escape(self._art_line(event.value)))
-        self.query_one("#art-position", Static).update(escape(self._position_line(event.value)))
+    @on(ArtPane.Changed)
+    def _art_changed(self) -> None:
+        self._show_unsaved()
         self._preview_now()
 
     def _preview_now(self) -> None:
         """Preview the highlighted scheme at once, else the last one previewed or the saved."""
-        options = self.query_one(OptionList)
-        highlighted = options.highlighted
-        name = None
-        if highlighted is not None and options.option_count:
-            name = options.get_option_at_index(highlighted).id
-        name = name or self._last_previewed or self._current
-        if name:
-            if self._timer is not None:
-                self._timer.stop()
-            self._preview(name)
+        if self._timer is not None:
+            self._timer.stop()
+        at = self._highlighted_id()
+        if at is not None:
+            self._preview(None if at == NONE_ID else at)
+        else:
+            self._preview(self._last_previewed if self._previewed else self._current)
 
-    def _preview(self, name: str) -> None:
-        background = self._background_arg(name)
-        position = self._position if self._moved else None
+    def _preview(self, scheme: str | None) -> None:
+        background = self._background_arg(scheme)
+        position = self._art.position if self._art.moved else None
         if self._previewer is not None and self._previewer.preview(
-            self._path, name, background, position
+            self._path, scheme, background, position
         ):
             self._previewed = True
-            self._last_previewed = name
+            self._last_previewed = scheme
 
     def _clear_preview(self) -> None:
         if self._timer is not None:
@@ -271,36 +353,57 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
 
     @on(OptionList.OptionSelected)
     def _selected(self, event: OptionList.OptionSelected) -> None:
-        if event.option.id is not None:
-            self._choose(event.option.id)
+        if event.option.id is not None:  # a click: Enter is the screen's
+            self._choose(None if event.option.id == NONE_ID else event.option.id)
 
-    @on(Input.Submitted, "#scheme-find")
-    def _submitted(self, event: Input.Submitted) -> None:
-        options = self.query_one(OptionList)
-        if options.highlighted is not None and options.option_count:
-            name = options.get_option_at_index(options.highlighted).id
-            if name is not None:
-                self._choose(name)
-        elif event.value.strip():
-            self._choose(event.value.strip())
+    def action_save(self) -> None:
+        """Enter, from either pane: the highlighted row, else the typed name as it is."""
+        typed = self.query_one(Input).value.strip()
+        if typed != self._listed_for:  # Enter came before the list followed the last key
+            self._refill()
+        at = self._highlighted_id()
+        if at is not None:
+            self._choose(None if at == NONE_ID else at)
+        elif typed:
+            self._choose(typed)
 
-    def _choose(self, name: str) -> None:
+    def _choose(self, scheme: str | None) -> None:
         # Never "" before a save: clearing shows the old colors until the reload (#22). Show
         # the scheme being saved instead: after the reload cardak.lua keeps only schemes its
         # table knows, so a leftover preview of another one would stay on the window. A name
-        # the list doesn't know never reaches that table, so that preview is cleared. The deck
+        # the list doesn't know never reaches that table, so that preview is cleared, and so
+        # is one saved as "none": nothing of the project's is there to replace it. The deck
         # clears it too when the save writes nothing.
         if self._timer is not None:
             self._timer.stop()
-        if self._previewed and self._last_previewed != name and self._previewer is not None:
-            known = name in self._schemes
-            if known:
-                self._preview(name)
-            else:
+        if self._previewer is not None and self._previewed:
+            if scheme is None or scheme not in self._schemes:
                 self._previewer.preview(self._path, "")
-        on = self.query_one("#background", Checkbox).value
-        # with the art off, a move is dropped: the line said it needs the background on
-        self.dismiss(ThemeChoice(name, on, self._position if self._moved and on else None))
+            elif self._last_previewed != scheme:
+                self._preview(scheme)
+        art = self._art
+        # with the art off, a move is dropped: the pane said it needs the art on
+        self.dismiss(ThemeChoice(scheme, art.on, art.position if art.moved and art.on else None))
+
+    @on(ArtPane.Open)
+    def _open(self, event: ArtPane.Open) -> None:
+        path = event.path
+        self.run_worker(lambda: self._open_worker(path), thread=True, exit_on_error=False)
+
+    def _open_worker(self, path: Path) -> None:
+        """xdg-open may take a moment to say it failed: off the UI thread."""
+        if self._open_file is None:
+            reason: str | None = "can't open files in this deck"
+        else:
+            try:
+                reason = self._open_file(path)
+            except Exception as e:  # the opener is cli's; a failure is a notice here
+                reason = str(e)
+        if reason is None:
+            self.app.call_from_thread(self.notify, escape(f"Opened {tilde(path)}"))
+        else:
+            said = escape(f"Couldn't open {path}: {reason}")
+            self.app.call_from_thread(self.notify, said, severity="error")
 
     def action_cancel(self) -> None:
         self._clear_preview()

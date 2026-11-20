@@ -234,21 +234,40 @@ class LiveSource:
     def _default_position(self) -> config_mod.Position:
         return self._config.background.position or config_mod.DEFAULT_POSITION
 
+    def inherited_theme(self, project_path: Path) -> tuple[str | None, str] | None:
+        """What a folder gets with no scheme of its own, as cardak.lua decides it (#182): the
+        nearest other themed project around it (its name and scheme), else the default theme
+        (no name), else None: WezTerm's own colors."""
+        with self._lock:
+            around = [
+                p
+                for p in self._config.projects
+                if p.theme and p.path != project_path and project_path.is_relative_to(p.path)
+            ]
+            if around:
+                nearest = max(around, key=lambda p: len(p.path.parts))
+                return nearest.name, str(nearest.theme)
+            default = self._config.defaults.get("theme")
+            return (None, default) if isinstance(default, str) else None
+
     def set_look(
         self,
         project_path: Path,
-        theme: str,
+        theme: str | None,
         background: bool,
         name: str | None = None,
         position: config_mod.Position | None = None,
     ) -> None:
-        """Save the picker's scheme, background switch and art position (None: unchanged),
-        writing only what changed. The default position is written as no key, so the project
-        follows [background] position again."""
+        """Save the picker's scheme (None: no scheme of its own, #182), background switch and
+        art position (None: unchanged), writing only what changed. The default position is
+        written as no key, so the project follows [background] position again. A folder that
+        is no project yet becomes one only when there is something to write."""
         with self._lock:
             project = next((p for p in self._config.projects if p.path == project_path), None)
             own = None if position in (None, self._default_position()) else position
             if project is None:
+                if theme is None and background and own is None:
+                    return
                 config_mod.add_project(
                     self.config_file,
                     name or project_path.name,
@@ -258,13 +277,25 @@ class LiveSource:
                     position=own,
                 )
             else:
-                if project.theme != theme:
-                    config_mod.set_project_theme(self.config_file, project_path, theme)
-                if project.background != background:
-                    config_mod.set_project_background(self.config_file, project_path, background)
-                if position is not None and project.background_position != own:
-                    config_mod.set_project_position(self.config_file, project_path, own)
+                self._change_look(project, theme, background, position is not None, own)
             self._reload_if_changed(themes_now=False)
+
+    def _change_look(
+        self,
+        project: config_mod.Project,
+        theme: str | None,
+        background: bool,
+        placed: bool,
+        own: config_mod.Position | None,
+    ) -> None:
+        """A configured project's keys, each written only when it differs. placed: the art was
+        given a position (own is None for the default one, which is no key)."""
+        if project.theme != theme:
+            config_mod.set_project_theme(self.config_file, project.path, theme)
+        if project.background != background:
+            config_mod.set_project_background(self.config_file, project.path, background)
+        if placed and project.background_position != own:
+            config_mod.set_project_position(self.config_file, project.path, own)
 
     # The Summaries screen calls these on the UI thread, and a poll holds the lock throughout
     # (WezTerm, /proc, Docker's timeout): they read only the config, which a reload replaces

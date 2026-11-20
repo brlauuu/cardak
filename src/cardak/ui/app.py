@@ -104,11 +104,16 @@ class DeckSource(Protocol):
     def set_look(
         self,
         project_path: Path,
-        theme: str,
+        theme: str | None,
         background: bool,
         name: str | None = None,
         position: Position | None = None,
     ) -> None: ...
+
+    @property
+    def config_file(self) -> Path: ...
+
+    def inherited_theme(self, project_path: Path) -> tuple[str | None, str] | None: ...
 
     def background_on(self, project_path: Path) -> bool: ...
 
@@ -385,6 +390,7 @@ class DeckApp(App[None]):
         pm: PmView | None = None,
         backgrounds: Backgrounds | None = None,
         browse: Callable[[str], object] = webbrowser.open,
+        open_file: Callable[[Path], str | None] | None = None,
     ) -> None:
         super().__init__()
         self.title = f"cardak {version()}"  # the top bar, and every screen's header (#121)
@@ -404,6 +410,7 @@ class DeckApp(App[None]):
         self.providers = providers
         self.pm = pm  # the PM view's board, and what reads GitHub for it (#68)
         self.browse = browse  # a GitHub page in the browser: the PM view's cards, `n` (#166)
+        self.open_file = open_file  # a text file in the desktop's app: the theme dialog (#182)
         self.resource_log = log  # its own cardak.db connection: events, crash banner, history
         self._crash: ResourceEvent | None = None
         self._cap_noticed = False  # the summary-limit notice shows once per run
@@ -1122,6 +1129,11 @@ class DeckApp(App[None]):
         if self.previewer is not None:
             self.previewer.preview(path, "")
 
+    def _theme_hint(self) -> None:
+        """How to enable themes, or that cardak.lua is older than this deck."""
+        if self.theme_status is not None and (hint := self.theme_status()):
+            self.notify(escape(hint), severity="warning")
+
     def action_theme(self) -> None:
         node = self._cursor_node()
         group = node.data.group if node is not None and node.data is not None else None
@@ -1136,14 +1148,16 @@ class DeckApp(App[None]):
         position = self.source.background_position(path)
 
         def done(choice: ThemeChoice | None) -> None:
-            if choice is None or not choice.scheme:
+            if choice is None:
                 return
             moved = choice.position if choice.position not in (None, position) else None
-            said = f"{name}: {choice.scheme}" + ("" if choice.background else ", background off")
+            said = f"{name}: {choice.scheme or 'no theme'}"
+            said += "" if choice.background else ", background off"
             said += f", art {spot_name(moved)}" if moved else ""
             if (choice.scheme, choice.background, moved) == (current, background, None):
                 self._clear_preview(path)  # nothing to write, so no reload replaces the preview
                 self.notify(escape(said))
+                self._theme_hint()  # an older cardak.lua ignored a "none" preview (#182)
                 return
             try:
                 self.source.set_look(path, choice.scheme, choice.background, name, position=moved)
@@ -1152,8 +1166,7 @@ class DeckApp(App[None]):
                 self.notify(escape(str(e)), severity="error")
                 return
             self.notify(escape(said))
-            if self.theme_status is not None and (hint := self.theme_status()):
-                self.notify(escape(hint), severity="warning")
+            self._theme_hint()
             self.action_refresh()
 
         tools = self.backgrounds
@@ -1168,5 +1181,9 @@ class DeckApp(App[None]):
             preview_image=(lambda scheme: tools.preview_image(path, scheme)) if tools else None,
             backgrounds_off=tools.off_reason() if tools else None,
             position=position,
+            inherits=self.source.inherited_theme(path),
+            configured=group.kind == "config",
+            config_file=self.source.config_file,
+            open_file=self.open_file,
         )
         self.push_screen(picker, done)

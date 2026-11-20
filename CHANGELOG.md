@@ -9,6 +9,30 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+
+- The theme dialog's first row, "none", takes a project's color scheme away again, and
+  says what its windows get instead: the project around it, the default theme, or
+  WezTerm's own colors. Type `none` in the filter to jump to it (#182).
+- The theme dialog names the two text files behind a project's look, its art and
+  `projects.toml`. Click one, or press `e` or `c` on the Art side, to open it in your
+  desktop's default editor (#182).
+
+### Changed
+
+- `t` now opens "Theme and art" with two sides: the color schemes on the left, the art on
+  the right. Tab switches sides. On the Art side, space turns the art off or on and the
+  arrow keys move it over a grid of the nine spots; `r` puts it back where it was.
+  `ctrl+b` and `ctrl+l` are gone. Re-run `cardak wezterm install` to get the preview of
+  "none" (#182).
+
+### Fixed
+
+- It was not clear how to save the art's new place: Enter saved it, but nothing said so.
+  The dialog now names its keys on its last line and says what is not saved yet, and
+  Enter saves from either side. The art can also be moved or turned off on a project that
+  has no color scheme, without choosing one (#182).
+
 ## 0.21.1 — 2026-11-18
 
 ### Fixed

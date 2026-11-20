@@ -1000,6 +1000,7 @@ def _deck(config_arg: str | None) -> int:
     from functools import cache
 
     from cardak.collectors import wezterm
+    from cardak.collectors.desktop import open_file
     from cardak.collectors.fonts import monospace_font
     from cardak.core import spend
     from cardak.core.backgrounds import Paths, Tools, art_stamp
@@ -1056,6 +1057,7 @@ def _deck(config_arg: str | None) -> int:
         providers=_provider_tools(),
         pm=pm,
         backgrounds=Tools(backgrounds, lambda: source.config, store.get, cache(monospace_font)),
+        open_file=open_file,
     ).run()
     if counted is not None:
         counted[1].set()

@@ -1029,3 +1029,47 @@ def test_ui_writes_leave_the_theme_files_to_the_next_poll(tmp_path: Path) -> Non
     assert ran == [("poll", ("notes", "webshop"))]  # once, for both changes
     source.poll()
     assert len(ran) == 1
+
+
+def test_set_look_none_removes_a_theme_and_writes_nothing_twice(tmp_path: Path) -> None:
+    # #182: the dialog's "none" row
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "notes"\npath = "{HOME}/notes"\ntheme = "Nord"\n')
+    source = make(cfg)
+    source.set_look(HOME / "notes", None, True)
+    assert "theme" not in cfg.read_text()
+    before = cfg.stat().st_mtime_ns
+    source.set_look(HOME / "notes", None, True)
+    assert cfg.stat().st_mtime_ns == before
+
+
+def test_set_look_none_on_an_unconfigured_repo_writes_only_for_an_art_change(
+    tmp_path: Path,
+) -> None:
+    cfg = tmp_path / "projects.toml"
+    source = make(cfg)
+    source.set_look(HOME / "repos/webshop", None, True, name="webshop")
+    source.set_look(
+        HOME / "repos/webshop", None, True, name="webshop", position=("right", "bottom")
+    )
+    assert not cfg.exists()
+    source.set_look(HOME / "repos/webshop", None, False, name="webshop")
+    text = cfg.read_text()
+    assert 'name = "webshop"' in text and "background = false" in text and "theme" not in text
+
+
+def test_inherited_theme(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(
+        f'[[project]]\nname = "outer"\npath = "{HOME}/outer"\ntheme = "Nord"\n\n'
+        f'[[project]]\nname = "inner"\npath = "{HOME}/outer/inner"\ntheme = "Dracula"\n\n'
+        f'[[project]]\nname = "alone"\npath = "{HOME}/alone"\ntheme = "Dracula"\n'
+    )
+    source = make(cfg)
+    assert source.inherited_theme(HOME / "outer/inner") == ("outer", "Nord")
+    assert source.inherited_theme(HOME / "alone") is None  # its own theme doesn't count
+    assert source.inherited_theme(HOME / "outer/new") == ("outer", "Nord")  # not a project yet
+    cfg.write_text(cfg.read_text() + '\n[defaults]\ntheme = "Tokyo Night"\n')
+    source = make(cfg)
+    assert source.inherited_theme(HOME / "alone") == (None, "Tokyo Night")
+    assert source.inherited_theme(HOME / "outer/inner") == ("outer", "Nord")
