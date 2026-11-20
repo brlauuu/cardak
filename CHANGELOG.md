@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.22.0 — 2026-11-20
+
 ### Added
 
 - The theme dialog's first row, "none", takes a project's color scheme away again, and
