@@ -277,13 +277,25 @@ class LiveSource:
                     position=own,
                 )
             else:
-                if project.theme != theme:
-                    config_mod.set_project_theme(self.config_file, project_path, theme)
-                if project.background != background:
-                    config_mod.set_project_background(self.config_file, project_path, background)
-                if position is not None and project.background_position != own:
-                    config_mod.set_project_position(self.config_file, project_path, own)
+                self._change_look(project, theme, background, position is not None, own)
             self._reload_if_changed(themes_now=False)
+
+    def _change_look(
+        self,
+        project: config_mod.Project,
+        theme: str | None,
+        background: bool,
+        placed: bool,
+        own: config_mod.Position | None,
+    ) -> None:
+        """A configured project's keys, each written only when it differs. placed: the art was
+        given a position (own is None for the default one, which is no key)."""
+        if project.theme != theme:
+            config_mod.set_project_theme(self.config_file, project.path, theme)
+        if project.background != background:
+            config_mod.set_project_background(self.config_file, project.path, background)
+        if placed and project.background_position != own:
+            config_mod.set_project_position(self.config_file, project.path, own)
 
     # The Summaries screen calls these on the UI thread, and a poll holds the lock throughout
     # (WezTerm, /proc, Docker's timeout): they read only the config, which a reload replaces

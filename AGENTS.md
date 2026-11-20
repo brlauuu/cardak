@@ -988,6 +988,11 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - **#175 (art position in the picker)** adds `config.SPOTS` / `spot_name` /
   `set_project_position` and module 9. Accepted: one more dead-code candidate
   (`ThemePickerScreen.action_move_art`, which Textual calls through the `ctrl+l` binding).
+- **#182 (theme and art dialog)** split `LiveSource.set_look` (12: `_change_look`). Accepted:
+  the coordinators `ArtPane._show` (4 × 8: every change redraws the pane's four lines there) and
+  `ThemePickerScreen._refill` (6 × 5, the one accepted under M3 with two more callers), and ten
+  more dead-code candidates (the dialog's and the pane's `action_*` and `on_*` methods, which
+  Textual calls through bindings and messages).
 - **#179 (footer rows)** adds `ui/footer.WrappingFooter`, which every screen yields instead of
   Textual's `Footer`. Accepted: two more dead-code candidates (`WrappingFooter.compose` and
   `on_resize`, which Textual calls), and a performance report on `row_sizes` (a binary search
