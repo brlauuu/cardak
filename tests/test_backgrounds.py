@@ -468,3 +468,17 @@ def test_a_record_with_bad_entries_is_refused(tmp_path: Path, paths: Paths, gene
     paths.record.write_text(f'{{"version": 2, "generated": {generated}}}')
     assert ensure_art(config(project(tmp_path)), paths, no_logo)
     assert record_names(paths.record) == {}
+
+
+def test_tools_preview_image_for_no_scheme(tmp_path: Path, paths: Paths) -> None:
+    # #182: the dialog's "none" row: the default theme's color, else the fallback
+    p = project(tmp_path, theme="Dark")
+    ensure_art(config(p), paths, no_logo)
+    plain = Tools(paths, lambda: config(p), lambda: {"Dark": DARK}, lambda: None)
+    shown = plain.preview_image(p.path, None)
+    assert shown is not None and opaque_colors(shown.file) == {(0xC0, 0xC0, 0xC0)}
+    cfg = config(p, defaults={"theme": "Dark"})
+    shown = Tools(paths, lambda: cfg, lambda: {"Dark": DARK}, lambda: None).preview_image(
+        p.path, None
+    )
+    assert shown is not None and opaque_colors(shown.file) == {(0xE0, 0xE0, 0xE0)}

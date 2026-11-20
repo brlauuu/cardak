@@ -276,8 +276,8 @@ def test_focus_is_harmless_without_a_state_dir(
     assert not (tmp_path / "missing").exists()
 
 
-def test_module_version_9() -> None:
-    assert MODULE.splitlines()[1] == "-- cardak-module: 9"
+def test_module_version_10() -> None:
+    assert MODULE.splitlines()[1] == "-- cardak-module: 10"
 
 
 def record_opens(wez: Wez) -> Any:

@@ -425,9 +425,14 @@ class Tools:
         made = file.is_file() or file.name in record_names(self._paths.record).values()
         return file if made else None
 
-    def preview_image(self, project_path: Path, scheme: str) -> Image | None:
+    def preview_image(self, project_path: Path, scheme: str | None) -> Image | None:
+        """The art in a scheme's color; None is the project with no scheme of its own (#182),
+        whose art takes the default theme's color as its saved art would."""
         found = self._project(project_path)
         if found is None:
             return None
         project, file = found
+        if scheme is None:
+            default = self._config().defaults.get("theme")
+            scheme = default if isinstance(default, str) else ""
         return preview_image(project, file, self._schemes().get(scheme), self._paths, self._font())
