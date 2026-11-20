@@ -13,7 +13,7 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 - The theme dialog's first row, "none", takes a project's color scheme away again, and
   says what its windows get instead: the project around it, the default theme, or
-  WezTerm's own colors (#182).
+  WezTerm's own colors. Type `none` in the filter to jump to it (#182).
 - The theme dialog names the two text files behind a project's look, its art and
   `projects.toml`. Click one, or press `e` or `c` on the Art side, to open it in your
   desktop's default editor (#182).

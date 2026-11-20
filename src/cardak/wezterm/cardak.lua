@@ -213,6 +213,17 @@ local function sync_background(window, overrides, path, preview, scheme)
   return true
 end
 
+-- A scheme cardak put on a window is remembered across config reloads (wezterm.GLOBAL
+-- survives them; this module's state doesn't): after a project's theme is removed its scheme
+-- is in no table any more, and the window would keep it as if someone else had set it (#182).
+local function remember(scheme)
+  if wezterm.GLOBAL then wezterm.GLOBAL['cardak_scheme:' .. scheme] = true end
+end
+
+local function is_our_scheme(scheme)
+  return ours[scheme] or (wezterm.GLOBAL and wezterm.GLOBAL['cardak_scheme:' .. scheme]) or false
+end
+
 local function sync(window)
   local pane = window:active_pane()
   if not pane then return end
@@ -221,10 +232,11 @@ local function sync(window)
   local scheme = scheme_for(path, preview)
   local overrides = window:get_config_overrides() or {}
   local current = overrides.color_scheme
-  if current ~= nil and not ours[current] then return end
+  if current ~= nil and not is_our_scheme(current) then return end
   local changed = sync_background(window, overrides, path, preview, scheme)
   if current ~= scheme then
     overrides.color_scheme = scheme
+    if scheme then remember(scheme) end
     changed = true
   end
   if changed then window:set_config_overrides(overrides) end

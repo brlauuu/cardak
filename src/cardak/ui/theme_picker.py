@@ -93,6 +93,8 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         Binding("shift+tab", "switch_pane", show=False, priority=True),
         Binding("down", "move(1)", show=False),
         Binding("up", "move(-1)", show=False),
+        Binding("pagedown", "page(1)", show=False),
+        Binding("pageup", "page(-1)", show=False),
     ]
     DEFAULT_CSS = """
     ThemePickerScreen { align: center middle; }
@@ -112,6 +114,8 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
     #art { width: 56; height: 100%; border: round $foreground-muted; padding: 0 1; }
     #art:focus { border: round $accent; }
     #picker.-stacked #art { width: 100%; height: auto; }
+    #picker.-stacked #scheme-find { border: none; height: 1; padding: 0; }
+    #picker.-stacked #art-grid, #picker.-stacked #art-files { margin-top: 0; }
     #keys { height: 1; color: $text-muted; }
     """
 
@@ -220,17 +224,19 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         )
 
     def _rows(self, query: str) -> list[Option]:
-        """ "none" first (with no filter), then the schemes. The project's scheme is always a
+        """ "none" first (with no filter, or one that spells it), then the schemes. The project's scheme is always a
         row, even one the list doesn't have (not loaded, or a name WezTerm doesn't know), so
         Enter with nothing touched never changes the theme."""
         names = sorted(self._schemes)
         current = self._current
         if current is not None and current not in self._schemes:
             names.insert(0, current)
+        none = True
         if query:
             matcher = Matcher(query)
             names = [n for n in names if matcher.match(n) > 0]
-        rows = [] if query else [Option(none_label(self._inherits, current is None), id=NONE_ID)]
+            none = matcher.match("none") > 0  # typed: the list can be hundreds of rows long
+        rows = [Option(none_label(self._inherits, current is None), id=NONE_ID)] if none else []
         for name in names:
             scheme = self._schemes.get(name)
             label = swatch_label(scheme, name == current) if scheme else Text(f"{name} (current)")
@@ -274,6 +280,13 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
             options.action_cursor_down()
         else:
             options.action_cursor_up()
+
+    def action_page(self, step: int) -> None:
+        options = self.query_one(OptionList)
+        if step > 0:
+            options.action_page_down()
+        else:
+            options.action_page_up()
 
     def action_switch_pane(self) -> None:
         (self.query_one(Input) if self._art.has_focus else self._art).focus()

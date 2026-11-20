@@ -23,6 +23,7 @@ fake = {
     table.insert(handlers[name], fn)
   end,
   mux = { get_pane = function(id) error('pane id ' .. id .. ' not found') end },
+  GLOBAL = {},
   gui = { gui_windows = function() return windows end },
   json_parse = function(s) return py_json(s) end,
   time = { now = function() return { format = function() return NOW_MS end } end },
@@ -824,3 +825,20 @@ def test_a_preview_of_none_still_moves_the_art() -> None:
     assert _placed(wez.background(w)) == ("Left", "Top", "1cell", "1cell")
     wez.preview(w, "/r/new", False, False)
     assert wez.background(w) is None
+
+
+def test_a_removed_theme_leaves_the_window_after_the_reload() -> None:
+    # live check of #182: "none" saved, the window kept the old scheme, since after the
+    # reload nothing said that scheme was cardak's
+    wez = Wez(data(WEB))
+    w = wez.window(1, "/r/web")
+    wez.status(w)
+    assert wez.scheme(w) == "Nord"
+    wez.g.DATA = data(Project(name="web", path=Path("/r/web")))
+    wez.lua.execute("package.loaded.cardak_projects = nil")
+    wez.reload()
+    wez.status(w)
+    assert wez.scheme(w) is None
+    theirs = wez.window(2, "/r/web", "Their Own")  # one cardak never set is still left alone
+    wez.status(theirs)
+    assert wez.scheme(theirs) == "Their Own"

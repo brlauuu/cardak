@@ -614,3 +614,37 @@ async def test_the_art_pane_goes_below_the_list_on_a_narrow_screen() -> None:
         await pilot.resize_terminal(60, 30)
         await pilot.pause()
         assert box.has_class("-stacked")
+
+
+async def test_none_is_found_by_typing_it_and_the_list_pages() -> None:
+    # live check of #182: with ~900 schemes "none" was hundreds of rows above the current one
+    host, _ = picker()
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press(*"none")
+        await pilot.pause()
+        assert options(host)[0] == NONE_ID
+        assert host.picker.query_one(OptionList).highlighted == 0
+        await pilot.press("enter")
+        await pilot.pause()
+        assert host.result == ThemeChoice(None, True)
+    many = {f"S{i:03}": Scheme(f"S{i:03}", "#101010", "#e0e0e0", None, ANSI) for i in range(200)}
+    host, _ = picker(load=lambda: many, current="S150")
+    async with host.run_test(size=(140, 40)) as pilot:
+        await ready(host, pilot)
+        ol = host.picker.query_one(OptionList)
+        assert ol.highlighted == 151
+        await pilot.press("pageup")
+        await pilot.pause()
+        assert ol.highlighted is not None and ol.highlighted < 145
+        await pilot.press("pagedown", "pagedown")
+        await pilot.pause()
+        assert ol.highlighted > 151
+
+
+async def test_a_small_terminal_still_shows_a_usable_list() -> None:
+    host, _ = picker()
+    async with host.run_test(size=(80, 24)) as pilot:
+        await ready(host, pilot)
+        assert host.picker.query_one("#schemes").size.height >= 4  # none and the three schemes
+        assert art(host).region.bottom <= 24
