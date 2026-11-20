@@ -233,6 +233,7 @@ local function sync(window)
   local overrides = window:get_config_overrides() or {}
   local current = overrides.color_scheme
   if current ~= nil and not is_our_scheme(current) then return end
+  if current ~= nil and ours[current] then remember(current) end -- one an older module set
   local changed = sync_background(window, overrides, path, preview, scheme)
   if current ~= scheme then
     overrides.color_scheme = scheme

@@ -224,23 +224,29 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         )
 
     def _rows(self, query: str) -> list[Option]:
-        """ "none" first (with no filter, or one that spells it), then the schemes. The project's scheme is always a
-        row, even one the list doesn't have (not loaded, or a name WezTerm doesn't know), so
+        """The rows for a filter: "none" first (no filter, or one that spells it out), then the
+        schemes. The project's scheme is always a row, even one the list doesn't have (not
+        loaded, or a name WezTerm doesn't know), so
         Enter with nothing touched never changes the theme."""
         names = sorted(self._schemes)
         current = self._current
         if current is not None and current not in self._schemes:
             names.insert(0, current)
-        none = True
+        rows = []
         if query:
             matcher = Matcher(query)
             names = [n for n in names if matcher.match(n) > 0]
-            none = matcher.match("none") > 0  # typed: the list can be hundreds of rows long
-        rows = [Option(none_label(self._inherits, current is None), id=NONE_ID)] if none else []
         for name in names:
             scheme = self._schemes.get(name)
             label = swatch_label(scheme, name == current) if scheme else Text(f"{name} (current)")
             rows.append(Option(label, id=name))
+        none = Option(none_label(self._inherits, current is None), id=NONE_ID)
+        if not query or query.lower() == "none":
+            rows.insert(0, none)  # spelled out, it is what was asked for: _refill highlights it
+        elif len(query) > 1 and "none".startswith(query.lower()):
+            # being spelled, not fuzzy ("one" is One Dark's), and last: a real list is
+            # hundreds of rows long, but a filter's first row is what Enter saves
+            rows.append(none)
         return rows
 
     def _refill(self) -> None:
@@ -251,7 +257,8 @@ class ThemePickerScreen(ModalScreen[ThemeChoice | None]):
         options.add_options(rows)
         if rows:
             ids = [row.id for row in rows]
-            mine = NONE_ID if self._current is None else self._current
+            asked = self._listed_for.lower() == "none"
+            mine = NONE_ID if self._current is None or asked else self._current
             options.highlighted = ids.index(mine) if mine in ids else 0
         self._show_unsaved()
 

@@ -245,7 +245,7 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `ui/art_pane.ArtPane`): Schemes on the left (filter, list, live preview), Art on the right
   (space: the switch; arrows: the spot; `r`: back to the spot it opened with, which is how a
   numbered position survives a stray arrow; `e` / `c`: open the art file / `projects.toml`).
-  Typing `none` in the filter finds that row (a real list has ~900 schemes); PageUp/PageDown page the list. Tab switches panes; Enter is a priority binding and saves both from anywhere; the dialog's
+  Typing `none` in the filter finds that row and highlights it (a real list has ~900 schemes; a prefix of it lists the row last, and it is never fuzzy-matched: `one` is One Dark's); PageUp/PageDown page the list. Tab switches panes; Enter is a priority binding and saves both from anywhere; the dialog's
   last line names the keys (it covers the deck's footer) and its top right says what isn't
   saved. Under `SIDE_BY_SIDE_AT` (100) columns the Art pane goes below the list. Enter can arrive
   before the filter's `Input.Changed`: `action_save` refills the list when the text it was
@@ -263,7 +263,8 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   count. A module 9 takes `false` for a clear. Every scheme `sync` puts on a window is noted in
   `wezterm.GLOBAL['cardak_scheme:<name>']`, which survives config reloads: a removed theme is in
   no table after the reload, and the window would otherwise keep it as someone else's (found in
-  the live check: "none" saved, the window stayed Dracula). The art's preview color for "none" is the default
+  the live check: "none" saved, the window stayed Dracula). A scheme the
+  window already has from an older module is noted on the next sync. The art's preview color for "none" is the default
   theme's, else the fallback, as `backgrounds._color` gives a saved unthemed project.
   Files open through `collectors/desktop.open_file` (`xdg-open`, detached, waited for 3 s on a
   worker: a non-zero exit or a missing `xdg-open` is an error notice with the full path; one

@@ -842,3 +842,16 @@ def test_a_removed_theme_leaves_the_window_after_the_reload() -> None:
     theirs = wez.window(2, "/r/web", "Their Own")  # one cardak never set is still left alone
     wez.status(theirs)
     assert wez.scheme(theirs) == "Their Own"
+
+
+def test_a_scheme_set_before_this_module_is_known_as_cardaks_after_the_reload() -> None:
+    # final review: a window themed by module 9 was never noted, so "none" left it themed
+    wez = Wez(data(WEB))
+    w = wez.window(1, "/r/web", "Nord")  # as an older module left it
+    wez.status(w)
+    assert w.sets == 0  # nothing to set: it already has its scheme
+    wez.g.DATA = data(Project(name="web", path=Path("/r/web")))
+    wez.lua.execute("package.loaded.cardak_projects = nil")
+    wez.reload()
+    wez.status(w)
+    assert wez.scheme(w) is None

@@ -648,3 +648,32 @@ async def test_a_small_terminal_still_shows_a_usable_list() -> None:
         await ready(host, pilot)
         assert host.picker.query_one("#schemes").size.height >= 4  # none and the three schemes
         assert art(host).region.bottom <= 24
+
+
+async def test_a_filter_that_only_resembles_none_never_picks_it() -> None:
+    # final review: "one" (for One Dark) fuzzy-matched "none", which then took the highlight
+    schemes = SCHEMES | {"One Dark": Scheme("One Dark", "#101010", "#e0e0e0", None, ANSI)}
+    for typed, rows, saved in (
+        ("one", ["One Dark"], "One Dark"),
+        ("e", ["One Dark"], "One Dark"),
+        ("no", ["Nord", NONE_ID], "Nord"),  # spelled so far: listed, last, not highlighted
+    ):
+        host, _ = picker(load=lambda: schemes, current="Tokyo Night")
+        async with host.run_test() as pilot:
+            await ready(host, pilot)
+            await pilot.press(*typed)
+            await pilot.pause()
+            assert options(host) == rows
+            await pilot.press("tab", "enter")
+            await pilot.pause()
+            assert host.result == ThemeChoice(saved, True)
+
+
+async def test_none_spelled_out_is_picked_even_among_fuzzy_matches() -> None:
+    schemes = SCHEMES | {"Neon One": Scheme("Neon One", "#101010", "#e0e0e0", None, ANSI)}
+    host, _ = picker(load=lambda: schemes, current="Neon One")
+    async with host.run_test() as pilot:
+        await ready(host, pilot)
+        await pilot.press(*"none", "enter")
+        await pilot.pause()
+        assert host.result == ThemeChoice(None, True)
