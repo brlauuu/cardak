@@ -2352,6 +2352,10 @@ async def test_the_cursor_stays_on_a_project_as_it_turns_active_and_back() -> No
         for role in ("group", "inactive"):
             app.action_refresh()
             await settle(app, pilot)
+            # the project's line number changes here, and the move to it is queued behind the
+            # rebuild's refresh (`_move_cursor`): a refresh later than the tree itself
+            await pilot.pause()
+            await pilot.pause()
             cursor = app.deck_tree.cursor_node
             assert cursor is not None and cursor.data is not None
             assert node_id(cursor.data) == "g:config:/repos/blog" and cursor.data.role == role
