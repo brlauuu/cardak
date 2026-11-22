@@ -91,10 +91,13 @@ def decorate(snap: DeckSnapshot, recent: Recent, t: Thresholds) -> DeckSnapshot:
     groups = tuple(_group(g, recent, t, total) for g in snap.groups)
     view = None
     if m := snap.machine:
+        ram, cpu = recent.ram(MACHINE), recent.cpu(MACHINE)
         view = MachineView(
             sample=m,
             level=memory_level(m, t),
-            ram_spark=spark(recent.ram(MACHINE), m.mem_total),
-            cpu_spark=spark(recent.cpu(MACHINE), 100.0),
+            ram_spark=spark(ram, m.mem_total),
+            cpu_spark=spark(cpu, 100.0),
+            ram_series=tuple(ram),
+            cpu_series=tuple(cpu),
         )
     return replace(snap, groups=groups, machine_view=view)

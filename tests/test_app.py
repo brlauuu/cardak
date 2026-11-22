@@ -1910,7 +1910,30 @@ async def test_wide_moves_waiting_to_the_side_pane() -> None:
         assert side_lines[0].startswith("● webshop · claude")
         assert side_lines[1].strip() == "Turn finished: Merge them?"
         assert not app.query_one("#machine").display
-        assert "RAM 22.0 / 32.0G" in str(app.query_one("#side-machine", Static).render())
+        machine = str(app.query_one("#side-machine", Static).render()).splitlines()
+        assert machine[0] == "Machine" and "RAM 22.0 / 32.0G (69%)" in machine
+        assert sum(set(line) == {"⠀"} for line in machine) == 6  # two plots, nothing recorded yet
+        assert any(line.startswith("webshop") for line in machine)  # its biggest projects
+        assert all(len(line) <= 39 for line in machine)  # nothing wraps in the pane (#185)
+
+
+async def test_machine_section_takes_at_most_half_the_side_pane() -> None:
+    waits = [agent_row(7 + i, "waiting", "finished") for i in range(8)]
+    snap = replace(waiting_snap(*waits, others=(row(2),)), machine_view=wide_snap().machine_view)
+    app = DeckApp(StubSource(snap), interval=3600)
+    async with app.run_test(size=(180, 20)) as pilot:
+        await settle(app, pilot)
+        side, machine = app.query_one("#side"), app.query_one("#side-machine")
+        assert machine.size.height and machine.outer_size.height <= side.size.height // 2
+        assert app.waiting_tree.size.height >= side.size.height // 2 - 1  # under the title
+        tall = machine.outer_size.height
+        await pilot.resize_terminal(180, 44)
+        await settle(app, pilot)
+        assert machine.outer_size.height > tall  # the plots and the projects are back
+        await pilot.resize_terminal(100, 44)
+        await settle(app, pilot)
+        assert not machine.display
+        assert "RAM 22.0 / 32.0G" in str(app.query_one("#machine", Static).render())
 
 
 async def test_narrow_keeps_one_tree() -> None:

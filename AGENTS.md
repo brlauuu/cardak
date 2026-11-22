@@ -56,6 +56,7 @@ src/cardak/
   collectors/{logos, fonts}.py                         # #9: README images, the monospace font
   ui/{app, widgets, theme_picker, detail, events, history, plot, confirm, recap}.py
   ui/art_pane.py                                       # #182: the Art pane of the theme and art dialog
+  ui/machine_pane.py                                   # #185: the machine's section of the wide deck's side pane
   ui/summaries.py                                      # #47–#49: `s`, the summary providers
   ui/pm.py                                             # #68: `p` / `P`, the PM view
   ui/footer.py                                         # #179: the footer every screen shows, wrapped into rows
@@ -173,6 +174,15 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   has the old width: use the event's. A rebuild with eight projects took ~4 ms (2.2 ms before).
   After the side pane shows or hides, new tree nodes can still have no line one refresh later,
   so `_move_cursor` retries (up to 3 refreshes) and drops a move a later rebuild made stale.
+- **The machine's section (#185):** under 120 columns the machine is one line above the tree
+  (`widgets.machine_label`); in the side pane it is `ui/machine_pane.MachinePane` under the waits:
+  a figure line and a 3-row braille plot (`ui/plot.braille`) each for CPU (of 100%) and RAM (of
+  `MemTotal`) over `MachineView.{cpu,ram}_series` (`Recent`'s last 120 polls, ~4 min), a swap line
+  on a machine with swap, and the three projects using the most RAM, then Other. `SidePane`
+  gives it half the pane's height on each resize (its top border included), so the waits keep
+  the other half; with less than it needs, `machine_lines` drops the projects (smallest first),
+  swap, the plots' rows (both together) and then the plots. The title, the two figures and a
+  full swap always stay, so under ~9 rows it takes more than half.
 - `cwd` in `wezterm cli list` comes from OSC 7, so it follows the shell, not the foreground
   process. Fallback when it is missing: `/proc/<pid>/cwd`.
 
@@ -1001,3 +1011,5 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   Textual's `Footer`. Accepted: two more dead-code candidates (`WrappingFooter.compose` and
   `on_resize`, which Textual calls), and a performance report on `row_sizes` (a binary search
   over the row width, each step one pass over the screen's dozen or so keys).
+- **#185 (machine section)** adds `ui/machine_pane`. Accepted: two more dead-code candidates
+  (`SidePane.on_resize`, which Textual calls, and `MachinePane.set_room` through it).

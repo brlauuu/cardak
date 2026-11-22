@@ -9,6 +9,13 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Changed
+
+- In the wide deck (120 columns and up) the machine has a section of its own under "Waiting
+  on you" instead of one line that wrapped: CPU and RAM each with a plot of the last four
+  minutes, swap, and the three projects using the most RAM. It takes at most half the pane
+  and drops detail when the window is short, so the waits always keep their half (#185).
+
 ## 0.22.0 — 2026-11-20
 
 ### Added

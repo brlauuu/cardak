@@ -109,6 +109,7 @@ def test_machine_view_levels() -> None:
     view = decorate(snap, recent, T32).machine_view
     assert view is not None and view.level == "warning"
     assert view.ram_spark == "█" and view.cpu_spark == "▄"  # 28 of 32 GiB used; 40% CPU
+    assert view.ram_series == (28 * GIB,) and view.cpu_series == (40.0,)  # for the plots (#185)
     assert decorate(DeckSnapshot(), recent, T32).machine_view is None
 
 
