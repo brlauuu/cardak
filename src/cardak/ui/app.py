@@ -308,10 +308,12 @@ def _spend_part(snap: DeckSnapshot) -> str:
     return f" · {fmt_usd(snap.month_spend)}{more} this month"
 
 
-def _counts(raw: DeckSnapshot, query: str, matches: int) -> str:
-    """The top bar's counts: projects and panes (or the find's matches), waits, spend."""
+def _counts(raw: DeckSnapshot, query: str, matches: int, inactive: int = 0) -> str:
+    """The top bar's counts: projects and panes (or the find's matches, and the inactive
+    projects among them), waits, spend."""
     if query:
-        text = f'{matches} of {raw.n_panes} panes match "{query}"'
+        more = f" and {inactive} inactive" if inactive else ""
+        text = f'{matches} of {raw.n_panes} panes{more} match "{query}"'
     else:
         text = f"{raw.n_projects} projects · {raw.n_panes} panes"
     if raw.n_waiting:
@@ -612,7 +614,7 @@ class DeckApp(App[None]):
         self.snapshot = result.snapshot
         self._best = result.best_pane_id
         query = self.find_query.strip()
-        self.sub_title = _counts(raw, query, result.n_matches)
+        self.sub_title = _counts(raw, query, result.n_matches, len(result.snapshot.inactive))
         self._show_top(raw)
         tree_snap, waits = _split(result.snapshot) if wide else (result.snapshot, None)
         if wide:

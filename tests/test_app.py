@@ -2340,6 +2340,36 @@ async def test_find_keeps_a_matching_inactive_project() -> None:
         assert [label.split()[0] for label in labels(app)] == ["Inactive"]
         found = app.deck_tree.root.children[0].children
         assert [str(n.label).split()[0] for n in found] == ["blog"]
+        assert app.sub_title == '0 of 4 panes and 1 inactive match "blog"'
+
+
+async def test_the_cursor_stays_on_a_project_as_it_turns_active_and_back() -> None:
+    active = replace(SNAP, groups=(*SNAP.groups, replace(BLOG, panes=(row(9),))), inactive=(API,))
+    app, *_ = inactive_app(WITH_INACTIVE, active, WITH_INACTIVE)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(inactive_node(app, 0))
+        for role in ("group", "inactive"):
+            app.action_refresh()
+            await settle(app, pilot)
+            cursor = app.deck_tree.cursor_node
+            assert cursor is not None and cursor.data is not None
+            assert node_id(cursor.data) == "g:config:/repos/blog" and cursor.data.role == role
+
+
+async def test_inactive_projects_in_the_wide_deck() -> None:
+    app, tabs, _, _ = inactive_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await settle(app, pilot)
+        assert app.wide
+        assert [str(n.label).split()[0] for n in inactive_node(app).children] == ["blog", "api"]
+        app.deck_tree.move_cursor(inactive_node(app, 1))
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await settle(app, pilot)
+        assert tabs.calls == [(Path("/repos/api"), None)]
 
 
 async def test_w_hides_the_inactive_projects() -> None:
