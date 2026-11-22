@@ -117,6 +117,17 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `/issue-to-pr {number}`, a skill cardak doesn't ship). It never types into a running session.
   Opening a file from the theme and art dialog (`e`, `c`, #182) hands its path to `xdg-open`:
   nothing is typed anywhere, so it asks nothing.
+  A fourth, Enter on an inactive project (#186), opens a plain shell tab in its folder (in the
+  deck's window) and jumps to it; nothing is typed into it.
+- **Inactive projects (#186):** `LiveSource._with_inactive` puts every configured project with
+  no group (no pane, no container) on `DeckSnapshot.inactive`, in config order, as pane-less
+  `config` groups. They are deliberately not in `groups`: accounting, history, alerts, crash
+  reports, the top bar's counts and the web view read `groups` only and stay as they were. The
+  deck lists them under one foldable "Inactive" node below the groups (`snapshot.INACTIVE` is
+  that heading's group, never in a snapshot); a line there keeps the node id its project's row
+  has when active (`g:config:<path>`), so the cursor stays on it when its first pane opens.
+  `x`, `p`, `n`, `t` and `r` act on such a line as on a project's; `/` keeps the ones whose
+  name or path matches, never as the best match; the waiting-only views leave them out.
 - Never edit `~/.config/wezterm/wezterm.lua`, `~/.claude/settings.json` or anything else
   under `~/.config` or `~/.claude` without asking. Generated files go to a path the user
   `require`s or opts into.

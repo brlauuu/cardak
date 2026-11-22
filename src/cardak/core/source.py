@@ -597,7 +597,18 @@ class LiveSource:
         return replace(decorate(snap, self._recent, t), thresholds=t)
 
     def _poll(self) -> DeckSnapshot:
-        return self._with_limits(self._with_spend(self._poll_panes()))
+        return self._with_limits(self._with_spend(self._with_inactive(self._poll_panes())))
+
+    def _with_inactive(self, snap: DeckSnapshot) -> DeckSnapshot:
+        """The configured projects that have no group: no pane open, no container running."""
+        seen = {g.key for g in snap.groups}
+        inactive: list[Group] = []
+        for p in self._config.projects:
+            group = self._make_group(p.path)
+            if group.kind == "config" and group.key not in seen:
+                seen.add(group.key)
+                inactive.append(group)
+        return replace(snap, inactive=tuple(inactive))
 
     def _with_limits(self, snap: DeckSnapshot) -> DeckSnapshot:
         """The plan limits `cardak statusline` saved, re-read only when the file changed."""

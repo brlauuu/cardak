@@ -23,6 +23,8 @@ from cardak.ui.widgets import (
     fmt_usd,
     group_row,
     heading,
+    inactive_heading,
+    inactive_row,
     machine_label,
     mcp_row,
     no_match_label,
@@ -392,3 +394,13 @@ def test_limits_label_unknown_and_stale() -> None:
     unknown = LimitView(None, None, "unknown")
     text = limits_label(LimitsView(unknown, unknown, 25 * 60.0), 0.0)
     assert text.plain == "5h —   week — · read 25 min ago"
+
+
+def test_inactive_rows_have_a_name_and_path_and_no_columns() -> None:
+    left, right = inactive_row(replace(group(), panes=(), rss=0))
+    assert left.plain == "webshop  ~/r/w" and right.plain == ""
+    assert [str(span.style) for span in left.spans] == ["#fabd2f", "dim"]
+    bare, _ = inactive_row(replace(group(accent="not a color"), path=None))
+    assert bare.plain == "webshop"
+    heading, columns = inactive_heading(3)
+    assert heading.plain == "Inactive  3" and columns.plain == ""

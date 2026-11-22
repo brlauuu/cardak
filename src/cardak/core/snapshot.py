@@ -18,7 +18,7 @@ from cardak.core.trends import GroupedTrends
 
 ClaudeLookup = Callable[[int], ClaudeSession | None]
 AccentFor = Callable[[Resolved], str | None]
-GroupKind = Kind | Literal["waiting"]
+GroupKind = Kind | Literal["waiting", "inactive"]
 WAITING_NAME = "Waiting on you"
 
 
@@ -82,6 +82,19 @@ class Group:
     spend_usd: float | None = None  # this month at API prices; None: nothing spent (#29)
 
 
+# The heading over the deck's inactive projects (#186). It is never among a snapshot's groups.
+INACTIVE = Group(
+    kind="inactive",
+    key=None,
+    name="Inactive",
+    accent=None,
+    path=None,
+    cpu_pct=None,
+    rss=0,
+    panes=(),
+)
+
+
 @dataclass(frozen=True)
 class MachineView:
     sample: MachineSample
@@ -97,6 +110,9 @@ class MachineView:
 class DeckSnapshot:
     groups: tuple[Group, ...] = ()
     n_panes: int = 0
+    # Configured projects with no pane and no Docker work, in config order (#186). Each is a
+    # "config" group without panes; kept out of `groups`, so nothing counts or measures them.
+    inactive: tuple[Group, ...] = ()
     error: str | None = None
     internal: bool = False  # error is a bug in cardak, not WezTerm being unreachable
     config_error: str | None = None

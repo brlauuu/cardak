@@ -298,6 +298,19 @@ def group_row(g: Group, total: int | None = None) -> Row:
     return text, right
 
 
+def inactive_heading(n: int) -> Row:
+    """The line over the configured projects with nothing open (#186)."""
+    return Text("Inactive", style="bold dim").append(f"  {n}", style="dim"), Text()
+
+
+def inactive_row(g: Group) -> Row:
+    """An inactive project: its name and path, with no numbers to show."""
+    text = Text().append(g.name, style=_valid_color(g.accent) or "")
+    if g.path:
+        text.append(f"  {g.path}", style="dim")
+    return text, Text()
+
+
 def _state(agent: AgentView | None, now: float) -> Text | None:
     if agent is None:
         return None
