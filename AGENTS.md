@@ -180,9 +180,9 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `MemTotal`) over `MachineView.{cpu,ram}_series` (`Recent`'s last 120 polls, ~4 min), a swap line
   on a machine with swap, and the three projects using the most RAM, then Other. `SidePane`
   gives it half the pane's height on each resize (its top border included), so the waits keep
-  the other half; with less than it needs, `machine_lines` drops the projects (smallest first),
+  the other half; with less than it needs, `machine_lines` drops the projects (from the last line up: Other, then the smallest),
   swap, the plots' rows (both together) and then the plots. The title, the two figures and a
-  full swap always stay, so under ~9 rows it takes more than half.
+  full swap always stay, so in a pane under 8 rows it takes more than half.
 - `cwd` in `wezterm cli list` comes from OSC 7, so it follows the shell, not the foreground
   process. Fallback when it is missing: `/proc/<pid>/cwd`.
 

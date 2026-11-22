@@ -98,6 +98,7 @@ def test_plots_draw_the_series() -> None:
     ],
 )
 def test_sheds_to_fit(budget: int | None, rows: int, swap: bool, projects: int) -> None:
+    assert PLOT_ROWS == 3  # the table's budgets assume it
     lines = machine_lines(view(), GROUPS, WIDTH, budget)
     text = plain(lines)
     assert sum(is_plot(line) for line in lines) == 2 * rows
@@ -141,4 +142,3 @@ def test_projects_over_and_long_names() -> None:
     lines = machine_lines(view(), groups, WIDTH)
     assert plain(lines)[10:] == ["a-project-with-a-very-long…" + " 11.0G (34%)"]
     assert any(s.style == OVER for s in lines[10].spans)
-    assert PLOT_ROWS == 3

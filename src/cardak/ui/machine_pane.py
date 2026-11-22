@@ -2,7 +2,8 @@
 plot of the last minutes, swap, and the projects using the most RAM.
 
 It gets at most half the pane's height. With less than it needs it drops, in this order, the
-projects (smallest first), swap, the plots' rows and then the plots; a full swap is never dropped.
+projects (from the last line up: Other, then the smallest), swap, the plots' rows and then
+the plots; a full swap is never dropped.
 """
 
 from collections.abc import Sequence
