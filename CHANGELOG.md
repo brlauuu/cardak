@@ -9,6 +9,8 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+## 0.23.0 — 2026-11-22
+
 ### Added
 
 - Projects from `projects.toml` with no pane open are listed under "Inactive", below Other.
