@@ -977,6 +977,10 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - **#137 (one atomic write)** folded twelve copies into `shared.files.write_atomic`. Reported
   as designed: its fan-in (15: every file cardak writes) and `src/cardak/shared` as the most
   depended-upon package (Ca 5, I 0.00): a stable, stdlib-only leaf is what it is for.
+- **#186 (inactive projects)** split `filter_snapshot` (11: `_inactive`) and `_start_in_tab`
+  (`_open_tab`, which Enter on an inactive project shares). Accepted: `DeckApp._add_groups` as a
+  hotspot (3 × 9: the groups' loop that came out of `_rebuild` under #122, with the Inactive
+  node as one more step) and `ui/app.node_id` at fan-in 9.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

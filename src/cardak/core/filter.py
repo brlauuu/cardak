@@ -39,9 +39,14 @@ def filter_snapshot(snap: DeckSnapshot, query: str) -> FilterResult:
             groups.append(replace(group, panes=tuple(kept)))
     # a waiting pane is listed twice (waiting group and project); in `w` mode only once
     n = len({r.pane_id for g in groups for r in g.panes})
-    # an inactive project has no pane to jump to: it is shown, never the best match (#186)
-    inactive = tuple(g for g in snap.inactive if matcher.match(f"{g.name} {g.path or ''}") > 0)
+    inactive = _inactive(snap, matcher)
     return FilterResult(replace(snap, groups=tuple(groups), n_panes=n, inactive=inactive), best, n)
+
+
+def _inactive(snap: DeckSnapshot, matcher: Matcher) -> tuple[Group, ...]:
+    """The inactive projects whose name or path matches (#186). With no pane to jump to, one
+    is shown but is never the best match."""
+    return tuple(g for g in snap.inactive if matcher.match(f"{g.name} {g.path or ''}") > 0)
 
 
 def waiting_only(snap: DeckSnapshot) -> DeckSnapshot:
