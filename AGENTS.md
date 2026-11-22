@@ -117,6 +117,17 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
   `/issue-to-pr {number}`, a skill cardak doesn't ship). It never types into a running session.
   Opening a file from the theme and art dialog (`e`, `c`, #182) hands its path to `xdg-open`:
   nothing is typed anywhere, so it asks nothing.
+  A fourth, Enter on an inactive project (#186), opens a plain shell tab in its folder (in the
+  deck's window) and jumps to it; nothing is typed into it.
+- **Inactive projects (#186):** `LiveSource._with_inactive` puts every configured project with
+  no group (no pane, no container) on `DeckSnapshot.inactive`, in config order, as pane-less
+  `config` groups. They are deliberately not in `groups`: accounting, history, alerts, crash
+  reports, the top bar's counts and the web view read `groups` only and stay as they were. The
+  deck lists them under one foldable "Inactive" node below the groups (`snapshot.INACTIVE` is
+  that heading's group, never in a snapshot); a line there keeps the node id its project's row
+  has when active (`g:config:<path>`), so the cursor stays on it when its first pane opens.
+  `x`, `p`, `n`, `t` and `r` act on such a line as on a project's; `/` keeps the ones whose
+  name or path matches, never as the best match; the waiting-only views leave them out.
 - Never edit `~/.config/wezterm/wezterm.lua`, `~/.claude/settings.json` or anything else
   under `~/.config` or `~/.claude` without asking. Generated files go to a path the user
   `require`s or opts into.
@@ -966,6 +977,10 @@ input, #70), `collectors/github.py` (every `gh` call, #68).
 - **#137 (one atomic write)** folded twelve copies into `shared.files.write_atomic`. Reported
   as designed: its fan-in (15: every file cardak writes) and `src/cardak/shared` as the most
   depended-upon package (Ca 5, I 0.00): a stable, stdlib-only leaf is what it is for.
+- **#186 (inactive projects)** split `filter_snapshot` (11: `_inactive`) and `_start_in_tab`
+  (`_open_tab`, which Enter on an inactive project shares). Accepted: `DeckApp._add_groups` as a
+  hotspot (3 × 9: the groups' loop that came out of `_rebuild` under #122, with the Inactive
+  node as one more step) and `ui/app.node_id` at fan-in 9.
 - enola's complexity and hotspot detectors flag **relative** outliers: fixing the
   top one promotes the next. Judge a new one by its absolute size, not by its
   being listed.

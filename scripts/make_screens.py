@@ -52,6 +52,8 @@ PROJECTS = (
     ("mobile-app", "Dracula", "#bd93f9"),
     ("infra", "Solarized Dark (Gogh)", "#2aa198"),
 )
+# (name, accent): configured too, with nothing open: the deck's "Inactive" (#186)
+INACTIVE = (("design-system", "#a6e3a1"), ("billing", "#fab387"))
 
 
 def _spark(values: list[float], top: float) -> str:
@@ -354,8 +356,13 @@ def demo_snapshot(now: float, summaries: bool = False, docker: bool = False):
         age_s=40,
     )
     all_groups = (waiting, *groups, other)
+    inactive = tuple(
+        Group("config", CODE / name, name, accent, f"~/code/{name}", None, 0, ())
+        for name, accent in INACTIVE
+    )
     return DeckSnapshot(
         groups=all_groups,
+        inactive=inactive,
         n_panes=sum(len(g.panes) for g in all_groups if g.kind != "waiting"),
         n_waiting=len(waiting_rows),
         machine=machine,

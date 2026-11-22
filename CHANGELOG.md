@@ -9,6 +9,12 @@ for fixes, dependencies and internal work. See "Versioning and releases" in
 
 ## Unreleased
 
+### Added
+
+- Projects from `projects.toml` with no pane open are listed under "Inactive", below Other.
+  `t`, `p`, `n`, `x` and `r` work on them as on any project, and Enter asks, then opens a new
+  tab with a shell in the project's folder. `/` finds them by name or path (#186).
+
 ### Changed
 
 - In the wide deck (120 columns and up) the machine has a section of its own under "Waiting

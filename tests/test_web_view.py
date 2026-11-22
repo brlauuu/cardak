@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -374,3 +375,10 @@ def test_thin_keeps_the_tail_with_many_drops() -> None:
     assert len(kept) <= MAX_POINTS
     assert kept[0] == points[0] and kept[-1] == points[-1]
     assert kept == sorted(kept)
+
+
+def test_snapshot_json_leaves_inactive_projects_out() -> None:
+    idle = Group("config", Path("/home/user/repos/blog"), "blog", None, "~/repos/blog", None, 0, ())
+    out = snapshot_json(replace(snap(), inactive=(idle,)), 1.0, 2.0)
+    assert out == snapshot_json(snap(), 1.0, 2.0)
+    assert "blog" not in json.dumps(out)

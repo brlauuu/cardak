@@ -41,6 +41,11 @@ Enter on a pane jumps to it; Enter on a project jumps to its first Claude Code s
 first pane). ← folds a project away (from any line inside it too), → unfolds it, and space
 toggles it.
 
+Configured projects with nothing open are listed under **Inactive**, below Other. The project
+keys work on them too: `t` themes one, `p` opens its issues (and `w` there starts work on one),
+`n` files a new issue, `x` starts a cleanup. Enter on one asks, then opens a new tab with a
+shell in its folder.
+
 ```toml
 [[project]]
 name  = "webshop"

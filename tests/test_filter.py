@@ -142,3 +142,21 @@ def test_waiting_projects_drops_the_waiting_group_and_idle_projects() -> None:
 def test_waiting_projects_nothing_waiting() -> None:
     snap = DeckSnapshot(groups=(group("config", "web", row(1)),), n_panes=1)
     assert waiting_projects(snap).groups == ()
+
+
+WITH_INACTIVE = replace(SNAP, inactive=(group("config", "blog"), group("config", "webhooks")))
+
+
+def test_inactive_projects_match_by_name_or_path_and_are_never_the_best() -> None:
+    result = filter_snapshot(WITH_INACTIVE, "blog")
+    assert [g.name for g in result.snapshot.inactive] == ["blog"]
+    assert (result.snapshot.groups, result.best_pane_id, result.n_matches) == ((), None, 0)
+    both = filter_snapshot(WITH_INACTIVE, "web")
+    assert [g.name for g in both.snapshot.inactive] == ["webhooks"]
+    assert both.best_pane_id == 1 and both.n_matches == 3
+    assert [g.name for g in filter_snapshot(WITH_INACTIVE, "r/blog").snapshot.inactive] == ["blog"]
+
+
+def test_the_waiting_views_leave_inactive_projects_out() -> None:
+    assert waiting_only(WITH_INACTIVE).inactive == ()
+    assert waiting_projects(WITH_INACTIVE).inactive == ()

@@ -8,6 +8,7 @@ import pytest
 from logfix import FakeLog
 from textual.pilot import Pilot
 from textual.widgets import Input, Static, Tree
+from textual.widgets.tree import TreeNode
 
 from cardak.collectors.machine import MachineSample
 from cardak.core.agents import SessionState
@@ -2162,3 +2163,219 @@ async def test_n_refuses_other_unlisted_projects_and_a_missing_pm() -> None:
         await pilot.press("n")
         await pilot.pause()
         assert notices(plain) == ["The PM view isn't available in this deck."]
+
+
+BLOG = group("config", "blog", Path("/repos/blog"))
+API = group("config", "api", Path("/repos/api"))
+WITH_INACTIVE = replace(SNAP, inactive=(BLOG, API))
+NO_TABS = object()
+
+
+def inactive_app(
+    *snaps: DeckSnapshot, open_tab: object = None
+) -> tuple[DeckApp, Tabs, Sends, StubNavigator]:
+    tabs, sends, jumps = Tabs(), Sends(), StubNavigator()
+    opener = None if open_tab is NO_TABS else open_tab or tabs
+    source = StubSource(*(snaps or (WITH_INACTIVE,)))
+    app = DeckApp(
+        source,
+        navigator=jumps,
+        interval=3600,
+        send=sends,
+        open_tab=opener,  # type: ignore[arg-type]
+    )
+    return app, tabs, sends, jumps
+
+
+def inactive_node(app: DeckApp, index: int | None = None) -> TreeNode[Node]:
+    heading = app.deck_tree.root.children[3]
+    return heading if index is None else heading.children[index]
+
+
+async def test_inactive_projects_are_listed_below_other() -> None:
+    app, *_ = inactive_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        assert [label.split()[0] for label in labels(app)] == [
+            "webshop", "cardak", "Other", "Inactive",
+        ]  # fmt: skip
+        heading = inactive_node(app)
+        assert str(heading.label).split() == ["Inactive", "2"]
+        assert [str(n.label).split() for n in heading.children] == [
+            ["blog", "/repos/blog"],
+            ["api", "/repos/api"],
+        ]
+        assert app.sub_title == "2 projects · 4 panes"  # the counts are of what runs
+
+
+async def test_no_inactive_heading_without_inactive_projects() -> None:
+    app, *_ = inactive_app(SNAP)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        assert len(labels(app)) == 3
+
+
+async def test_the_inactive_heading_stays_folded_and_left_lands_on_it() -> None:
+    app, tabs, _, _ = inactive_app(WITH_INACTIVE, WITH_INACTIVE)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        heading = inactive_node(app)
+        app.deck_tree.move_cursor(heading.children[1])
+        await pilot.press("left")
+        await pilot.pause()
+        assert app.deck_tree.cursor_node is heading and not heading.is_expanded
+        await pilot.press("enter")  # the heading is no project: Enter opens nothing
+        await pilot.pause()
+        assert len(app.screen_stack) == 1 and tabs.calls == []
+        app.action_refresh()
+        await settle(app, pilot)
+        assert not inactive_node(app).is_expanded
+        cursor = app.deck_tree.cursor_node
+        assert cursor is not None and node_id(cursor.data) == "g:inactive:None"
+
+
+async def test_enter_on_an_inactive_project_asks_then_opens_a_shell_tab() -> None:
+    from cardak.ui.confirm import ConfirmScreen
+
+    app, tabs, sends, jumps = inactive_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(inactive_node(app, 0))
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        text = " ".join(str(s.render()) for s in app.screen.query(Static))
+        assert "Open a new tab in /repos/blog?" in text and "Nothing is typed" in text
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await settle(app, pilot)
+        assert tabs.calls == [(Path("/repos/blog"), None)]
+        assert sends.calls == []
+        assert jumps.jumps == [50]
+
+
+async def test_enter_on_an_inactive_project_and_escape_opens_nothing() -> None:
+    app, tabs, _, jumps = inactive_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(inactive_node(app, 0))
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("escape")
+        await settle(app, pilot)
+        assert tabs.calls == [] and jumps.jumps == []
+
+
+async def test_a_tab_that_cannot_open_for_an_inactive_project_is_a_notice() -> None:
+    from cardak.collectors.wezterm import WeztermUnavailable
+
+    app, _, _, jumps = inactive_app(open_tab=Tabs(WeztermUnavailable("wezterm cli timed out")))
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(inactive_node(app, 0))
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await settle(app, pilot)
+        assert "Couldn't open a tab: wezterm cli timed out" in notices(app)
+        assert jumps.jumps == []
+
+
+async def test_enter_on_an_inactive_project_in_a_deck_without_tabs_says_so() -> None:
+    app, *_ = inactive_app(open_tab=NO_TABS)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(inactive_node(app, 0))
+        await pilot.press("enter")
+        await pilot.pause()
+        assert len(app.screen_stack) == 1
+        assert "This deck can't open tabs." in notices(app)
+
+
+async def test_x_on_an_inactive_project_opens_its_tab_in_the_decks_window() -> None:
+    app, tabs, sends, _ = inactive_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(inactive_node(app, 1))
+        await pilot.press("x")
+        await pilot.pause()
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await settle(app, pilot)
+        await app.workers.wait_for_complete()
+        assert tabs.calls == [(Path("/repos/api"), None)]
+        assert sends.calls == [(50, "claude /repo-cleanup"), (50, "\r")]
+
+
+async def test_t_on_an_inactive_project_opens_the_theme_dialog() -> None:
+    app, *_ = inactive_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(inactive_node(app, 0))
+        await pilot.press("t")
+        await pilot.pause()
+        assert isinstance(app.screen, ThemePickerScreen)
+
+
+async def test_project_keys_refuse_the_inactive_heading() -> None:
+    app, tabs, _, _ = inactive_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(inactive_node(app))
+        await pilot.press("x")
+        await pilot.press("t")
+        await pilot.pause()
+        assert len(app.screen_stack) == 1 and tabs.calls == []
+        assert "Select a project or one of its panes." in notices(app)
+        assert "Select a project or a repo to theme." in notices(app)
+
+
+async def test_find_keeps_a_matching_inactive_project() -> None:
+    app, *_ = inactive_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await open_find(app, pilot, "b", "l", "o", "g")
+        await pilot.pause()
+        assert [label.split()[0] for label in labels(app)] == ["Inactive"]
+        found = app.deck_tree.root.children[0].children
+        assert [str(n.label).split()[0] for n in found] == ["blog"]
+        assert app.sub_title == '0 of 4 panes and 1 inactive match "blog"'
+
+
+async def test_the_cursor_stays_on_a_project_as_it_turns_active_and_back() -> None:
+    active = replace(SNAP, groups=(*SNAP.groups, replace(BLOG, panes=(row(9),))), inactive=(API,))
+    app, *_ = inactive_app(WITH_INACTIVE, active, WITH_INACTIVE)
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        app.deck_tree.move_cursor(inactive_node(app, 0))
+        for role in ("group", "inactive"):
+            app.action_refresh()
+            await settle(app, pilot)
+            cursor = app.deck_tree.cursor_node
+            assert cursor is not None and cursor.data is not None
+            assert node_id(cursor.data) == "g:config:/repos/blog" and cursor.data.role == role
+
+
+async def test_inactive_projects_in_the_wide_deck() -> None:
+    app, tabs, _, _ = inactive_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await settle(app, pilot)
+        assert app.wide
+        assert [str(n.label).split()[0] for n in inactive_node(app).children] == ["blog", "api"]
+        app.deck_tree.move_cursor(inactive_node(app, 1))
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await settle(app, pilot)
+        assert tabs.calls == [(Path("/repos/api"), None)]
+
+
+async def test_w_hides_the_inactive_projects() -> None:
+    app, *_ = inactive_app()
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        await pilot.press("w")
+        await pilot.pause()
+        assert labels(app) == [str(nothing_waiting_label())]

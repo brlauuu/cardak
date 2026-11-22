@@ -29,7 +29,14 @@ from cardak.core.eventlog import sentences
 from cardak.core.filter import filter_snapshot, waiting_only, waiting_projects
 from cardak.core.navigate import JumpResult
 from cardak.core.pm import Band, Card
-from cardak.core.snapshot import WAITING_NAME, DeckSnapshot, DockerLine, Group, PaneRow
+from cardak.core.snapshot import (
+    INACTIVE,
+    WAITING_NAME,
+    DeckSnapshot,
+    DockerLine,
+    Group,
+    PaneRow,
+)
 from cardak.core.store import DayPeak, ResourceEvent, StoreError
 from cardak.core.summary import ProviderTools, SummaryInfo
 from cardak.core.themes import Scheme, SchemeStore
@@ -52,6 +59,8 @@ from cardak.ui.widgets import (
     fmt_usd,
     group_row,
     heading,
+    inactive_heading,
+    inactive_row,
     internal_label,
     limits_label,
     machine_label,
@@ -70,6 +79,7 @@ from cardak.ui.widgets import (
 LOG_DAYS = 30
 SENT_WITH_IT = "Anything already typed in that pane's input is sent with it."
 CLEANUP_NOTE = "Claude starts in that tab as if you typed it; the tab stays open after it exits."
+SHELL_NOTE = "A plain shell in that folder. Nothing is typed into it."
 NO_PM = "The PM view isn't available in this deck."
 WIDE_AT = 120  # the deck's width from which "Waiting on you" gets a pane of its own (#122)
 SIDE_WIDTH = 42
@@ -87,7 +97,8 @@ class Node:
 
     group: Group
     row: PaneRow | None = None
-    role: Literal["group", "pane", "reason", "mcp", "docker", "outside"] = "group"
+    # "inactive": a configured project with nothing open, a line under the Inactive heading
+    role: Literal["group", "pane", "reason", "mcp", "docker", "outside", "inactive"] = "group"
     line: DockerLine | None = None
 
 
@@ -280,7 +291,7 @@ def _with_waits(snap: DeckSnapshot) -> DeckSnapshot:
     """`w` in the wide deck (#122): the waits, and the projects with a wait, before the find
     runs, so it counts and follows only what shows."""
     waits = tuple(g for g in snap.groups if g.kind == "waiting")
-    return replace(snap, groups=waits + waiting_projects(snap).groups)
+    return replace(snap, groups=waits + waiting_projects(snap).groups, inactive=())
 
 
 def _split(snap: DeckSnapshot) -> tuple[DeckSnapshot, Group | None]:
@@ -297,10 +308,12 @@ def _spend_part(snap: DeckSnapshot) -> str:
     return f" · {fmt_usd(snap.month_spend)}{more} this month"
 
 
-def _counts(raw: DeckSnapshot, query: str, matches: int) -> str:
-    """The top bar's counts: projects and panes (or the find's matches), waits, spend."""
+def _counts(raw: DeckSnapshot, query: str, matches: int, inactive: int = 0) -> str:
+    """The top bar's counts: projects and panes (or the find's matches, and the inactive
+    projects among them), waits, spend."""
     if query:
-        text = f'{matches} of {raw.n_panes} panes match "{query}"'
+        more = f" and {inactive} inactive" if inactive else ""
+        text = f'{matches} of {raw.n_panes} panes{more} match "{query}"'
     else:
         text = f"{raw.n_projects} projects · {raw.n_panes} panes"
     if raw.n_waiting:
@@ -601,7 +614,7 @@ class DeckApp(App[None]):
         self.snapshot = result.snapshot
         self._best = result.best_pane_id
         query = self.find_query.strip()
-        self.sub_title = _counts(raw, query, result.n_matches)
+        self.sub_title = _counts(raw, query, result.n_matches, len(result.snapshot.inactive))
         self._show_top(raw)
         tree_snap, waits = _split(result.snapshot) if wide else (result.snapshot, None)
         if wide:
@@ -707,7 +720,24 @@ class DeckApp(App[None]):
             for row, leaf_data in _leaves(group, now, total, reasons):
                 line = fit_line(row, leaf_width)
                 nodes[node_id(leaf_data) or ""] = node.add_leaf(line, data=leaf_data)
+        if snap.inactive:
+            self._add_inactive(snap.inactive, nodes)
         return nodes
+
+    def _add_inactive(
+        self, projects: tuple[Group, ...], nodes: dict[str, TreeNode[NodeData]]
+    ) -> None:
+        """The configured projects with nothing open, under one heading below the groups (#186)."""
+        data = Node(INACTIVE)
+        gid = node_id(data) or ""
+        label = fit_line(inactive_heading(len(projects)), self._line_width(GROUP_INDENT))
+        node = self.deck_tree.root.add(label, data=data, expand=gid not in self._collapsed)
+        nodes[gid] = node
+        width = self._line_width(LEAF_INDENT)
+        for project in projects:
+            leaf = Node(project, role="inactive")
+            line = fit_line(inactive_row(project), width)
+            nodes[node_id(leaf) or ""] = node.add_leaf(line, data=leaf)
 
     def _move_cursor(self, target: TreeNode[NodeData], rebuild: int, tries: int = 3) -> None:
         if rebuild != self._rebuilds:
@@ -723,9 +753,9 @@ class DeckApp(App[None]):
         """What the tree shows instead of groups, if anything."""
         if snap.error:
             return internal_label(snap.error) if snap.internal else unreachable_label(snap.error)
-        if not snap.groups and empty_query:
+        if not snap.groups and not snap.inactive and empty_query:
             return no_match_label(empty_query)
-        if not snap.groups and self.waiting_only:
+        if not snap.groups and not snap.inactive and self.waiting_only:
             return nothing_waiting_label()
         return None
 
@@ -857,6 +887,39 @@ class DeckApp(App[None]):
         question = f"Open a new tab in {shown} and run `{line}`?"
         self.push_screen(ConfirmScreen(question, CLEANUP_NOTE, ok="open"), done)
 
+    def _open_shell(self, group: Group) -> None:
+        """Enter on an inactive project (#186): a plain shell tab in its folder, after asking."""
+        open_tab, cwd = self.open_tab, group.key
+        if cwd is None:
+            return
+        if open_tab is None:
+            self.notify("This deck can't open tabs.", severity="warning")
+            return
+
+        def opened() -> None:
+            pane_id = self._open_tab(open_tab, cleanup.Place(cwd, None))
+            if pane_id is not None:
+                self.call_from_thread(self.jump, pane_id)
+
+        def done(yes: bool | None) -> None:
+            if yes:
+                self.run_worker(opened, thread=True, group="send", exit_on_error=False)
+
+        question = f"Open a new tab in {group.path or cwd}?"
+        self.push_screen(ConfirmScreen(question, SHELL_NOTE, ok="open"), done)
+
+    def _open_tab(
+        self, open_tab: Callable[[Path, int | None], int], where: cleanup.Place
+    ) -> int | None:
+        """A shell tab at `where`: its pane id, or None after saying why there is none."""
+        try:
+            return open_tab(where.cwd, where.near)
+        except Exception as e:  # a WezTerm failure (or any bug) is a notice, not a crash
+            self.call_from_thread(
+                self.notify, escape(f"Couldn't open a tab: {e}"), severity="error"
+            )
+            return None
+
     def _start_in_tab(
         self,
         open_tab: Callable[[Path, int | None], int],
@@ -866,12 +929,8 @@ class DeckApp(App[None]):
         started: str,
     ) -> None:
         """Open a shell tab at `where`, type `line` into it, and jump there (`x`, `w`)."""
-        try:
-            pane_id = open_tab(where.cwd, where.near)
-        except Exception as e:  # a WezTerm failure (or any bug) is a notice, not a crash
-            self.call_from_thread(
-                self.notify, escape(f"Couldn't open a tab: {e}"), severity="error"
-            )
+        pane_id = self._open_tab(open_tab, where)
+        if pane_id is None:
             return
         failed = f"Opened pane {pane_id} but couldn't type into it"
         if self._type(send, pane_id, line, failed):
@@ -1071,6 +1130,8 @@ class DeckApp(App[None]):
             return
         if data.row is not None:
             self.jump(data.row.pane_id)
+        elif data.role == "inactive":
+            self._open_shell(data.group)
         elif data.role == "group" and (target := first_session(data.group)) is not None:
             self.jump(target.pane_id)
 

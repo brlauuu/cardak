@@ -1073,3 +1073,60 @@ def test_inherited_theme(tmp_path: Path) -> None:
     source = make(cfg)
     assert source.inherited_theme(HOME / "alone") == (None, "Tokyo Night")
     assert source.inherited_theme(HOME / "outer/inner") == ("outer", "Nord")
+
+
+TWO_PROJECTS = (
+    f'[[project]]\nname = "webshop"\npath = "{HOME}/repos/webshop"\n'
+    f'[[project]]\nname = "blog"\npath = "{HOME}/repos/blog"\n'
+    f'[[project]]\nname = "api"\npath = "{HOME}/repos/api"\n'
+)
+
+
+def test_configured_projects_without_panes_are_inactive(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(TWO_PROJECTS)
+    snap = make(cfg).poll()
+    assert [g.name for g in snap.groups] == ["webshop", "Other"]
+    assert [(g.kind, g.name, g.key, g.path) for g in snap.inactive] == [
+        ("config", "blog", HOME / "repos/blog", "~/repos/blog"),
+        ("config", "api", HOME / "repos/api", "~/repos/api"),
+    ]
+    assert all(g.panes == () for g in snap.inactive)
+
+
+def test_a_project_leaves_inactive_when_a_pane_opens_in_it(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(TWO_PROJECTS)
+    listed = panes({})
+
+    source = make(cfg, list_panes=lambda env: listed)
+    assert [g.name for g in source.poll().inactive] == ["blog", "api"]
+    listed.append(Pane(2, 0, 0, "default", "zsh", HOME / "repos/blog/src", "/dev/pts/3", False))
+    snap = source.poll()
+    assert [g.name for g in snap.inactive] == ["api"]
+    assert "blog" in [g.name for g in snap.groups]
+
+
+def test_a_project_with_only_a_container_is_active(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(TWO_PROJECTS)
+    source = make(cfg)
+    source._docker = lambda: [  # noqa: SLF001
+        DockerWork("container", "i", "blog-db-1", 2**20, 0.0, HOME / "repos/blog")
+    ]
+    snap = source.poll()
+    assert "blog" in [g.name for g in snap.groups]
+    assert [g.name for g in snap.inactive] == ["api"]
+
+
+def test_no_inactive_projects_when_every_one_has_a_pane(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(f'[[project]]\nname = "webshop"\npath = "{HOME}/repos/webshop"\n')
+    assert make(cfg).poll().inactive == ()
+
+
+def test_inactive_projects_are_listed_with_wezterm_unreachable(tmp_path: Path) -> None:
+    cfg = tmp_path / "projects.toml"
+    cfg.write_text(TWO_PROJECTS)
+    snap = make(cfg, list_panes=unavailable).poll()
+    assert [g.name for g in snap.inactive] == ["webshop", "blog", "api"]
