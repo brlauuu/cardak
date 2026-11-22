@@ -39,6 +39,7 @@ from cardak.ui.detail import DetailScreen
 from cardak.ui.events import EventLogScreen
 from cardak.ui.footer import WrappingFooter
 from cardak.ui.history import HistoryScreen
+from cardak.ui.machine_pane import MachinePane, SidePane
 from cardak.ui.pm import NOT_LISTED, NOT_READ, PmScreen, PmView, open_new_issue
 from cardak.ui.recap import RecapScreen
 from cardak.ui.summaries import SummariesScreen, SummaryControl
@@ -327,7 +328,6 @@ class DeckApp(App[None]):
     #side { display: none; width: 42; border-left: solid $panel-lighten-1; }
     #side-title { color: #ff8700; text-style: bold; }  /* WAITING (dark_orange) */
     #waiting { height: 1fr; }
-    #side-machine { height: auto; padding: 1 0 0 0; }
     """
     BINDINGS = [
         Binding("a", "add_project", "Add as project"),
@@ -438,10 +438,10 @@ class DeckApp(App[None]):
             with Vertical(id="left"):
                 yield Static("", id="heading")
                 yield Tree[NodeData]("projects", id="tree")
-            with Vertical(id="side"):
+            with SidePane(id="side"):
                 yield Static(WAITING_NAME, id="side-title")
                 yield Tree[NodeData]("waiting", id="waiting")
-                yield Static("", id="side-machine")
+                yield MachinePane(SIDE_LINE, id="side-machine")
         yield WrappingFooter()
 
     @property
@@ -629,12 +629,14 @@ class DeckApp(App[None]):
         return carry
 
     def _show_machine(self, raw: DeckSnapshot, wide: bool) -> None:
-        """The machine line: above the tree, or under the pane's waits when wide."""
-        top, side = self.query_one("#machine", Static), self.query_one("#side-machine", Static)
-        label = machine_label(raw.machine_view) if raw.machine_view is not None else None
-        (side if wide else top).update(label or "")
-        top.display = label is not None and not wide
-        side.display = label is not None and wide
+        """The machine: one line above the tree, or its section under the pane's waits when
+        wide (#185)."""
+        top, side = self.query_one("#machine", Static), self.query_one("#side-machine", MachinePane)
+        view = raw.machine_view
+        top.update(machine_label(view) if view is not None and not wide else "")
+        side.show(view if wide else None, raw.groups)
+        top.display = view is not None and not wide
+        side.display = view is not None and wide
 
     def _line_width(self, indent: int) -> int:
         tree = self._width() - (SIDE_WIDTH if self.wide else 0)

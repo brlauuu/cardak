@@ -88,6 +88,9 @@ class MachineView:
     level: MemoryLevel | None
     ram_spark: str
     cpu_spark: str
+    # the recent polls, oldest first: the side pane's plots (#185)
+    ram_series: tuple[float, ...] = ()
+    cpu_series: tuple[float | None, ...] = ()
 
 
 @dataclass(frozen=True)

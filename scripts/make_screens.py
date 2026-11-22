@@ -12,6 +12,7 @@ chromium on PATH, and the background extra for Pillow). Writes site/assets/scree
 """
 
 import asyncio
+import math
 import os
 import re
 import shutil
@@ -358,7 +359,18 @@ def demo_snapshot(now: float, summaries: bool = False, docker: bool = False):
         n_panes=sum(len(g.panes) for g in all_groups if g.kind != "waiting"),
         n_waiting=len(waiting_rows),
         machine=machine,
-        machine_view=MachineView(machine, None, "▃▃▄▄▄▅▅▅", "▂▃▅▃▄▆▄▃"),
+        machine_view=MachineView(
+            machine,
+            None,
+            "▃▃▄▄▄▅▅▅",
+            "▂▃▅▃▄▆▄▃",
+            # the side pane's plots (#185): four minutes of a machine at work
+            tuple(
+                machine.mem_used * (0.82 + 0.18 * i / 119 + 0.03 * math.sin(i / 6))
+                for i in range(120)
+            ),
+            tuple(34 + 22 * math.sin(i / 11) + 9 * math.sin(i / 3) for i in range(120)),
+        ),
         thresholds=derive(ResourceSettings(), machine.mem_total, machine.n_cpus),
         month_spend=sum(SPEND.values()) + 18.90,
         plan_limits=limits,
